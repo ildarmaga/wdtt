@@ -231,7 +231,7 @@ JSON:
   "v": "1",
   "ps": "WDTT",
   "tag": "wdtt-in",
-  "add": "94.242.53.211",
+  "add": "YOUR_SERVER_IP",
   "dtls": 56000,
   "wg": 56001,
   "lp": 9000,
