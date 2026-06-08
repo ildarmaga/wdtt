@@ -405,7 +405,7 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if svc == "" {
 		svc = "wdtt"
 	}
-	out, _ := runCmd("journalctl", "-u", svc+".service", "-n", strconv.Itoa(n), "--no-pager", "-o", "cat")
+	out, _ := runCmd("journalctl", "-u", svc+".service", "-n", strconv.Itoa(n), "-r", "--no-pager", "-o", "cat")
 	jsonOK(w, map[string]string{"logs": out})
 }
 

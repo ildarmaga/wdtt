@@ -919,6 +919,10 @@
       this.visible = true;
       this.logs = logs;
       this.formattedLogs = this.logs?.length > 0 ? this.formatLogs(this.logs) : "No Record...";
+      Vue.nextTick(() => {
+        const el = document.querySelector('#log-modal .log-container');
+        if (el) el.scrollTop = 0;
+      });
     },
     formatLogs(logs) {
       let formattedLogs = '';
@@ -930,25 +934,30 @@
         const parts = data.split(" ")
         if (index > 0) formattedLogs += '<br>';
 
-        if (parts.length === 3) {
+        if (parts.length >= 3) {
           const d = parts[0];
           const t = parts[1];
-          const level = parts[2];
-          const levelIndex = levels.indexOf(level, levels) || 5;
+          const level = parts[2].toUpperCase();
+          const levelIndex = levels.indexOf(level);
+          const levelColorIdx = levelIndex >= 0 ? levelIndex : 5;
 
-          //formattedLogs += `<span style="color: gray;">${index + 1}.</span>`;
           formattedLogs += `<span style="color: ${levelColors[0]};">${d} ${t}</span> `;
-          formattedLogs += `<span style="color: ${levelColors[levelIndex]}">${level}</span>`;
+          formattedLogs += `<span style="color: ${levelColors[levelColorIdx]}">${level}</span>`;
         } else {
-          const levelIndex = levels.indexOf(data, levels) || 5;
-          formattedLogs += `<span style="color: ${levelColors[levelIndex]}">${data}</span>`;
+          formattedLogs += `<span style="color: ${levelColors[1]}">${data}</span>`;
         }
 
         if (message) {
           if (message.startsWith("XRAY:"))
-            message = "<b>XRAY: </b>" + message.substring(5);
+            message = "<b>XRAY:</b> " + message.substring(5).trimStart();
+          else if (message.startsWith("WDTT Panel:"))
+            message = "<b>WDTT Panel:</b> " + message.substring(11).trimStart();
+          else if (message.startsWith("WDTT:"))
+            message = "<b>WDTT:</b> " + message.substring(5).trimStart();
+          else if (message.startsWith("SYS:"))
+            message = "<b>SYS:</b> " + message.substring(4).trimStart();
           else
-            message = "<b>X-UI: </b>" + message;
+            message = "<b>WDTT:</b> " + message;
         }
 
         formattedLogs += message ? ' - ' + message : '';
@@ -973,6 +982,10 @@
         this.visible = true;
         this.logs = logs;
         this.formattedLogs = this.logs?.length > 0 ? this.formatLogs(this.logs) : "No Record...";
+        Vue.nextTick(() => {
+          const el = document.querySelector('#xraylog-modal .log-container');
+          if (el) el.scrollTop = 0;
+        });
       },
       formatLogs(logs) {
         let formattedLogs = `
@@ -998,7 +1011,7 @@
     </tr>
 `;
 
-        logs.reverse().forEach((log, index) => {
+        logs.forEach((log, index) => {
           let outboundColor = '';
           if (log.Event === 1) {
             outboundColor = ' style="color: #e04141;"'; //red for blocked

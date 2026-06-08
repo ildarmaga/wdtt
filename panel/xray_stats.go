@@ -211,6 +211,10 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 	if count > 0 && len(entries) > count {
 		entries = entries[len(entries)-count:]
 	}
+	// Newest first (как 3x-ui).
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
 	return entries
 }
 

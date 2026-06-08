@@ -115,20 +115,14 @@ func (a *App) handleServerLogs(w http.ResponseWriter, r *http.Request) {
 	case "panel":
 		unit = panelServiceUnit
 	}
-	if form.Get("syslog") == "true" {
+	syslog := form.Get("syslog") == "true"
+	level := form.Get("level")
+	if syslog {
 		unit = ""
 	}
-	var out string
-	if unit != "" {
-		out, _ = runCmd("journalctl", "-u", unit, "-n", strconv.Itoa(count), "--no-pager", "-o", "cat")
-	} else {
-		out, _ = runCmd("journalctl", "-n", strconv.Itoa(count), "--no-pager", "-o", "cat")
-	}
-	lines := []string{}
-	for _, l := range strings.Split(out, "\n") {
-		if l != "" {
-			lines = append(lines, l)
-		}
+	lines := fetchFormattedServiceLogs(unit, count, level, syslog)
+	if lines == nil {
+		lines = []string{}
 	}
 	jsonOK(w, lines)
 }
