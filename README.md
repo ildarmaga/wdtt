@@ -11,7 +11,7 @@ wdtt/
 ## Быстрая установка
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/amurcanov/wdtt-install/main/install.sh) install -p YOUR_PASSWORD --xray --panel
+bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/install.sh) install -p YOUR_PASSWORD --xray --panel
 ```
 
 ## Сборка вручную
@@ -45,7 +45,7 @@ sudo bash deploy.sh install
 
 ## Установщик
 
-Отдельный репозиторий [wdtt-install](https://github.com/amurcanov/wdtt-install) — одна строка для VPS + Xray + панель.
+Отдельный репозиторий [wdtt-install](https://github.com/ildarmaga/wdtt-install) — одна строка для VPS + Xray + панель.
 
 ## Лицензия
 

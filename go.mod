@@ -1,4 +1,4 @@
-module github.com/amurcanov/wdtt
+module github.com/ildarmaga/wdtt
 
 go 1.25.0
 

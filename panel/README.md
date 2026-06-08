@@ -11,10 +11,10 @@
 
 ## Установка
 
-Часть монорепозитория [wdtt](https://github.com/amurcanov/wdtt). Установка:
+Часть монорепозитория [wdtt](https://github.com/ildarmaga/wdtt). Установка:
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/amurcanov/wdtt-install/main/install.sh) install -p PASSWORD --panel --xray
+bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/install.sh) install -p PASSWORD --panel --xray
 ```
 
 Сборка вручную:
