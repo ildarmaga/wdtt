@@ -4,7 +4,7 @@
   :confirm-loading="userModal.saving" :closable="true" :mask-closable="false"
   :class="themeSwitcher.currentTheme" ok-text="Сохранить" cancel-text="Закрыть"
   @ok="userModal.save" width="720px">
-  <a-tabs default-active-key="main" :class="themeSwitcher.currentTheme">
+  <a-tabs :active-key="userModal.activeTab" @change="userModal.activeTab = $event" :class="themeSwitcher.currentTheme">
     <a-tab-pane key="main" tab="Основное">
       <a-form layout="horizontal" :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
         <a-form-item v-if="!userModal.isMain" label="Активен">
@@ -19,10 +19,20 @@
         </a-form-item>
         <a-form-item v-if="!userModal.isMain">
           <template slot="label">
-            Device ID
-            <a-icon type="sync" @click="regenDeviceId"></a-icon>
+            <a-tooltip title="Сколько устройств может подключиться по этому паролю. Первые N привязываются автоматически при входе.">
+              Лимит устройств <a-icon type="question-circle"></a-icon>
+            </a-tooltip>
           </template>
-          <a-input v-model.trim="userForm.device_id" placeholder="Необязательно — привязка к устройству"></a-input>
+          <a-input-number v-model="userForm.max_devices" :min="1" :max="20" :style="{ width: '100%' }"></a-input-number>
+        </a-form-item>
+        <a-form-item v-if="!userModal.isMain && userForm.device_ids.length">
+          <template slot="label">Привязанные</template>
+          <div>
+            <a-tag v-for="(devId, idx) in userForm.device_ids" :key="devId" closable @close="removeDevice(idx)" style="margin-bottom:6px">
+              [[ devId.length > 12 ? devId.slice(0, 8) + '…' : devId ]]
+            </a-tag>
+            <div class="text-muted" style="font-size:12px;margin-top:4px">[[ userForm.device_ids.length ]]/[[ userForm.max_devices ]] слотов занято</div>
+          </div>
         </a-form-item>
         <a-form-item v-if="userModal.isMain" label="Комментарий">
           <span>[[ userForm.comment ]]</span>
@@ -86,14 +96,36 @@
     </a-tab-pane>
     <a-tab-pane key="conn" tab="Подключение">
       <a-alert type="info" show-icon style="margin-bottom:12px"
-        message="Параметры для клиента WDTT"></a-alert>
-      <table class="user-conn-table" :style="{ width: '100%' }">
-        <tr><td>Сервер</td><td>[[ userModal.serverIp || '—' ]]</td></tr>
-        <tr><td>DTLS порт</td><td>56000</td></tr>
-        <tr><td>WireGuard порт</td><td>56001</td></tr>
-        <tr><td>Пароль</td><td><code>[[ userForm.password || '—' ]]</code></td></tr>
-        <tr><td>Device ID</td><td>[[ userForm.device_id || 'любой при первом входе' ]]</td></tr>
-      </table>
+        message="Как в 3x-ui: wdtt:// + base64(JSON). Внутри — сервер, порты, пароль и прочие параметры."></a-alert>
+      <a-form-item v-if="!userModal.isMain" label="Свои порты">
+        <a-checkbox v-model="userForm.use_custom_ports">Свои DTLS / WG порты</a-checkbox>
+      </a-form-item>
+      <template v-if="userForm.use_custom_ports && !userModal.isMain">
+        <a-form-item label="DTLS порт">
+          <a-input-number v-model="userForm.dtls_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+        </a-form-item>
+        <a-form-item label="WireGuard порт">
+          <a-input-number v-model="userForm.wg_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+        </a-form-item>
+      </template>
+      <a-row :gutter="16">
+        <a-col :xs="24" :sm="14">
+          <table class="user-conn-table" :style="{ width: '100%' }">
+            <tr><td>Формат</td><td>wdtt://base64(JSON)</td></tr>
+            <tr><td>Сервер</td><td>[[ connHost || '—' ]]</td></tr>
+            <tr><td>Порты</td><td>DTLS [[ connPorts.dtls ]] · WG [[ connPorts.wg ]] · клиент [[ connPorts.client ]]</td></tr>
+            <tr><td>DNS</td><td>[[ userModal.inbound.dns || '1.1.1.1' ]]</td></tr>
+            <tr><td>Устройства</td><td>[[ userForm.device_ids.length ]]/[[ userForm.max_devices ]] · [[ devicesLabel ]]</td></tr>
+            <tr><td>Пароль в ссылке</td><td><code>[[ userForm.password || '—' ]]</code></td></tr>
+            <tr><td>Ссылка</td><td><code style="word-break:break-all">[[ connLink ]]</code></td></tr>
+          </table>
+          <a-button size="small" icon="copy" style="margin-top:12px" @click="copyConnLink">Копировать ссылку</a-button>
+        </a-col>
+        <a-col :xs="24" :sm="10" style="text-align:center">
+          <canvas id="wdtt-user-share-qr" style="max-width:220px"></canvas>
+          <div style="margin-top:8px;opacity:.7;font-size:12px">QR для мобильного клиента</div>
+        </a-col>
+      </a-row>
     </a-tab-pane>
   </a-tabs>
 </a-modal>
@@ -106,24 +138,35 @@
     resetting: false,
     isEdit: false,
     isMain: false,
+    activeTab: 'main',
     oldPassword: '',
     serverIp: '',
+    inbound: { dtls_port: 56000, wg_port: 56001, client_port: 9000, dns: '1.1.1.1' },
     onSaved: null,
-    showAdd(serverIp) {
+    showAdd(serverIp, inbound) {
       this.isEdit = false;
       this.isMain = false;
+      this.activeTab = 'main';
       this.oldPassword = '';
       this.serverIp = serverIp || '';
+      this.inbound = inbound || this.inbound;
       this.visible = true;
       userModalApp.resetForm();
     },
-    showEdit(row, serverIp) {
+    showEdit(row, serverIp, inbound) {
       this.isEdit = !row.is_main;
       this.isMain = !!row.is_main;
+      this.activeTab = 'main';
       this.oldPassword = row.password;
       this.serverIp = serverIp || '';
+      this.inbound = inbound || this.inbound;
       this.visible = true;
       userModalApp.loadRow(row);
+    },
+    showLink(row, serverIp, inbound) {
+      this.showEdit(row, serverIp, inbound);
+      this.activeTab = 'conn';
+      userModalApp.$nextTick(() => userModalApp.renderQR());
     },
     close() {
       this.visible = false;
@@ -139,9 +182,13 @@
     el: '#user-modal',
     data: {
       userModal,
+      apiLink: '',
+      linkSnapshot: null,
+      qrInstance: null,
       userForm: {
         password: '',
-        device_id: '',
+        device_ids: [],
+        max_devices: 1,
         comment: '',
         active: true,
         unlimited: true,
@@ -153,6 +200,47 @@
       },
     },
     computed: {
+      connPorts() {
+        const inbound = this.userModal.inbound || {};
+        if (this.userForm.use_custom_ports) {
+          return {
+            dtls: Number(this.userForm.dtls_port) || inbound.dtls_port || 56000,
+            wg: Number(this.userForm.wg_port) || inbound.wg_port || 56001,
+            client: Number(this.userForm.client_port) || inbound.client_port || 9000,
+          };
+        }
+        return {
+          dtls: inbound.dtls_port || 56000,
+          wg: inbound.wg_port || 56001,
+          client: inbound.client_port || 9000,
+        };
+      },
+      connHost() {
+        return (this.userModal.inbound.server_host || this.userModal.serverIp || '').trim();
+      },
+      devicesLabel() {
+        if (!this.userForm.device_ids.length) {
+          return 'слот свободен при первом входе';
+        }
+        return this.userForm.device_ids.join(', ');
+      },
+      connLink() {
+        if (this.apiLink && !this.linkFieldsChanged()) {
+          return this.apiLink;
+        }
+        const p = this.connPorts;
+        const link = wdttBuildShareLink({
+          host: this.connHost,
+          password: this.userForm.password,
+          remark: this.userForm.comment || this.userModal.inbound.remark,
+          tag: this.userModal.inbound.tag,
+          dtls: p.dtls,
+          wg: p.wg,
+          clientPort: p.client,
+          vkHash: this.userForm.vk_hash,
+        });
+        return link || '—';
+      },
       trafficUsed() {
         return (Number(this.userForm.up_bytes) || 0) + (Number(this.userForm.down_bytes) || 0);
       },
@@ -167,6 +255,16 @@
       },
     },
     watch: {
+      connLink() {
+        if (this.userModal.activeTab === 'conn') {
+          this.$nextTick(() => this.renderQR());
+        }
+      },
+      'userModal.activeTab'(tab) {
+        if (tab === 'conn') {
+          this.$nextTick(() => this.renderQR());
+        }
+      },
       'userForm.unlimited'(v) {
         if (v) {
           this.userForm.expiryDate = null;
@@ -179,6 +277,16 @@
       },
     },
     methods: {
+      renderQR() {
+        const el = document.getElementById('wdtt-user-share-qr');
+        const link = this.connLink;
+        if (!el || !link || link === '—' || typeof QRious === 'undefined') return;
+        if (!this.qrInstance) {
+          this.qrInstance = new QRious({ element: el, value: link, size: 220 });
+        } else {
+          this.qrInstance.value = link;
+        }
+      },
       genPassword() {
         const arr = new Uint32Array(16);
         window.crypto.getRandomValues(arr);
@@ -187,8 +295,8 @@
       regenPassword() {
         this.userForm.password = this.genPassword();
       },
-      regenDeviceId() {
-        this.userForm.device_id = RandomUtil.randomUUID();
+      removeDevice(idx) {
+        this.userForm.device_ids.splice(idx, 1);
       },
       formatBytes(b) {
         b = Number(b) || 0;
@@ -196,10 +304,27 @@
         if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
         return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
       },
+      linkFieldsChanged() {
+        if (!this.linkSnapshot) return true;
+        const s = this.linkSnapshot;
+        const f = this.userForm;
+        return f.password !== s.password
+          || (f.comment || '') !== s.comment
+          || Number(f.max_devices) !== Number(s.max_devices)
+          || JSON.stringify(f.device_ids || []) !== JSON.stringify(s.device_ids || [])
+          || (f.vk_hash || '') !== s.vk_hash
+          || !!f.use_custom_ports !== !!s.use_custom_ports
+          || Number(f.dtls_port) !== Number(s.dtls_port)
+          || Number(f.wg_port) !== Number(s.wg_port)
+          || Number(f.client_port) !== Number(s.client_port);
+      },
       resetForm() {
+        this.apiLink = '';
+        this.linkSnapshot = null;
         this.userForm = {
           password: this.genPassword(),
-          device_id: '',
+          device_ids: [],
+          max_devices: 1,
           comment: '',
           active: true,
           unlimited: true,
@@ -210,12 +335,29 @@
           total_gb: 0,
           max_down_mbps: 0,
           max_up_mbps: 0,
+          use_custom_ports: false,
+          dtls_port: this.userModal.inbound.dtls_port || 56000,
+          wg_port: this.userModal.inbound.wg_port || 56001,
+          client_port: this.userModal.inbound.client_port || 9000,
         };
       },
       loadRow(row) {
+        this.apiLink = row.link || '';
+        this.linkSnapshot = {
+          password: row.password,
+          comment: row.comment || '',
+          device_ids: (row.device_ids && row.device_ids.length) ? row.device_ids.slice() : [],
+          max_devices: Number(row.max_devices) || 1,
+          vk_hash: row.vk_hash || '',
+          use_custom_ports: !!(row.ports || (row.dtls_port && row.dtls_port !== (this.userModal.inbound.dtls_port || 56000))),
+          dtls_port: Number(row.dtls_port) || this.userModal.inbound.dtls_port || 56000,
+          wg_port: Number(row.wg_port) || this.userModal.inbound.wg_port || 56001,
+          client_port: Number(row.client_port) || this.userModal.inbound.client_port || 9000,
+        };
         this.userForm = {
           password: row.password,
-          device_id: row.device_id || '',
+          device_ids: (row.device_ids && row.device_ids.length) ? row.device_ids.slice() : (row.device_id ? String(row.device_id).split(', ').filter(Boolean) : []),
+          max_devices: Number(row.max_devices) || 1,
           comment: row.comment || '',
           active: row.active !== false,
           unlimited: !row.expires_at,
@@ -226,7 +368,19 @@
           total_gb: Number(row.total_gb) || 0,
           max_down_mbps: Number(row.max_down_mbps) || 0,
           max_up_mbps: Number(row.max_up_mbps) || 0,
+          vk_hash: row.vk_hash || '',
+          use_custom_ports: !!(row.ports || (row.dtls_port && row.dtls_port !== (this.userModal.inbound.dtls_port || 56000))),
+          dtls_port: Number(row.dtls_port) || this.userModal.inbound.dtls_port || 56000,
+          wg_port: Number(row.wg_port) || this.userModal.inbound.wg_port || 56001,
+          client_port: Number(row.client_port) || this.userModal.inbound.client_port || 9000,
         };
+      },
+      copyConnLink() {
+        const self = this;
+        const link = this.connLink;
+        wdttCopyLink(link === '—' ? '' : link,
+          () => Vue.prototype.$message.success('Ссылка скопирована: ' + self.userForm.password),
+          (msg) => Vue.prototype.$message.error(msg || 'Не удалось скопировать'));
       },
       resetTraffic() {
         const self = this;
@@ -277,13 +431,18 @@
           } else {
             const body = {
               password: this.userForm.password,
-              device_id: this.userForm.device_id,
+              device_ids: this.userForm.device_ids,
+              max_devices: Number(this.userForm.max_devices) || 1,
               comment: this.userForm.comment,
               expires_at: this.userForm.unlimited ? 0 : this.userForm.expires_at,
               total_gb: Number(this.userForm.total_gb) || 0,
               max_down_mbps: Number(this.userForm.max_down_mbps) || 0,
               max_up_mbps: Number(this.userForm.max_up_mbps) || 0,
               active: this.userForm.active,
+              use_custom_ports: this.userForm.use_custom_ports,
+              dtls_port: Number(this.userForm.dtls_port) || 0,
+              wg_port: Number(this.userForm.wg_port) || 0,
+              client_port: Number(this.userForm.client_port) || 0,
             };
             if (this.userModal.isEdit) {
               res = await fetch(basePath + 'panel/api/users/update', {

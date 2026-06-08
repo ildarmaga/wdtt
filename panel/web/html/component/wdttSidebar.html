@@ -58,9 +58,10 @@
             return {
                 tabs: [
                     { key: '{{ .base_path }}panel/', icon: 'dashboard', title: '{{ i18n "menu.dashboard"}}' },
-                    { key: '{{ .base_path }}panel/users', icon: 'team', title: 'Пользователи' },
+                    { key: '{{ .base_path }}panel/connections', icon: 'api', title: '{{ i18n "menu.inbounds"}}' },
+                    { key: '{{ .base_path }}panel/users', icon: 'team', title: '{{ i18n "menu.users"}}' },
+                    { key: '{{ .base_path }}panel/settings', icon: 'setting', title: '{{ i18n "menu.settings"}}' },
                     { key: '{{ .base_path }}panel/xray', icon: 'tool', title: '{{ i18n "menu.xray"}}' },
-                    { key: '{{ .base_path }}panel/settings', icon: 'setting', title: '{{ i18n "pages.settings.title"}}' },
                     { key: '{{ .base_path }}logout/', icon: 'logout', title: '{{ i18n "menu.logout"}}' },
                 ],
                 activeTab: ['{{ .request_uri }}'],

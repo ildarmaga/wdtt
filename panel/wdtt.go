@@ -19,7 +19,9 @@ type PasswordsDB struct {
 }
 
 type PasswordEntry struct {
-	DeviceID      string  `json:"device_id"`
+	DeviceID      string   `json:"device_id,omitempty"`
+	DeviceIDs     []string `json:"device_ids,omitempty"`
+	MaxDevices    int      `json:"max_devices,omitempty"`
 	ExpiresAt     int64   `json:"expires_at"`
 	DownBytes     int64   `json:"down_bytes"`
 	UpBytes       int64   `json:"up_bytes"`
@@ -28,6 +30,8 @@ type PasswordEntry struct {
 	MaxUpMBps     float64 `json:"max_up_mbps,omitempty"`
 	IsDeactivated bool    `json:"is_deactivated,omitempty"`
 	Comment       string  `json:"comment,omitempty"`
+	Ports         string  `json:"ports,omitempty"`
+	VkHash        string  `json:"vk_hash,omitempty"`
 }
 
 const oneGB = 1024 * 1024 * 1024
@@ -114,6 +118,9 @@ func loadPasswords() (*PasswordsDB, error) {
 	if db.Devices == nil {
 		db.Devices = map[string]*DeviceEntry{}
 	}
+	for _, entry := range db.Passwords {
+		normalizeEntryDevices(entry)
+	}
 	return &db, nil
 }
 
@@ -168,7 +175,7 @@ func gbStringToBytes(s string) int64 {
 	return int64(v * float64(oneGB))
 }
 
-func mainUserRow(db *PasswordsDB, stats *ServerStats) map[string]interface{} {
+func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig, serverIP string) map[string]interface{} {
 	upBytes := int64(0)
 	downBytes := int64(0)
 	deviceIDs := []string{}
@@ -186,6 +193,7 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats) map[string]interface{} {
 		}
 	}
 	used := upBytes + downBytes
+	dtlsPort, wgPort, clientPort := resolveUserPorts(nil, inbound)
 	return map[string]interface{}{
 		"password":         db.MainPassword,
 		"is_main":          true,
@@ -204,6 +212,11 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats) map[string]interface{} {
 		"traffic_exceeded": false,
 		"active":           true,
 		"online":           userOnlineFromStats(db.MainPassword, strings.Join(deviceIDs, ", "), true, stats),
+		"ports":            "",
+		"dtls_port":        dtlsPort,
+		"wg_port":          wgPort,
+		"client_port":      clientPort,
+		"link":             buildWdttLink(serverIP, db.MainPassword, "", &PasswordEntry{Comment: "Владелец"}, inbound),
 	}
 }
 
@@ -256,7 +269,7 @@ func updateWdttPassword(pass string) error {
 		os.WriteFile(unit, []byte(strings.Join(lines, "\n")), 0644)
 		runCmd("systemctl", "daemon-reload")
 	}
-	return serviceRestart(wdttServiceUnit)
+	return restartWdttWithDeps()
 }
 
 func genPassword() string {
@@ -277,6 +290,7 @@ func createUser(password string, entry *PasswordEntry) (string, error) {
 	if entry == nil {
 		entry = &PasswordEntry{}
 	}
+	normalizeEntryDevices(entry)
 	if password == "" {
 		password = genPassword()
 	}
@@ -287,8 +301,9 @@ func createUser(password string, entry *PasswordEntry) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if countActivePasswords(db) >= 10 {
-		return "", fmt.Errorf("максимум 10 активных паролей (истёкшие не считаются)")
+	maxUsers := inboundMaxUsers()
+	if countActivePasswords(db) >= maxUsers {
+		return "", fmt.Errorf("максимум %d активных паролей (истёкшие не считаются)", maxUsers)
 	}
 	if _, exists := db.Passwords[password]; exists {
 		return "", fmt.Errorf("пароль уже существует")
@@ -297,7 +312,7 @@ func createUser(password string, entry *PasswordEntry) (string, error) {
 	if err := savePasswords(db); err != nil {
 		return "", err
 	}
-	serviceRestart(wdttServiceUnit)
+	restartWdttWithDeps()
 	return password, nil
 }
 
@@ -355,14 +370,32 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
 	if err := savePasswords(db); err != nil {
 		return err
 	}
+	normalizeEntryDevices(cur)
+	normalizeEntryDevices(entry)
+	if len(entry.DeviceIDs) == 0 && entry.DeviceID == "" {
+		entry.DeviceIDs = append([]string(nil), cur.DeviceIDs...)
+		entry.DeviceID = cur.DeviceID
+	}
+	if entry.MaxDevices <= 0 {
+		entry.MaxDevices = cur.MaxDevices
+	}
+	if len(entry.DeviceIDs) > entryMaxDevices(entry) {
+		return fmt.Errorf("привязано %d устройств — лимит %d, сначала отвяжите лишние", len(entry.DeviceIDs), entryMaxDevices(entry))
+	}
+	for _, devID := range cur.DeviceIDs {
+		if !entryHasDevice(entry, devID) {
+			delete(db.Devices, devID)
+		}
+	}
 	if newPassword != oldPassword ||
-		cur.DeviceID != entry.DeviceID ||
+		!deviceIDsEqual(cur.DeviceIDs, entry.DeviceIDs) ||
+		cur.MaxDevices != entry.MaxDevices ||
 		cur.ExpiresAt != entry.ExpiresAt ||
 		cur.TotalBytes != entry.TotalBytes ||
 		cur.MaxDownMBps != entry.MaxDownMBps ||
 		cur.MaxUpMBps != entry.MaxUpMBps ||
 		cur.IsDeactivated != entry.IsDeactivated {
-		serviceRestart(wdttServiceUnit)
+		restartWdttWithDeps()
 	}
 	return nil
 }
@@ -385,7 +418,7 @@ func resetUserTraffic(pass string) error {
 	if err := savePasswords(db); err != nil {
 		return err
 	}
-	return serviceRestart(wdttServiceUnit)
+	return restartWdttWithDeps()
 }
 
 func deleteUserPassword(pass string) error {
@@ -393,11 +426,16 @@ func deleteUserPassword(pass string) error {
 	if err != nil {
 		return err
 	}
+	if entry, ok := db.Passwords[pass]; ok {
+		for _, devID := range allEntryDeviceIDsPanel(entry) {
+			delete(db.Devices, devID)
+		}
+	}
 	delete(db.Passwords, pass)
 	if err := savePasswords(db); err != nil {
 		return err
 	}
-	serviceRestart(wdttServiceUnit)
+	restartWdttWithDeps()
 	return nil
 }
 

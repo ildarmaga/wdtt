@@ -315,7 +315,28 @@ func getXrayRestartResult() string {
 	if serviceActive(xrayServiceUnit) {
 		return ""
 	}
-	out, _ := runCmd("journalctl", "-u", xrayServiceUnit, "-n", "15", "--no-pager", "-o", "cat")
+	if data, err := os.ReadFile(filepath.Join(xrayLogDir, "error.log")); err == nil {
+		lines := strings.Split(string(data), "\n")
+		errLines := make([]string, 0, 8)
+		for i := len(lines) - 1; i >= 0 && len(errLines) < 8; i-- {
+			line := strings.TrimSpace(lines[i])
+			if line == "" {
+				continue
+			}
+			lower := strings.ToLower(line)
+			if strings.Contains(lower, "[error]") || strings.Contains(lower, "failed") || strings.Contains(lower, "fatal") {
+				errLines = append([]string{line}, errLines...)
+			}
+		}
+		if len(errLines) > 0 {
+			return strings.Join(errLines, "\n")
+		}
+	}
+	out, _ := runCmd("journalctl", "-u", xrayServiceUnit, "-n", "20", "--no-pager", "-o", "cat", "-p", "err")
+	if msg := strings.TrimSpace(out); msg != "" {
+		return msg
+	}
+	out, _ = runCmd("journalctl", "-u", xrayServiceUnit, "-n", "15", "--no-pager", "-o", "cat")
 	return strings.TrimSpace(out)
 }
 

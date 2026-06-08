@@ -104,6 +104,7 @@ func startStatusCollector() {
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		for range ticker.C {
+			ensureXrayFollowsWdtt()
 			refreshCachedStatus()
 		}
 	}()
@@ -190,11 +191,12 @@ func fillXrayStatus(s *serverStatus) {
 		}
 		return
 	}
-	s.Xray.State = stateError
-	s.Xray.ErrorMsg = getXrayRestartResult()
-	if s.Xray.ErrorMsg == "" {
-		s.Xray.State = stateStop
+	if serviceUnitFailed(xrayServiceUnit) {
+		s.Xray.State = stateError
+		s.Xray.ErrorMsg = getXrayRestartResult()
+		return
 	}
+	s.Xray.State = stateStop
 }
 
 func fillWdttStatus(s *serverStatus) {

@@ -147,6 +147,7 @@ func (a *App) handleUpdateXraySetting(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRestartXrayService(w http.ResponseWriter, r *http.Request) {
+	markXrayAutoManaged()
 	if err := serviceRestart(xrayServiceUnit); err != nil {
 		jsonMsg(w, i18nWeb("pages.xray.restartError")+": "+err.Error(), false)
 		return

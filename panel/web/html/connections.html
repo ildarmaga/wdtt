@@ -1,0 +1,266 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' connections-page'">
+  <wdtt-sidebar></wdtt-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loadingStates.spinning" :delay="500" tip='{{ i18n "loading"}}' size="large">
+        <transition name="list" appear>
+          <a-row v-if="!loadingStates.fetched">
+            <div :style="{ minHeight: 'calc(100vh - 120px)' }"></div>
+          </a-row>
+          <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-else>
+            <a-col>
+              <a-card hoverable>
+                <a-row :style="{ display: 'flex', flexWrap: 'wrap', alignItems: 'center' }">
+                  <a-col :xs="24" :sm="10" :style="{ padding: '4px' }">
+                    <a-space direction="horizontal">
+                      <a-button type="primary" :disabled="saveBtnDisable" @click="saveInbound">
+                        Сохранить и перезапустить
+                      </a-button>
+                      <a-button @click="restartWdtt" :loading="restarting">Перезапустить WDTT</a-button>
+                      <a-button icon="reload" @click="refreshStatus" :loading="statusLoading">Обновить статус</a-button>
+                    </a-space>
+                  </a-col>
+                  <a-col :xs="24" :sm="14">
+                    <a-alert type="warning" :style="{ float: 'right', width: 'fit-content' }"
+                      message="Смена портов обновит systemd и firewall. Клиентам нужны новые ссылки." show-icon>
+                    </a-alert>
+                  </a-col>
+                </a-row>
+              </a-card>
+            </a-col>
+            <a-col :xs="24" :lg="12">
+              <a-card title="Статус" hoverable>
+                <a-row :gutter="[8, 8]">
+                  <a-col :span="12"><a-tag :color="statusTag(inbound.service_active)">Сервис: [[ inbound.service_active ? 'активен' : 'остановлен' ]]</a-tag></a-col>
+                  <a-col :span="12"><a-tag :color="statusTag(inbound.iface_up)">wdtt0: [[ inbound.iface_up ? inbound.iface_addr : 'нет' ]]</a-tag></a-col>
+                  <a-col :span="12"><a-tag :color="statusTag(inbound.dtls_listening)">DTLS :[[ inbound.dtls_port ]] слушает</a-tag></a-col>
+                  <a-col :span="12"><a-tag :color="statusTag(inbound.wg_listening)">WG :[[ inbound.wg_port ]] слушает</a-tag></a-col>
+                  <a-col :span="12"><a-tag :color="statusTag(inbound.dtls_firewall)">Firewall DTLS</a-tag></a-col>
+                  <a-col :span="12"><a-tag :color="statusTag(inbound.wg_firewall)">Firewall WG</a-tag></a-col>
+                  <a-col :span="12"><a-tag color="blue">Активных: [[ inbound.active_users ]]/[[ inbound.max_users ]]</a-tag></a-col>
+                  <a-col :span="12"><a-tag color="cyan">Онлайн: [[ inbound.online_users ]]</a-tag></a-col>
+                  <a-col :span="12"><a-tag :color="statusTag(inbound.xray_active)">Xray: [[ inbound.xray_active ? 'активен' : 'выкл' ]]</a-tag></a-col>
+                  <a-col :span="12"><a-tag>DNS: [[ inbound.dns ]]</a-tag></a-col>
+                </a-row>
+              </a-card>
+            </a-col>
+            <a-col :xs="24" :lg="12">
+              <a-card title="WDTT Inbound" hoverable>
+                <a-form layout="horizontal" :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+                  <a-form-item label="Тег">
+                    <a-input v-model.trim="inbound.tag" placeholder="wdtt-in"></a-input>
+                  </a-form-item>
+                  <a-form-item label="Название (remark)">
+                    <a-input v-model.trim="inbound.remark" placeholder="WDTT"></a-input>
+                  </a-form-item>
+                  <a-form-item label="Адрес прослушивания">
+                    <a-input v-model.trim="inbound.listen_host" placeholder="0.0.0.0"></a-input>
+                  </a-form-item>
+                  <a-form-item>
+                    <template slot="label">
+                      <a-tooltip title="Публичный IP или домен для ссылок. Пусто = автоопределение">
+                        Адрес в ссылке <a-icon type="question-circle"></a-icon>
+                      </a-tooltip>
+                    </template>
+                    <a-input v-model.trim="inbound.server_host" :placeholder="inbound.server_ip || 'авто'"></a-input>
+                  </a-form-item>
+                  <a-form-item>
+                    <template slot="label">
+                      <a-tooltip title="UDP порт DTLS — основной вход клиентов">
+                        DTLS порт <a-icon type="question-circle"></a-icon>
+                      </a-tooltip>
+                    </template>
+                    <a-input-number v-model="inbound.dtls_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+                  </a-form-item>
+                  <a-form-item>
+                    <template slot="label">
+                      <a-tooltip title="UDP порт WireGuard (userspace), открывается в firewall">
+                        WireGuard порт <a-icon type="question-circle"></a-icon>
+                      </a-tooltip>
+                    </template>
+                    <a-input-number v-model="inbound.wg_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+                  </a-form-item>
+                  <a-form-item>
+                    <template slot="label">
+                      <a-tooltip title="Локальный порт WireGuard на устройстве клиента (127.0.0.1)">
+                        Порт клиента <a-icon type="question-circle"></a-icon>
+                      </a-tooltip>
+                    </template>
+                    <a-input-number v-model="inbound.client_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+                  </a-form-item>
+                  <a-form-item>
+                    <template slot="label">
+                      <a-tooltip title="DNS в WG-конфиге клиента (выдаётся при подключении)">
+                        DNS клиента <a-icon type="question-circle"></a-icon>
+                      </a-tooltip>
+                    </template>
+                    <a-input v-model.trim="inbound.dns" placeholder="1.1.1.1"></a-input>
+                  </a-form-item>
+                  <a-form-item>
+                    <template slot="label">
+                      <a-tooltip title="Максимум активных паролей (истёкшие не считаются). Подсеть 10.66.66.0/24 — до 249">
+                        Лимит пользователей <a-icon type="question-circle"></a-icon>
+                      </a-tooltip>
+                    </template>
+                    <a-input-number v-model="inbound.max_users" :min="1" :max="249" :style="{ width: '100%' }"></a-input-number>
+                  </a-form-item>
+                </a-form>
+              </a-card>
+            </a-col>
+          </a-row>
+        </transition>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+</a-layout>
+
+<style>
+  @media (min-width: 769px) {
+    .connections-page .ant-layout-content { margin: 24px 16px; }
+  }
+</style>
+{{ template "page/body_scripts" . }}
+{{ template "component/aThemeSwitch" . }}
+{{ template "component/wdttSidebar" . }}
+<script>
+  class InboundSetting {
+    constructor(data = {}) {
+      this.tag = data.tag || 'wdtt-in';
+      this.remark = data.remark || 'WDTT';
+      this.listen_host = data.listen_host || '0.0.0.0';
+      this.server_host = data.server_host || '';
+      this.dtls_port = Number(data.dtls_port) || 56000;
+      this.wg_port = Number(data.wg_port) || 56001;
+      this.client_port = Number(data.client_port) || 9000;
+      this.dns = data.dns || '1.1.1.1';
+      this.max_users = Number(data.max_users) || 10;
+      this.server_ip = data.server_ip || '';
+      this.service_active = !!data.service_active;
+      this.iface_up = !!data.iface_up;
+      this.iface_addr = data.iface_addr || '';
+      this.dtls_firewall = !!data.dtls_firewall;
+      this.wg_firewall = !!data.wg_firewall;
+      this.dtls_listening = !!data.dtls_listening;
+      this.wg_listening = !!data.wg_listening;
+      this.active_users = Number(data.active_users) || 0;
+      this.total_users = Number(data.total_users) || 0;
+      this.online_users = Number(data.online_users) || 0;
+      this.xray_active = !!data.xray_active;
+    }
+    payload() {
+      return {
+        tag: this.tag,
+        remark: this.remark,
+        listen_host: this.listen_host,
+        server_host: this.server_host,
+        dtls_port: Number(this.dtls_port),
+        wg_port: Number(this.wg_port),
+        client_port: Number(this.client_port),
+        dns: this.dns,
+        max_users: Number(this.max_users),
+      };
+    }
+    equals(other) {
+      return JSON.stringify(this.payload()) === JSON.stringify(other.payload());
+    }
+    applyStatus(data) {
+      this.service_active = !!data.service_active;
+      this.iface_up = !!data.iface_up;
+      this.iface_addr = data.iface_addr || '';
+      this.dtls_firewall = !!data.dtls_firewall;
+      this.wg_firewall = !!data.wg_firewall;
+      this.dtls_listening = !!data.dtls_listening;
+      this.wg_listening = !!data.wg_listening;
+      this.active_users = Number(data.active_users) || 0;
+      this.total_users = Number(data.total_users) || 0;
+      this.online_users = Number(data.online_users) || 0;
+      this.xray_active = !!data.xray_active;
+    }
+  }
+
+  const app = new Vue({
+    delimiters: ['[[', ']]'],
+    mixins: [MediaQueryMixin],
+    el: '#app',
+    data: {
+      themeSwitcher,
+      loadingStates: { fetched: false, spinning: false },
+      oldInbound: new InboundSetting(),
+      inbound: new InboundSetting(),
+      saveBtnDisable: true,
+      restarting: false,
+      statusLoading: false,
+    },
+    methods: {
+      statusTag(ok) {
+        return ok ? 'green' : 'red';
+      },
+      loading(spinning = true) {
+        this.loadingStates.spinning = spinning;
+      },
+      async loadInbound() {
+        const res = await fetch(basePath + 'panel/api/inbound').then(r => r.json()).catch(() => null);
+        if (!res || !res.success) return;
+        if (!this.loadingStates.fetched) this.loadingStates.fetched = true;
+        this.oldInbound = new InboundSetting(res.obj);
+        this.inbound = new InboundSetting(res.obj);
+      },
+      async refreshStatus() {
+        this.statusLoading = true;
+        const res = await fetch(basePath + 'panel/api/inbound').then(r => r.json()).catch(() => null);
+        this.statusLoading = false;
+        if (res && res.success) {
+          this.inbound.applyStatus(res.obj);
+          this.oldInbound.applyStatus(res.obj);
+        }
+      },
+      async saveInbound() {
+        await new Promise(resolve => {
+          this.$confirm({
+            title: 'Сохранить inbound',
+            content: 'WDTT будет перезапущен с новыми настройками. Продолжить?',
+            class: themeSwitcher.currentTheme,
+            okText: 'Сохранить',
+            cancelText: 'Отмена',
+            onOk: () => resolve(),
+          });
+        });
+        this.loading(true);
+        const res = await fetch(basePath + 'panel/api/inbound/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.inbound.payload()),
+        }).then(r => r.json()).catch(() => null);
+        this.loading(false);
+        if (res && res.success) {
+          this.$message.success('Inbound сохранён, WDTT перезапущен');
+          await this.loadInbound();
+        } else {
+          this.$message.error((res && res.msg) || 'ошибка сохранения');
+        }
+      },
+      async restartWdtt() {
+        this.restarting = true;
+        const res = await HttpUtil.post('/panel/api/service/wdtt/restart').catch(() => null);
+        this.restarting = false;
+        if (res && res.success) {
+          this.$message.success('WDTT перезапущен');
+          await this.loadInbound();
+        } else {
+          this.$message.error((res && res.msg) || 'ошибка перезапуска');
+        }
+      },
+    },
+    async mounted() {
+      await this.loadInbound();
+      while (true) {
+        await PromiseUtil.sleep(500);
+        this.saveBtnDisable = this.oldInbound.equals(this.inbound);
+      }
+    },
+  });
+</script>
+{{ template "page/body_end" .}}

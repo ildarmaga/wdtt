@@ -42,6 +42,7 @@ func (a *App) handleGetConfigJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleStopXrayService(w http.ResponseWriter, r *http.Request) {
+	markXrayManuallyStopped()
 	if err := serviceStop(xrayServiceUnit); err != nil {
 		jsonMsg(w, i18nWeb("pages.xray.stopError")+": "+err.Error(), false)
 		return
@@ -58,7 +59,7 @@ func (a *App) handleStopWdttService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRestartWdttService(w http.ResponseWriter, r *http.Request) {
-	if err := serviceRestart(wdttServiceUnit); err != nil {
+	if err := restartWdttWithDeps(); err != nil {
 		jsonMsg(w, "WDTT restart error: "+err.Error(), false)
 		return
 	}

@@ -26,9 +26,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
-
-	"golang.org/x/sys/unix"
 
 	"crypto/cipher"
 
@@ -48,109 +45,21 @@ import (
 )
 
 const (
-	wgIfaceName           = "wdtt0"
-	xuiIfaceName          = "wdtt-xui"
-	wgServerAddr          = "10.66.66.1"
-	wgServerCIDR          = wgServerAddr + "/24"
-	defaultInternalWGPort = 56001
-	defaultXuiEndpoint    = "127.0.0.1:9000"
-	defaultXuiSocksEP     = "127.0.0.1:10879"
-	defaultRedirPort      = 12345
-	tproxyFwmark          = "1"
-	soOriginalDst         = 80
-	xuiRouteTable         = "100"
-	dns                   = "1.1.1.1"
-	wgMTU                 = 1280
-	xuiMTU                = 1420
-	keepalive             = 25
+	wgIfaceName              = "wdtt0"
+	wgServerAddr             = "10.66.66.1"
+	wgServerCIDR             = wgServerAddr + "/24"
+	defaultInternalWGPort    = 56001
+	defaultClientDNS         = "1.1.1.1"
+	defaultMaxUsers          = 10
+	maxUsersSubnetLimit      = 249
+	wgMTU                    = 1280
+	keepalive                = 25
 )
 
-type XuiEgressConfig struct {
-	Enabled       bool   `json:"enabled"`
-	Mode          string `json:"mode"` // "socks" или "wireguard"
-	Endpoint      string `json:"endpoint"`
-	RedirPort     int    `json:"redir_port"` // локальный порт redsocks для iptables REDIRECT
-	PrivateKey    string `json:"private_key"`
-	PeerPublicKey string `json:"peer_public_key"`
-	PresharedKey  string `json:"preshared_key"`
-	Address       string `json:"address"`
-}
-
-func (c *XuiEgressConfig) isSocks() bool {
-	return c != nil && strings.EqualFold(strings.TrimSpace(c.Mode), "socks")
-}
-
-func (c *XuiEgressConfig) redirPort() int {
-	if c != nil && c.RedirPort > 0 && c.RedirPort < 65536 {
-		return c.RedirPort
-	}
-	return defaultRedirPort
-}
-
-func (c *XuiEgressConfig) clientIP() string {
-	if c == nil || c.Address == "" {
-		return "10.0.0.2"
-	}
-	ip := strings.Split(strings.TrimSpace(c.Address), "/")[0]
-	if ip == "" {
-		return "10.0.0.2"
-	}
-	return ip
-}
-
-func loadXuiEgressConfig(dir string) *XuiEgressConfig {
-	f := filepath.Join(dir, "xui-egress.json")
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return nil
-	}
-	var cfg XuiEgressConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		log.Printf("[XUI] Не удалось прочитать %s: %v", f, err)
-		return nil
-	}
-	if !cfg.Enabled {
-		return nil
-	}
-	if cfg.isSocks() {
-		if cfg.Endpoint == "" {
-			cfg.Endpoint = defaultXuiSocksEP
-		}
-		if _, _, err := net.SplitHostPort(cfg.Endpoint); err != nil {
-			log.Printf("[XUI] Пропуск: неверный socks endpoint в %s", f)
-			return nil
-		}
-		return &cfg
-	}
-	if cfg.Endpoint == "" {
-		cfg.Endpoint = defaultXuiEndpoint
-	}
-	if cfg.Address == "" {
-		cfg.Address = "10.0.0.2/32"
-	}
-	for _, key := range []struct {
-		name, val string
-	}{
-		{"private_key", cfg.PrivateKey},
-		{"peer_public_key", cfg.PeerPublicKey},
-	} {
-		if strings.TrimSpace(key.val) == "" {
-			log.Printf("[XUI] Пропуск: пустой %s в %s", key.name, f)
-			return nil
-		}
-		if _, err := b64ToHex(key.val); err != nil {
-			log.Printf("[XUI] Пропуск: неверный %s в %s", key.name, f)
-			return nil
-		}
-	}
-	if cfg.PresharedKey != "" {
-		if _, err := b64ToHex(cfg.PresharedKey); err != nil {
-			log.Printf("[XUI] Пропуск: неверный preshared_key в %s", f)
-			return nil
-		}
-	}
-	return &cfg
-}
+var (
+	clientDNS             = defaultClientDNS
+	maxGeneratedPasswords = defaultMaxUsers
+)
 
 // ==================== База данных и Бот ====================
 
@@ -162,7 +71,9 @@ type ClientDevice struct {
 }
 
 type PasswordEntry struct {
-	DeviceID      string  `json:"device_id"`  // пусто = ещё не привязан
+	DeviceID      string   `json:"device_id,omitempty"`  // legacy, синхронизируется с device_ids[0]
+	DeviceIDs     []string `json:"device_ids,omitempty"` // привязанные устройства
+	MaxDevices    int      `json:"max_devices,omitempty"` // 0 = 1, лимит слотов
 	ExpiresAt     int64   `json:"expires_at"` // unix timestamp
 	DownBytes     int64   `json:"down_bytes"` // скачано клиентом
 	UpBytes       int64   `json:"up_bytes"`   // отдано клиентом
@@ -195,10 +106,31 @@ var (
 var serverWrapKeys = newWrapKeyStore()
 
 const (
-	passChars             = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-	generatedPasswordLen  = 16
-	maxGeneratedPasswords = 10
+	passChars            = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+	generatedPasswordLen = 16
 )
+
+func loadInboundSettings(configDir string) {
+	clientDNS = defaultClientDNS
+	maxGeneratedPasswords = defaultMaxUsers
+	data, err := os.ReadFile(filepath.Join(configDir, "inbound.json"))
+	if err != nil {
+		return
+	}
+	var raw struct {
+		DNS      string `json:"dns"`
+		MaxUsers int    `json:"max_users"`
+	}
+	if json.Unmarshal(data, &raw) != nil {
+		return
+	}
+	if dns := strings.TrimSpace(raw.DNS); dns != "" {
+		clientDNS = dns
+	}
+	if raw.MaxUsers >= 1 && raw.MaxUsers <= maxUsersSubnetLimit {
+		maxGeneratedPasswords = raw.MaxUsers
+	}
+}
 
 func generatePassword() string {
 	b := make([]byte, generatedPasswordLen)
@@ -420,6 +352,7 @@ func initDB(dir, mainPass, adminID, botToken string) {
 	if db.Devices == nil {
 		db.Devices = make(map[string]*ClientDevice)
 	}
+	migrateDatabaseDevices()
 	db.MainPassword = mainPass
 	db.AdminID = adminID
 	db.BotToken = botToken
@@ -456,11 +389,30 @@ func passwordForDeviceLocked(deviceID string) string {
 		return ""
 	}
 	for pass, entry := range db.Passwords {
-		if entry != nil && entry.DeviceID == deviceID {
+		if entry != nil && entryHasDevice(entry, deviceID) {
 			return pass
 		}
 	}
 	return ""
+}
+
+func removeWGDeviceLocked(wgDev *device.Device, deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	dev, ok := db.Devices[deviceID]
+	if !ok {
+		return
+	}
+	removePeerFromWG(wgDev, dev)
+	delete(db.Devices, deviceID)
+}
+
+func removeAllEntryDevicesLocked(wgDev *device.Device, entry *PasswordEntry) {
+	for _, devID := range allEntryDeviceIDs(entry) {
+		removeWGDeviceLocked(wgDev, devID)
+	}
+	clearEntryDevices(entry)
 }
 
 func resolveTrafficPassword(connPassword string, connIsMainPass bool, connDeviceID string) string {
@@ -490,6 +442,14 @@ func addTrafficLocked(password string, bytes int64, isDownload bool) bool {
 		trafficDirty.Store(false)
 	}
 	return true
+}
+
+func buildPublicWdttLink(srvIP, ports, password, remark, vkHash string) string {
+	link, err := buildWdttShareLinkFromPorts(srvIP, ports, password, remark, vkHash)
+	if err != nil {
+		return ""
+	}
+	return link
 }
 
 func getNextIP() string {
@@ -593,14 +553,10 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 						continue
 					}
 					txt := fmt.Sprintf("🔑 *Пароль:* `%s`\n", pass)
-					if entry.VkHash != "" {
-						pts := strings.Split(entry.Ports, ",")
-						if len(pts) < 3 {
-							pts = []string{"56000", "56001", "9000"}
-						}
+					if entry.Ports != "" || entry.VkHash != "" {
 						srvIP := getPublicIP()
-						link := fmt.Sprintf("wdtt://%s:%s:%s:%s:%s:%s", srvIP, pts[0], pts[1], pts[2], pass, entry.VkHash)
-						txt += fmt.Sprintf("🔗 *Быстрая ссылка:* `%s`\n", link)
+						link := buildPublicWdttLink(srvIP, entry.Ports, pass, entry.Comment, entry.VkHash)
+						txt += fmt.Sprintf("🔗 *Ссылка:* `%s`\n", link)
 					}
 					if entry.IsDeactivated {
 						txt += "🔴 Статус: *ДЕАКТИВИРОВАН*\n"
@@ -621,19 +577,26 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					}
 					
 					txt += fmt.Sprintf("\n📊 *Трафик:*\n• Скачано: %.2f MB\n• Отдано: %.2f MB\n", float64(entry.DownBytes)/(1024*1024), float64(entry.UpBytes)/(1024*1024))
-					txt += "\n📱 *Привязанное устройство:*\n"
+					normalizeEntryDevices(entry)
+					txt += fmt.Sprintf("\n📱 *Устройства:* %d/%d\n", len(entry.DeviceIDs), entryMaxDevices(entry))
 					var kb []map[string]interface{}
-					if entry.DeviceID == "" {
+					if len(entry.DeviceIDs) == 0 {
 						txt += "_Ожидает первого подключения..._\n"
 					} else {
-						dev, devExists := db.Devices[entry.DeviceID]
-						if devExists {
-							txt += fmt.Sprintf("• ID: `%s`\n• IP: `%s`\n", entry.DeviceID, dev.IP)
-						} else {
-							txt += fmt.Sprintf("• ID: `%s` (устройство удалено)\n", entry.DeviceID)
+						for i, devID := range entry.DeviceIDs {
+							dev, devExists := db.Devices[devID]
+							if devExists {
+								txt += fmt.Sprintf("• `%s` → %s\n", devID, dev.IP)
+							} else {
+								txt += fmt.Sprintf("• `%s` (удалено)\n", devID)
+							}
+							kb = append(kb, map[string]interface{}{
+								"text":          fmt.Sprintf("🗑 Отвязать #%d", i+1),
+								"callback_data": fmt.Sprintf("ub1_%s_%d", pass, i),
+							})
 						}
 						kb = append(kb, map[string]interface{}{
-							"text":          "🗑 Отвязать устройство",
+							"text":          "🗑 Отвязать все",
 							"callback_data": "unbind_" + pass,
 						})
 					}
@@ -669,9 +632,8 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					entry, exists := db.Passwords[pass]
 					if exists && entry != nil {
 						entry.IsDeactivated = true
-						// Отключаем активное устройство от WG если нужно
-						if entry.DeviceID != "" {
-							if dev, devExists := db.Devices[entry.DeviceID]; devExists {
+						for _, devID := range allEntryDeviceIDs(entry) {
+							if dev, devExists := db.Devices[devID]; devExists {
 								if pubHex, err := b64ToHex(dev.PubKey); err == nil && pubHex != "" {
 									wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
 								}
@@ -702,34 +664,45 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					})
 					sendTelegram(token, adminID, "⚙️ Использовать стандартные порты для главного пароля (56000, 56001, 9000)?", map[string]interface{}{"inline_keyboard": keyboard})
 
+				} else if strings.HasPrefix(data, "ub1_") {
+					rest := strings.TrimPrefix(data, "ub1_")
+					parts := strings.SplitN(rest, "_", 2)
+					if len(parts) == 2 {
+						pass := parts[0]
+						idx, _ := strconv.Atoi(parts[1])
+						dbMutex.Lock()
+						entry, exists := db.Passwords[pass]
+						if exists && entry != nil {
+							normalizeEntryDevices(entry)
+							if idx >= 0 && idx < len(entry.DeviceIDs) {
+								devID := entry.DeviceIDs[idx]
+								removeWGDeviceLocked(wgDev, devID)
+								removeDeviceFromEntry(entry, devID)
+								saveDB()
+							}
+						}
+						dbMutex.Unlock()
+						sendTelegram(token, adminID, fmt.Sprintf("✅ Устройство отвязано от `%s`", pass), nil)
+					}
+
 				} else if strings.HasPrefix(data, "unbind_") {
 					pass := strings.TrimPrefix(data, "unbind_")
 					dbMutex.Lock()
 					entry, exists := db.Passwords[pass]
-					if exists && entry != nil && entry.DeviceID != "" {
-						// Удаляем устройство из WG и из хранилища
-						dev, devExists := db.Devices[entry.DeviceID]
-						if devExists {
-							pubHex, _ := b64ToHex(dev.PubKey)
-							wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
-							delete(db.Devices, entry.DeviceID)
-						}
-						entry.DeviceID = ""
+					if exists && entry != nil {
+						removeAllEntryDevicesLocked(wgDev, entry)
 						saveDB()
 					}
 					dbMutex.Unlock()
-					sendTelegram(token, adminID, fmt.Sprintf("✅ Устройство отвязано от пароля `%s`", pass), nil)
+					sendTelegram(token, adminID, fmt.Sprintf("✅ Все устройства отвязаны от `%s`", pass), nil)
 
 				} else if strings.HasPrefix(data, "delpass_") {
 					pass := strings.TrimPrefix(data, "delpass_")
 					dbMutex.Lock()
 					entry, exists := db.Passwords[pass]
-					if exists && entry != nil && entry.DeviceID != "" {
-						dev, devExists := db.Devices[entry.DeviceID]
-						if devExists {
-							pubHex, _ := b64ToHex(dev.PubKey)
-							wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
-							delete(db.Devices, entry.DeviceID)
+					if exists && entry != nil {
+						for _, devID := range allEntryDeviceIDs(entry) {
+							removeWGDeviceLocked(wgDev, devID)
 						}
 					}
 					delete(db.Passwords, pass)
@@ -748,8 +721,8 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 						wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
 						// Очищаем привязку из пароля
 						for _, entry := range db.Passwords {
-							if entry != nil && entry.DeviceID == devID {
-								entry.DeviceID = ""
+							if entry != nil {
+								removeDeviceFromEntry(entry, devID)
 							}
 						}
 						saveDB()
@@ -841,9 +814,8 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 				if targetPassword == "main" {
 					targetPassword = ""
 					srvIP := getPublicIP()
-					pts := strings.Split(tempPorts, ",")
-					link := fmt.Sprintf("wdtt://%s:%s:%s:%s:%s:%s", srvIP, pts[0], pts[1], pts[2], db.MainPassword, hash)
-					sendTelegram(token, adminID, fmt.Sprintf("🔗 *Ссылка для главного пароля:*\n`%s`", link), nil)
+					link := buildPublicWdttLink(srvIP, tempPorts, db.MainPassword, "WDTT", hash)
+					sendTelegram(token, adminID, fmt.Sprintf("🔗 *Ссылка:* `%s`", link), nil)
 					continue
 				}
 
@@ -883,10 +855,9 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 
 				expDate := time.Unix(expiresAt, 0).Format("02.01.2006")
 				srvIP := getPublicIP()
-				pts := strings.Split(tempPorts, ",")
-				link := fmt.Sprintf("wdtt://%s:%s:%s:%s:%s:%s", srvIP, pts[0], pts[1], pts[2], newPass, hash)
+				link := buildPublicWdttLink(srvIP, tempPorts, newPass, "", hash)
 
-				sendTelegram(token, adminID, fmt.Sprintf("🔑 Новый пароль:\n`%s`\n\n⏰ Действует %d дн. (до %s)\n📱 Ожидает первого подключения\n\n🔗 *Быстрая ссылка:* `%s`", newPass, tempDays, expDate, link), nil)
+				sendTelegram(token, adminID, fmt.Sprintf("🔑 Новый пароль:\n`%s`\n\n⏰ Действует %d дн. (до %s)\n📱 Ожидает первого подключения\n\n🔗 *Ссылка:* `%s`", newPass, tempDays, expDate, link), nil)
 				continue
 			}
 
@@ -951,8 +922,8 @@ func suspendExpiredPasswordsLocked(wgDev *device.Device) int {
 		if entry == nil || !isPasswordExpired(entry) {
 			continue
 		}
-		if entry.DeviceID != "" {
-			if dev, ok := db.Devices[entry.DeviceID]; ok {
+		for _, devID := range allEntryDeviceIDs(entry) {
+			if dev, ok := db.Devices[devID]; ok {
 				removePeerFromWG(wgDev, dev)
 			}
 		}
@@ -1024,7 +995,8 @@ func sendPasswordList(token string, adminID int64, wgDev *device.Device) {
 		txt += fmt.Sprintf("_Активно: %d/%d (всего в базе: %d)_\n\n", countActivePasswordsLocked(), maxGeneratedPasswords, len(db.Passwords))
 		for p, entry := range db.Passwords {
 			status := "🟢"
-			if entry.DeviceID != "" {
+			normalizeEntryDevices(entry)
+			if len(entry.DeviceIDs) > 0 {
 				status = "🔗"
 			}
 			expiry := "♾"
@@ -1473,403 +1445,10 @@ generate:
 
 // ==================== NAT ====================
 
-var (
-	redsocksCmd *exec.Cmd
-	gostCmd     *exec.Cmd
-)
-
-func socks5DialTCP(proxyAddr, dst string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(dst)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := conn.Write([]byte{0x05, 0x01, 0x00}); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	resp := make([]byte, 2)
-	if _, err := io.ReadFull(conn, resp); err != nil || resp[0] != 0x05 || resp[1] != 0x00 {
-		conn.Close()
-		return nil, fmt.Errorf("socks5 greet: %v", err)
-	}
-	var req []byte
-	if ip := net.ParseIP(host); ip != nil {
-		if v4 := ip.To4(); v4 != nil {
-			req = append([]byte{0x05, 0x01, 0x00, 0x01}, v4...)
-		} else {
-			req = append([]byte{0x05, 0x01, 0x00, 0x04}, ip.To16()...)
-		}
-	} else {
-		if len(host) > 255 {
-			conn.Close()
-			return nil, fmt.Errorf("hostname too long")
-		}
-		req = append([]byte{0x05, 0x01, 0x00, 0x03, byte(len(host))}, host...)
-	}
-	p, _ := strconv.Atoi(port)
-	req = append(req, byte(p>>8), byte(p))
-	if _, err := conn.Write(req); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	head := make([]byte, 4)
-	if _, err := io.ReadFull(conn, head); err != nil || head[1] != 0x00 {
-		conn.Close()
-		return nil, fmt.Errorf("socks5 connect: %v", err)
-	}
-	var tail []byte
-	switch head[3] {
-	case 0x01:
-		tail = make([]byte, net.IPv4len+2)
-	case 0x04:
-		tail = make([]byte, net.IPv6len+2)
-	case 0x03:
-		l := make([]byte, 1)
-		if _, err := io.ReadFull(conn, l); err != nil {
-			conn.Close()
-			return nil, err
-		}
-		tail = make([]byte, int(l[0])+2)
-	default:
-		conn.Close()
-		return nil, fmt.Errorf("socks5 unknown atyp %d", head[3])
-	}
-	if _, err := io.ReadFull(conn, tail); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	return conn, nil
-}
-
-func originalDest(conn *net.TCPConn) (string, error) {
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		return "", err
-	}
-	var dst string
-	var ctrlErr error
-	err = raw.Control(func(fd uintptr) {
-		var sa unix.RawSockaddrInet4
-		l := uint32(unsafe.Sizeof(sa))
-		_, _, errno := unix.Syscall6(unix.SYS_GETSOCKOPT,
-			fd, uintptr(unix.SOL_IP), uintptr(soOriginalDst),
-			uintptr(unsafe.Pointer(&sa)), uintptr(unsafe.Pointer(&l)), 0)
-		if errno != 0 {
-			ctrlErr = errno
-			return
-		}
-		port := int(binary.BigEndian.Uint16((*[2]byte)(unsafe.Pointer(&sa.Port))[:]))
-		dst = net.JoinHostPort(net.IPv4(sa.Addr[0], sa.Addr[1], sa.Addr[2], sa.Addr[3]).String(), strconv.Itoa(port))
-	})
-	if err != nil {
-		return "", err
-	}
-	if ctrlErr != nil {
-		return "", ctrlErr
-	}
-	return dst, nil
-}
-
-func ensureGostInstalled() error {
-	if commandExists("gost") {
-		return nil
-	}
-	log.Println("[XUI] Устанавливаю gost...")
-	out, err := runCmd("bash", "-c", `set -e
-ver=3.2.6
-curl -fsSL -o /tmp/gost.tgz "https://github.com/go-gost/gost/releases/download/v${ver}/gost_${ver}_linux_amd64.tar.gz"
-tar xzf /tmp/gost.tgz -C /tmp gost
-install -m 755 /tmp/gost /usr/local/bin/gost
-rm -f /tmp/gost.tgz /tmp/gost`)
-	if err != nil {
-		return fmt.Errorf("install gost: %s", out)
-	}
-	if !commandExists("gost") {
-		return fmt.Errorf("gost не найден после установки")
-	}
-	return nil
-}
-
-func stopTproxyRelay() {
-	if gostCmd != nil && gostCmd.Process != nil {
-		gostCmd.Process.Kill()
-		gostCmd.Wait()
-		gostCmd = nil
-	}
-	exec.Command("pkill", "-f", "gost.*tproxy").Run()
-}
-
-func startXuiTproxyRelay(cfg *XuiEgressConfig, tproxyPort int) error {
-	if err := ensureGostInstalled(); err != nil {
-		return err
-	}
-	stopTproxyRelay()
-
-	socksURL := "socks5://" + cfg.Endpoint
-	cmd := exec.Command("gost",
-		"-L", fmt.Sprintf("tproxy://:%d?bind=true", tproxyPort),
-		"-F", socksURL,
-	)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("gost start: %w", err)
-	}
-	gostCmd = cmd
-	time.Sleep(400 * time.Millisecond)
-	if runCmdSilent("bash", "-c", fmt.Sprintf("ss -tln sport = :%d", tproxyPort)) == "" {
-		stopTproxyRelay()
-		return fmt.Errorf("gost не слушает порт %d", tproxyPort)
-	}
-	go func() {
-		if err := cmd.Wait(); err != nil {
-			log.Printf("[XUI] gost завершился: %v", err)
-		}
-	}()
-	log.Printf("[XUI] gost TPROXY :%d → %s", tproxyPort, socksURL)
-	return nil
-}
-
-func cleanupXuiTproxyRules(wgIface string, tproxyPort int) {
-	portStr := strconv.Itoa(tproxyPort)
-	if commandExists("iptables") {
-		for i := 0; i < 5; i++ {
-			exec.Command("iptables", "-t", "mangle", "-D", "PREROUTING", "-m", "mark", "--mark", "0xff", "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "RETURN").Run()
-			exec.Command("iptables", "-t", "mangle", "-D", "PREROUTING", "-i", wgIface, "-s", wgServerCIDR, "-p", "tcp", "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "TPROXY", "--tproxy-mark", "0x"+tproxyFwmark+"/0xff", "--on-port", portStr).Run()
-			exec.Command("iptables", "-t", "mangle", "-D", "PREROUTING", "-i", wgIface, "-s", wgServerCIDR, "-p", "udp", "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "TPROXY", "--tproxy-mark", "0x"+tproxyFwmark+"/0xff", "--on-port", portStr).Run()
-		}
-	}
-	exec.Command("ip", "rule", "del", "fwmark", tproxyFwmark, "lookup", xuiRouteTable).Run()
-	exec.Command("ip", "route", "flush", "table", xuiRouteTable).Run()
-}
-
-func setupXuiTproxyNAT(wgIface string, cfg *XuiEgressConfig) error {
-	tproxyPort := cfg.redirPort()
-	portStr := strconv.Itoa(tproxyPort)
-	cleanupXuiTproxyRules(wgIface, tproxyPort)
-	cleanupXuiSocksRules(wgIface, tproxyPort)
-	removeDirectEgressNAT()
-
-	exec.Command("modprobe", "xt_TPROXY").Run()
-	exec.Command("modprobe", "xt_socket").Run()
-
-	if !commandExists("iptables") {
-		natType = "XUI TPROXY: нет iptables"
-		return fmt.Errorf("iptables не найден")
-	}
-
-	addMangle := func(extra ...string) {
-		check := append([]string{"iptables", "-t", "mangle", "-C", "PREROUTING"}, extra...)
-		check = append(check, "-m", "comment", "--comment", "WDTT_MANAGED")
-		add := append([]string{"iptables", "-t", "mangle", "-I", "PREROUTING", "1"}, extra...)
-		add = append(add, "-m", "comment", "--comment", "WDTT_MANAGED")
-		if exec.Command(check[0], check[1:]...).Run() != nil {
-			exec.Command(add[0], add[1:]...).Run()
-		}
-	}
-	exec.Command("iptables", "-t", "mangle", "-D", "PREROUTING", "-m", "mark", "--mark", "0xff", "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "RETURN").Run()
-	exec.Command("iptables", "-t", "mangle", "-I", "PREROUTING", "1", "-m", "mark", "--mark", "0xff", "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "RETURN").Run()
-	addMangle("-i", wgIface, "-s", wgServerCIDR, "-p", "tcp", "-j", "TPROXY", "--tproxy-mark", "0x"+tproxyFwmark+"/0xff", "--on-port", portStr)
-	addMangle("-i", wgIface, "-s", wgServerCIDR, "-p", "udp", "-j", "TPROXY", "--tproxy-mark", "0x"+tproxyFwmark+"/0xff", "--on-port", portStr)
-
-	exec.Command("ip", "rule", "del", "fwmark", tproxyFwmark, "lookup", xuiRouteTable).Run()
-	exec.Command("ip", "route", "flush", "table", xuiRouteTable).Run()
-	exec.Command("ip", "rule", "add", "fwmark", tproxyFwmark, "lookup", xuiRouteTable, "priority", "100").Run()
-	exec.Command("ip", "route", "add", "local", "default", "dev", "lo", "table", xuiRouteTable).Run()
-
-	for _, kv := range [][2]string{
-		{"net.ipv4.conf.all.rp_filter", "0"},
-		{"net.ipv4.ip_forward", "1"},
-		{fmt.Sprintf("net.ipv4.conf.%s.rp_filter", wgIface), "0"},
-		{fmt.Sprintf("net.ipv4.conf.%s.forwarding", wgIface), "1"},
-	} {
-		exec.Command("sysctl", "-w", kv[0]+"="+kv[1]).Run()
-	}
-
-	addNat := func(extra ...string) {
-		check := append([]string{"iptables", "-t", "nat", "-C", "POSTROUTING"}, extra...)
-		check = append(check, "-m", "comment", "--comment", "WDTT_MANAGED")
-		add := append([]string{"iptables", "-t", "nat", "-A", "POSTROUTING"}, extra...)
-		add = append(add, "-m", "comment", "--comment", "WDTT_MANAGED")
-		if exec.Command(check[0], check[1:]...).Run() != nil {
-			exec.Command(add[0], add[1:]...).Run()
-		}
-	}
-	addNat("-s", wgServerCIDR, "-p", "udp", "-j", "MASQUERADE")
-
-	exec.Command("iptables", "-I", "FORWARD", "1", "-i", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
-	exec.Command("iptables", "-I", "FORWARD", "1", "-o", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
-
-	natType = fmt.Sprintf("3x-ui TPROXY→xray %s ✅", cfg.Endpoint)
-	return nil
-}
-
-func stopRedsocks() {
-	if redsocksCmd != nil && redsocksCmd.Process != nil {
-		redsocksCmd.Process.Kill()
-		redsocksCmd.Wait()
-		redsocksCmd = nil
-	}
-	exec.Command("systemctl", "stop", "redsocks").Run()
-	exec.Command("systemctl", "disable", "redsocks").Run()
-	for i := 0; i < 5; i++ {
-		exec.Command("pkill", "redsocks").Run()
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
-func ensureRedsocksInstalled() error {
-	if commandExists("redsocks") {
-		return nil
-	}
-	log.Println("[XUI] Устанавливаю redsocks...")
-	out, err := runCmd("bash", "-c", "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq redsocks")
-	if err != nil {
-		return fmt.Errorf("apt install redsocks: %s", out)
-	}
-	if !commandExists("redsocks") {
-		return fmt.Errorf("redsocks не найден после установки")
-	}
-	return nil
-}
-
-func startXuiSocksEgress(cfg *XuiEgressConfig, configDir string) error {
-	stopRedsocks()
-	stopTproxyRelay()
-	tproxyPort := cfg.redirPort()
-	if runCmdSilent("bash", "-c", fmt.Sprintf("ss -lun sport = :%d", tproxyPort)) == "" {
-		return fmt.Errorf("xray TPROXY :%d не слушает", tproxyPort)
-	}
-	log.Printf("[XUI] xray TPROXY :%d (egress %s)", tproxyPort, cfg.Endpoint)
-	return nil
-}
-
-func cleanupXuiSocksRules(wgIface string, redirPort int) {
-	tcpPort := strconv.Itoa(redirPort)
-	if commandExists("iptables") {
-		for i := 0; i < 5; i++ {
-			exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-i", wgIface, "-s", wgServerCIDR, "-p", "tcp", "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "REDIRECT", "--to-port", tcpPort).Run()
-			exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", wgServerCIDR, "-p", "udp", "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "MASQUERADE").Run()
-			exec.Command("iptables", "-D", "INPUT", "-p", "tcp", "--dport", tcpPort, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
-			exec.Command("iptables", "-D", "FORWARD", "-i", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
-			exec.Command("iptables", "-D", "FORWARD", "-o", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
-		}
-	}
-	exec.Command("sysctl", "-w", "net.ipv4.conf.all.route_localnet=0").Run()
-}
-
-func setupXuiSocksNAT(wgIface string, cfg *XuiEgressConfig) error {
-	for _, kv := range [][2]string{
-		{fmt.Sprintf("net.ipv4.conf.%s.forwarding", wgIface), "1"},
-		{fmt.Sprintf("net.ipv4.conf.%s.rp_filter", wgIface), "0"},
-		{fmt.Sprintf("net.ipv4.conf.%s.src_valid_mark", wgIface), "1"},
-	} {
-		exec.Command("sysctl", "-w", kv[0]+"="+kv[1]).Run()
-	}
-	return setupXuiTproxyNAT(wgIface, cfg)
-}
-
-func cleanupXuiEgressRules(wgIface, xuiIface, clientIP string) {
-	if commandExists("iptables") {
-		for i := 0; i < 5; i++ {
-			exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", wgServerCIDR, "-o", xuiIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "MASQUERADE").Run()
-			exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", wgServerCIDR, "-o", xuiIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "SNAT", "--to-source", clientIP).Run()
-			exec.Command("iptables", "-D", "FORWARD", "-i", wgIface, "-o", xuiIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
-			exec.Command("iptables", "-D", "FORWARD", "-i", xuiIface, "-o", wgIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT").Run()
-		}
-	}
-	exec.Command("ip", "rule", "del", "from", wgServerCIDR, "lookup", xuiRouteTable).Run()
-	exec.Command("ip", "route", "flush", "table", xuiRouteTable).Run()
-}
-
-func removeDirectEgressNAT() {
-	extIface := getDefaultInterface()
-	if extIface == "" {
-		return
-	}
-	for i := 0; i < 5; i++ {
-		exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", wgServerCIDR, "-o", extIface, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "MASQUERADE").Run()
-	}
-}
-
-func setupXuiEgressNAT(wgIface, xuiIface, clientIP string) error {
-	cleanupXuiEgressRules(wgIface, xuiIface, clientIP)
-	removeDirectEgressNAT()
-
-	if !commandExists("iptables") {
-		natType = "XUI egress: нет iptables"
-		return fmt.Errorf("iptables не найден")
-	}
-
-	for _, args := range [][]string{
-		{"-i", wgIface, "-o", xuiIface},
-		{"-i", xuiIface, "-o", wgIface},
-	} {
-		check := append([]string{"iptables", "-C", "FORWARD"}, args...)
-		check = append(check, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT")
-		add := append([]string{"iptables", "-I", "FORWARD"}, args...)
-		add = append(add, "-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT")
-		if exec.Command(check[0], check[1:]...).Run() != nil {
-			exec.Command(add[0], add[1:]...).Run()
-		}
-	}
-
-	masqArgs := []string{
-		"iptables", "-t", "nat", "-C", "POSTROUTING",
-		"-s", wgServerCIDR, "-o", xuiIface,
-		"-m", "comment", "--comment", "WDTT_MANAGED",
-		"-j", "MASQUERADE",
-	}
-	if exec.Command(masqArgs[0], masqArgs[1:]...).Run() != nil {
-		exec.Command(
-			"iptables", "-t", "nat", "-A", "POSTROUTING",
-			"-s", wgServerCIDR, "-o", xuiIface,
-			"-m", "comment", "--comment", "WDTT_MANAGED",
-			"-j", "MASQUERADE",
-		).Run()
-	}
-
-	exec.Command("ip", "route", "flush", "table", xuiRouteTable).Run()
-	exec.Command("ip", "route", "add", "default", "dev", xuiIface, "table", xuiRouteTable).Run()
-	exec.Command("ip", "rule", "del", "from", wgServerCIDR, "lookup", xuiRouteTable).Run()
-	exec.Command("ip", "rule", "add", "from", wgServerCIDR, "lookup", xuiRouteTable, "priority", "100").Run()
-
-	natType = fmt.Sprintf("3x-ui %s via %s ✅", defaultXuiEndpoint, xuiIface)
-	return nil
-}
-
-func setupFullConeNAT(wgIface string, xuiCfg *XuiEgressConfig) error {
+func setupFullConeNAT(wgIface string) error {
 	log.Println("[NAT] ══════════════════════════════════════")
 
 	os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644)
-
-	if xuiCfg != nil && xuiCfg.Enabled {
-		log.Printf("[NAT] Выход через 3x-ui (%s): %s", xuiCfg.Mode, xuiCfg.Endpoint)
-		var err error
-		if xuiCfg.isSocks() {
-			cleanupXuiEgressRules(wgIface, xuiIfaceName, xuiCfg.clientIP())
-			runCmdSilent("ip", "link", "del", xuiIfaceName)
-			err = setupXuiSocksNAT(wgIface, xuiCfg)
-		} else {
-			cleanupXuiTproxyRules(wgIface, xuiCfg.redirPort())
-			cleanupXuiSocksRules(wgIface, xuiCfg.redirPort())
-			stopTproxyRelay()
-			stopRedsocks()
-			setupForwardRules(wgIface)
-			err = setupXuiEgressNAT(wgIface, xuiIfaceName, xuiCfg.clientIP())
-		}
-		if err != nil {
-			log.Printf("[NAT] WARNING: %v — fallback на прямой выход", err)
-		} else {
-			log.Printf("[NAT] Режим: %s", natType)
-			log.Println("[NAT] ══════════════════════════════════════")
-			return nil
-		}
-	}
 
 	setupForwardRules(wgIface)
 	extIface := getDefaultInterface()
@@ -1922,67 +1501,7 @@ func setupForwardRules(wgIface string) {
 
 // ==================== WireGuard ====================
 
-func writeXuiKernelConf(cfg *XuiEgressConfig) (string, error) {
-	pskLine := ""
-	if cfg.PresharedKey != "" {
-		pskLine = fmt.Sprintf("PresharedKey = %s\n", cfg.PresharedKey)
-	}
-	content := fmt.Sprintf(`[Interface]
-PrivateKey = %s
-
-[Peer]
-PublicKey = %s
-%sEndpoint = %s
-AllowedIPs = 0.0.0.0/0, ::/0
-PersistentKeepalive = %d
-`, cfg.PrivateKey, cfg.PeerPublicKey, pskLine, cfg.Endpoint, keepalive)
-
-	path := filepath.Join(os.TempDir(), "wdtt-xui-kernel.conf")
-	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func startXuiEgressClient(cfg *XuiEgressConfig) error {
-	if !commandExists("wg") {
-		return fmt.Errorf("wg не найден")
-	}
-
-	runCmdSilent("ip", "link", "del", xuiIfaceName)
-	time.Sleep(100 * time.Millisecond)
-
-	confPath, err := writeXuiKernelConf(cfg)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(confPath)
-
-	if out, err := runCmd("ip", "link", "add", xuiIfaceName, "type", "wireguard"); err != nil {
-		return fmt.Errorf("ip link add: %s", out)
-	}
-	if out, err := runCmd("wg", "setconf", xuiIfaceName, confPath); err != nil {
-		runCmdSilent("ip", "link", "del", xuiIfaceName)
-		return fmt.Errorf("wg setconf: %s", out)
-	}
-
-	for _, cmd := range [][]string{
-		{"ip", "addr", "add", cfg.Address, "dev", xuiIfaceName},
-		{"ip", "link", "set", "mtu", fmt.Sprintf("%d", xuiMTU), "dev", xuiIfaceName},
-		{"ip", "link", "set", xuiIfaceName, "up"},
-	} {
-		out, err := runCmd(cmd[0], cmd[1:]...)
-		if err != nil && !strings.Contains(out, "File exists") {
-			runCmdSilent("ip", "link", "del", xuiIfaceName)
-			return fmt.Errorf("%s: %s", strings.Join(cmd, " "), out)
-		}
-	}
-
-	log.Printf("[XUI] WG-клиент %s → %s (%s)", xuiIfaceName, cfg.Endpoint, cfg.Address)
-	return nil
-}
-
-func startUserspaceWG(keys *wgKeys, wgPort int, xuiCfg *XuiEgressConfig) (*device.Device, error) {
+func startUserspaceWG(keys *wgKeys, wgPort int) (*device.Device, error) {
 	runCmdSilent("ip", "link", "del", wgIfaceName)
 	time.Sleep(100 * time.Millisecond)
 
@@ -2028,7 +1547,7 @@ func startUserspaceWG(keys *wgKeys, wgPort int, xuiCfg *XuiEgressConfig) (*devic
 		return nil, err
 	}
 
-	if err := setupFullConeNAT(ifaceName, xuiCfg); err != nil {
+	if err := setupFullConeNAT(ifaceName); err != nil {
 		dev.Close()
 		return nil, err
 	}
@@ -2082,7 +1601,7 @@ PublicKey = %s
 AllowedIPs = 0.0.0.0/0
 Endpoint = 127.0.0.1:%s
 PersistentKeepalive = %d`,
-		clientPrivate, clientIP, dns, wgMTU,
+		clientPrivate, clientIP, clientDNS, wgMTU,
 		serverPublic, clientPort, keepalive,
 	)
 }
@@ -2116,6 +1635,8 @@ func main() {
 	}()
 
 	initDB(*configDir, *mainPass, *adminID, *botToken)
+	loadInboundSettings(*configDir)
+	log.Printf("[CFG] DNS клиентов: %s, лимит активных: %d", clientDNS, maxGeneratedPasswords)
 
 	keys, err := loadOrGenerateKeys(*configDir)
 	if err != nil {
@@ -2124,35 +1645,8 @@ func main() {
 
 	enableBBR()
 
-	xuiCfg := loadXuiEgressConfig(*configDir)
-	xuiEgressEnabled := false
-	if xuiCfg != nil {
-		var startErr error
-		if xuiCfg.isSocks() {
-			startErr = startXuiSocksEgress(xuiCfg, *configDir)
-		} else {
-			startErr = startXuiEgressClient(xuiCfg)
-		}
-		if startErr != nil {
-			log.Printf("[XUI] Не удалось подключиться к 3x-ui: %v — прямой выход", startErr)
-			xuiCfg = nil
-		} else {
-			xuiEgressEnabled = true
-		}
-	}
-
-	wgDev, err := startUserspaceWG(keys, *wgPort, xuiCfg)
+	wgDev, err := startUserspaceWG(keys, *wgPort)
 	if err != nil {
-		if xuiEgressEnabled && xuiCfg != nil {
-			if xuiCfg.isSocks() {
-				stopTproxyRelay()
-				stopRedsocks()
-				cleanupXuiTproxyRules(wgIfaceName, xuiCfg.redirPort())
-				cleanupXuiSocksRules(wgIfaceName, xuiCfg.redirPort())
-			} else {
-				runCmdSilent("ip", "link", "del", xuiIfaceName)
-			}
-		}
 		log.Fatalf("[WG] Запуск: %v", err)
 	}
 	if n := suspendExpiredPasswords(wgDev); n > 0 {
@@ -2164,17 +1658,6 @@ func main() {
 		resetTcOnIface(wgIfaceName)
 		wgDev.Close()
 		runCmdSilent("ip", "link", "del", wgIfaceName)
-		if xuiEgressEnabled && xuiCfg != nil {
-			if xuiCfg.isSocks() {
-				stopTproxyRelay()
-				stopRedsocks()
-				cleanupXuiTproxyRules(wgIfaceName, xuiCfg.redirPort())
-				cleanupXuiSocksRules(wgIfaceName, xuiCfg.redirPort())
-			} else {
-				cleanupXuiEgressRules(wgIfaceName, xuiIfaceName, xuiCfg.clientIP())
-				runCmdSilent("ip", "link", "del", xuiIfaceName)
-			}
-		}
 	}()
 
 	go statsLoop(ctx, *configDir)
@@ -2288,20 +1771,21 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			clientConn.Write([]byte("DENIED:deactivated"))
 			log.Printf("[WG] Отказ: пароль %s деактивирован, запрос от %s", maskPassword(password), deviceID)
 			dbMutex.Unlock()
-		} else if valid && isGenPass && entry.DeviceID != "" && entry.DeviceID != deviceID {
-			// Пароль уже привязан к другому устройству
+		} else if valid && isGenPass && !entryCanAcceptDevice(entry, deviceID) {
 			clientConn.Write([]byte("DENIED:device_mismatch"))
-			log.Printf("[WG] Отказ: пароль %s привязан к %s, запрос от %s", maskPassword(password), entry.DeviceID, deviceID)
+			log.Printf("[WG] Отказ: пароль %s — лимит устройств %d/%d, запрос от %s",
+				maskPassword(password), len(allEntryDeviceIDs(entry)), entryMaxDevices(entry), deviceID)
 			dbMutex.Unlock()
 		} else if valid {
 			connPassword = password
 			connIsMainPass = isMainPass
 
-			// Привязываем пароль к устройству при первом использовании
-			if isGenPass && entry.DeviceID == "" {
-				entry.DeviceID = deviceID
-				saveDB()
-				log.Printf("[WG] Пароль %s привязан к устройству %s", maskPassword(password), deviceID)
+			if isGenPass && !entryHasDevice(entry, deviceID) {
+				if bindDeviceToEntry(entry, deviceID) {
+					saveDB()
+					log.Printf("[WG] Пароль %s привязан к %s (%d/%d)",
+						maskPassword(password), deviceID, len(entry.DeviceIDs), entryMaxDevices(entry))
+				}
 			}
 
 			dev, exists := db.Devices[deviceID]

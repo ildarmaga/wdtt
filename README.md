@@ -1,12 +1,21 @@
 # WDTT
 
-Монорепозиторий: **VPN-сервер** + **веб-панель** для VPS.
+VPN на VPS: **DTLS + WireGuard** (userspace) с веб-панелью и опциональным **Xray**-маршрутизатором.
 
 ```
 wdtt/
-├── server.go, deploy.sh, build.sh   # wdtt-server
-└── panel/                           # wdtt-panel (3x-ui style)
+├── server.go, devices.go, deploy.sh   # wdtt-server
+├── panel/                             # wdtt-panel (UI в стиле 3x-ui)
+└── docs/API.md                        # REST API панели
 ```
+
+## Происхождение
+
+Серверная часть основана на проекте **[proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android)** (автор [amurcanov](https://github.com/amurcanov)) — WireGuard-туннель через DTLS-медиарелей ВК.
+
+WDTT расширяет upstream: мультипользователи, панель, Xray, ссылки `wdtt://`, Telegram-бот, установщик.
+
+Подробности: **[CREDITS.md](CREDITS.md)**
 
 ## Быстрая установка
 
@@ -14,39 +23,44 @@ wdtt/
 bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/install.sh) install -p YOUR_PASSWORD --xray --panel
 ```
 
-## Сборка вручную
-
-```bash
-# Сервер
-./build.sh amd64
-sudo install -m 0755 wdtt-server-linux-amd64 /usr/local/bin/wdtt-server
-
-# Панель
-chmod +x panel/build.sh
-./panel/build.sh /usr/local/bin/wdtt-panel
-
-# Деплой сервера
-sudo bash deploy.sh install
-```
+Панель: `http://IP:2860/wdtt/` — `admin` / `wdtt`
 
 ## Компоненты
 
-### wdtt-server (корень репозитория)
+| Компонент | Описание |
+|-----------|----------|
+| **wdtt-server** | DTLS `:56000`, WG `wdtt0` (`10.66.66.0/24`), пароли, лимиты |
+| **wdtt-panel** | Дашборд, подключения, пользователи, Xray, настройки |
+| **wdtt-xray** | Redirect трафика `wdtt0` → outbound (NL, warp…) |
 
-- DTLS `:56000/udp`, WireGuard `wdtt0` (`10.66.66.0/24`)
-- Пароли, лимиты трафика, Telegram-бот
-- Конфиг: `/etc/wdtt/passwords.json`
+Конфиг: `/etc/wdtt/`, `/etc/wdtt-xray/config.json`
 
-### wdtt-panel (`panel/`)
+## Сборка
 
-- Дашборд, пользователи, настройки Xray
-- Порт `2860`, путь `/wdtt/`
-- Логин по умолчанию: `admin` / `wdtt`
+```bash
+./build.sh amd64
+sudo install -m 0755 wdtt-server-linux-amd64 /usr/local/bin/wdtt-server
 
-## Установщик
+chmod +x panel/build.sh
+./panel/build.sh /usr/local/bin/wdtt-panel
+```
 
-Отдельный репозиторий [wdtt-install](https://github.com/ildarmaga/wdtt-install) — одна строка для VPS + Xray + панель.
+## API панели
+
+Документация: **[docs/API.md](docs/API.md)**
+
+- Аутентификация через cookie сессии
+- Пользователи, inbound, сервисы, Xray
+- Формат ссылок `wdtt://base64(JSON)`
+
+## Репозитории
+
+| Репозиторий | Назначение |
+|-------------|------------|
+| [ildarmaga/wdtt](https://github.com/ildarmaga/wdtt) | Сервер + панель (этот репо) |
+| [ildarmaga/wdtt-install](https://github.com/ildarmaga/wdtt-install) | Установщик одной строкой |
+| [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Исходный VPN-протокол |
 
 ## Лицензия
 
-См. [LICENSE](LICENSE).
+[GNU GPL v3](LICENSE) — как upstream [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android).

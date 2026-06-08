@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -309,13 +310,22 @@ func patchWdttXrayService() {
 	}
 	content := string(data)
 	newContent := content
+	if strings.Contains(newContent, "PartOf=wdtt.service") {
+		newContent = strings.ReplaceAll(newContent, "PartOf=wdtt.service", "BindsTo=wdtt.service")
+	}
+	if !strings.Contains(newContent, "BindsTo=wdtt.service") && strings.Contains(newContent, "Requires=wdtt.service") {
+		newContent = strings.Replace(newContent,
+			"Requires=wdtt.service\n",
+			"Requires=wdtt.service\nBindsTo=wdtt.service\n", 1)
+	}
 	if !strings.Contains(newContent, "WorkingDirectory="+xrayLogDir) {
 		newContent = strings.Replace(newContent,
 			"LimitNOFILE=65535\n",
 			"LimitNOFILE=65535\nWorkingDirectory="+xrayLogDir+"\n", 1)
 	}
 	if newContent != content {
-		os.WriteFile(unit, []byte(newContent), 0644)
+		_ = os.WriteFile(unit, []byte(newContent), 0644)
 		runCmd("systemctl", "daemon-reload")
+		log.Printf("wdtt-xray.service обновлён (BindsTo=wdtt.service)")
 	}
 }

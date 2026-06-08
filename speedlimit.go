@@ -106,26 +106,24 @@ func applyClientSpeedLimits(iface, ip string, downMBps, upMBps float64) {
 	}
 }
 
-func speedLimitIPForEntry(entry *PasswordEntry) string {
-	if entry == nil || entry.DeviceID == "" {
-		return ""
+func speedLimitIPsForEntry(entry *PasswordEntry) []string {
+	ips := make([]string, 0)
+	for _, devID := range allEntryDeviceIDs(entry) {
+		dev, ok := db.Devices[devID]
+		if ok && dev != nil && dev.IP != "" {
+			ips = append(ips, dev.IP)
+		}
 	}
-	dev, ok := db.Devices[entry.DeviceID]
-	if !ok || dev == nil || dev.IP == "" {
-		return ""
-	}
-	return dev.IP
+	return ips
 }
 
 func applySpeedLimitForEntryUnlocked(entry *PasswordEntry) {
 	if entry == nil {
 		return
 	}
-	ip := speedLimitIPForEntry(entry)
-	if ip == "" {
-		return
+	for _, ip := range speedLimitIPsForEntry(entry) {
+		applyClientSpeedLimits(wgIfaceName, ip, entry.MaxDownMBps, entry.MaxUpMBps)
 	}
-	applyClientSpeedLimits(wgIfaceName, ip, entry.MaxDownMBps, entry.MaxUpMBps)
 }
 
 func applySpeedLimitForPassword(password string) {
@@ -170,10 +168,8 @@ func syncAllSpeedLimits() {
 		if entry.MaxDownMBps <= 0 && entry.MaxUpMBps <= 0 {
 			continue
 		}
-		ip := speedLimitIPForEntry(entry)
-		if ip == "" {
-			continue
+		for _, ip := range speedLimitIPsForEntry(entry) {
+			applyClientSpeedLimits(wgIfaceName, ip, entry.MaxDownMBps, entry.MaxUpMBps)
 		}
-		applyClientSpeedLimits(wgIfaceName, ip, entry.MaxDownMBps, entry.MaxUpMBps)
 	}
 }

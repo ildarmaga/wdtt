@@ -53,7 +53,13 @@
                     <code>[[ text ]]</code>
                   </span>
                   <span slot="comment" slot-scope="text">[[ text || '—' ]]</span>
-                  <span slot="device" slot-scope="text">[[ text || '—' ]]</span>
+                  <span slot="device" slot-scope="_, row">
+                    <span v-if="row.is_main">[[ row.device_id || '—' ]]</span>
+                    <span v-else>
+                      <a-tag color="blue">[[ row.devices_bound || 0 ]]/[[ row.max_devices || 1 ]]</a-tag>
+                      <div v-if="row.device_id" class="text-muted" style="font-size:11px;margin-top:2px">[[ row.device_id ]]</div>
+                    </span>
+                  </span>
                   <span slot="active" slot-scope="active">
                     <a-tag :color="active ? 'green' : 'red'">[[ active ? 'активен' : 'выкл' ]]</a-tag>
                   </span>
@@ -73,6 +79,12 @@
                     </div>
                   </span>
                   <span slot="action" slot-scope="_, row">
+                    <a-tooltip title="Копировать ссылку">
+                      <a-button size="small" icon="link" @click="copyUserLink(row)" style="margin-right:6px"></a-button>
+                    </a-tooltip>
+                    <a-tooltip title="QR и ссылка">
+                      <a-button size="small" icon="qrcode" @click="openShareModal(row)" style="margin-right:6px"></a-button>
+                    </a-tooltip>
                     <a-button size="small" icon="edit" @click="openEditModal(row)" style="margin-right:6px"></a-button>
                     <a-button v-if="!row.is_main" type="danger" size="small" icon="delete" @click="delUser(row.password)"></a-button>
                   </span>
@@ -98,6 +110,8 @@
   .user-conn-table tr:nth-child(odd) td { background: rgba(255,255,255,.03); }
 </style>
 {{ template "page/body_scripts" . }}
+<script src="{{ .base_path }}assets/qrcode/qrious2.min.js?{{ .cur_ver }}"></script>
+<script src="{{ .base_path }}assets/js/wdtt-share.js?{{ .cur_ver }}"></script>
 {{ template "component/aThemeSwitch" . }}
 {{ template "component/wdttSidebar" . }}
 {{ template "modals/wdttUserModal" . }}
@@ -112,18 +126,19 @@
       showAlert: false,
       users: [],
       serverIp: '',
+      inbound: { dtls_port: 56000, wg_port: 56001, client_port: 9000 },
       isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true",
       refreshing: false,
       refreshInterval: Number(localStorage.getItem("refreshInterval")) || 5000,
       userCols: [
         { title: 'Пароль', dataIndex: 'password', scopedSlots: { customRender: 'password' } },
         { title: 'Комментарий', dataIndex: 'comment', scopedSlots: { customRender: 'comment' } },
-        { title: 'Устройство', dataIndex: 'device_id', scopedSlots: { customRender: 'device' } },
+        { title: 'Устройства', scopedSlots: { customRender: 'device' } },
         { title: 'Срок', dataIndex: 'expires' },
         { title: 'Статус', dataIndex: 'active', scopedSlots: { customRender: 'active' } },
         { title: '{{ i18n "online" }}', dataIndex: 'online', scopedSlots: { customRender: 'online' }, width: 90, align: 'center' },
         { title: 'Трафик', scopedSlots: { customRender: 'traffic' } },
-        { title: '', scopedSlots: { customRender: 'action' }, width: 100 },
+        { title: '', scopedSlots: { customRender: 'action' }, width: 165 },
       ],
     },
     async mounted() {
@@ -146,10 +161,18 @@
         if (ok) this.$message.success(msg); else this.$message.error(msg);
       },
       openAddModal() {
-        userModal.showAdd(this.serverIp);
+        userModal.showAdd(this.serverIp, this.inbound);
       },
       openEditModal(row) {
-        userModal.showEdit(row, this.serverIp);
+        userModal.showEdit(row, this.serverIp, this.inbound);
+      },
+      openShareModal(row) {
+        userModal.showLink(row, this.serverIp, this.inbound);
+      },
+      copyUserLink(row) {
+        const self = this;
+        wdttCopyLink(row.link, () => self.toast('Ссылка скопирована: ' + row.password, true),
+          (msg) => self.toast(msg || 'Ссылка недоступна', false));
       },
       trafficColor(row) {
         if (!row.total_gb) return 'purple';
@@ -179,6 +202,9 @@
           return;
         }
         this.users = msg.obj.users || [];
+        if (msg.obj.inbound) {
+          this.inbound = msg.obj.inbound;
+        }
         if (!this.loadingStates.fetched) {
           this.loadingStates.fetched = true;
         }

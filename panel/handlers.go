@@ -58,13 +58,20 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 500)
 		return
 	}
+	inbound, _ := loadWdttInbound()
+	serverIP := a.serverIP()
 	stats := loadServerStats()
-	users := []map[string]interface{}{mainUserRow(db, stats)}
+	users := []map[string]interface{}{mainUserRow(db, stats, inbound, serverIP)}
 	for pass, entry := range db.Passwords {
 		used := trafficUsed(entry)
+		dtlsPort, wgPort, clientPort := resolveUserPorts(entry, inbound)
+		normalizeEntryDevices(entry)
 		u := map[string]interface{}{
 			"password":           pass,
-			"device_id":          entry.DeviceID,
+			"device_id":          deviceIDsDisplay(entry),
+			"device_ids":         entry.DeviceIDs,
+			"devices_bound":      len(entry.DeviceIDs),
+			"max_devices":        entryMaxDevices(entry),
 			"comment":            entry.Comment,
 			"expires_at":         entry.ExpiresAt,
 			"expires":            passwordExpiry(entry),
@@ -80,7 +87,13 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			"traffic_used_fmt":   formatBytes(used),
 			"traffic_exceeded":   trafficExceeded(entry),
 			"active":             !entry.IsDeactivated && !isPasswordExpired(entry),
-			"online":             userOnlineFromStats(pass, entry.DeviceID, false, stats),
+			"online":             userOnlineFromStats(pass, deviceIDsDisplay(entry), false, stats),
+			"ports":              entry.Ports,
+			"dtls_port":          dtlsPort,
+			"wg_port":            wgPort,
+			"client_port":        clientPort,
+			"link":               buildWdttLink(serverIP, pass, entry.VkHash, entry, inbound),
+			"vk_hash":            entry.VkHash,
 		}
 		users = append(users, u)
 	}
@@ -93,20 +106,38 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOK(w, map[string]interface{}{
 		"main_password": db.MainPassword,
-		"users": users,
-		"devices": devices,
+		"users":         users,
+		"devices":       devices,
+		"inbound": map[string]interface{}{
+			"tag":         inbound.Tag,
+			"remark":      inbound.Remark,
+			"listen_host": inbound.ListenHost,
+			"server_host": inbound.ServerHost,
+			"dtls_port":   inbound.DtlsPort,
+			"wg_port":     inbound.WgPort,
+			"client_port": inbound.ClientPort,
+			"dns":         inbound.DNS,
+			"max_users":   inbound.MaxUsers,
+		},
 	})
 }
 
 type userAPIReq struct {
-	Password    string  `json:"password"`
-	DeviceID    string  `json:"device_id"`
+	Password    string   `json:"password"`
+	DeviceID    string   `json:"device_id"`
+	DeviceIDs   []string `json:"device_ids"`
+	MaxDevices  int      `json:"max_devices"`
 	Comment     string  `json:"comment"`
 	ExpiresAt   int64   `json:"expires_at"`
 	TotalGB     float64 `json:"total_gb"`
 	MaxDownMBps float64 `json:"max_down_mbps"`
 	MaxUpMBps   float64 `json:"max_up_mbps"`
 	Active      *bool   `json:"active"`
+	Ports       string  `json:"ports"`
+	DtlsPort    int     `json:"dtls_port"`
+	WgPort      int     `json:"wg_port"`
+	ClientPort  int     `json:"client_port"`
+	UseCustomPorts bool `json:"use_custom_ports"`
 	Count       int     `json:"count"`
 }
 
@@ -115,15 +146,36 @@ func passwordEntryFromReq(req userAPIReq) *PasswordEntry {
 	if req.Active != nil {
 		active = *req.Active
 	}
-	return &PasswordEntry{
-		DeviceID:      strings.TrimSpace(req.DeviceID),
+	entry := &PasswordEntry{
 		Comment:       strings.TrimSpace(req.Comment),
 		ExpiresAt:     req.ExpiresAt,
 		TotalBytes:    gbToBytes(req.TotalGB),
 		MaxDownMBps:   req.MaxDownMBps,
 		MaxUpMBps:     req.MaxUpMBps,
 		IsDeactivated: !active,
+		Ports:         portsFromReq(req),
+		MaxDevices:    req.MaxDevices,
 	}
+	if len(req.DeviceIDs) > 0 {
+		entry.DeviceIDs = append([]string(nil), req.DeviceIDs...)
+	} else if id := strings.TrimSpace(req.DeviceID); id != "" {
+		entry.DeviceIDs = []string{id}
+	}
+	normalizeEntryDevices(entry)
+	return entry
+}
+
+func portsFromReq(req userAPIReq) string {
+	if req.Ports != "" {
+		return strings.TrimSpace(req.Ports)
+	}
+	if !req.UseCustomPorts {
+		return ""
+	}
+	if req.DtlsPort > 0 && req.WgPort > 0 && req.ClientPort > 0 {
+		return strconv.Itoa(req.DtlsPort) + "," + strconv.Itoa(req.WgPort) + "," + strconv.Itoa(req.ClientPort)
+	}
+	return ""
 }
 
 func (a *App) handleUserAdd(w http.ResponseWriter, r *http.Request) {
@@ -227,10 +279,23 @@ func (a *App) handleService(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch parts[1] {
 	case "restart":
-		err = serviceRestart(svc)
+		if svc == wdttServiceUnit {
+			err = restartWdttWithDeps()
+		} else if svc == xrayServiceUnit {
+			markXrayAutoManaged()
+			err = serviceRestart(svc)
+		} else {
+			err = serviceRestart(svc)
+		}
 	case "stop":
+		if svc == xrayServiceUnit {
+			markXrayManuallyStopped()
+		}
 		err = serviceStop(svc)
 	case "start":
+		if svc == xrayServiceUnit {
+			markXrayAutoManaged()
+		}
 		err = serviceStart(svc)
 	default:
 		jsonError(w, "неизвестное действие", 400)

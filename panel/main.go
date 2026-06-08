@@ -48,6 +48,7 @@ func main() {
 	// Panel pages
 	mux.HandleFunc(base+"panel/", app.serveDashboard)
 	mux.HandleFunc(base+"panel/users", app.serveUsersPage)
+	mux.HandleFunc(base+"panel/connections", app.serveConnectionsPage)
 	mux.HandleFunc(base+"panel/xray", app.serveXrayPage)
 	mux.HandleFunc(base+"panel/settings", app.serveSettingsPage)
 
@@ -66,6 +67,8 @@ func main() {
 	// API (auth required)
 	api := base + "panel/api/"
 	mux.HandleFunc(api+"status", app.requireAuth(app.handleStatus))
+	mux.HandleFunc(api+"inbound", app.requireAuth(app.handleInboundGet))
+	mux.HandleFunc(api+"inbound/save", app.requireAuth(app.handleInboundSave))
 	mux.HandleFunc(api+"users", app.requireAuth(app.handleUsersList))
 	mux.HandleFunc(api+"users/add", app.requireAuth(app.handleUserAdd))
 	mux.HandleFunc(api+"users/update", app.requireAuth(app.handleUserUpdate))
