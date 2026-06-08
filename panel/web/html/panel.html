@@ -1,0 +1,201 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' index-page'">
+  <wdtt-sidebar></wdtt-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loading" tip="Загрузка..." size="large">
+        <!-- Dashboard -->
+        <div v-if="page === 'dashboard'">
+          <a-row :gutter="[16, 16]">
+            <a-col :xs="24" :sm="12" :lg="8" v-for="card in dashCards" :key="card.label">
+              <a-card hoverable>
+                <a-statistic :title="card.label" :value="card.value" :suffix="card.suffix">
+                  <template #prefix v-if="card.dot">
+                    <a-badge :status="card.dot" />
+                  </template>
+                </a-statistic>
+                <div class="text-muted" style="margin-top:4px;font-size:12px" v-text="card.sub"></div>
+              </a-card>
+            </a-col>
+          </a-row>
+          <a-card title="Сервисы" style="margin-top:16px" hoverable>
+            <a-space wrap>
+              <a-button icon="reload" @click="svc('wdtt','restart')">WDTT restart</a-button>
+              <a-button icon="reload" @click="svc('xray','restart')">Xray restart</a-button>
+              <a-button type="danger" icon="poweroff" @click="svc('wdtt','stop')">WDTT stop</a-button>
+              <a-button type="danger" icon="poweroff" @click="svc('xray','stop')">Xray stop</a-button>
+            </a-space>
+          </a-card>
+          <a-card title="Онлайн" style="margin-top:16px" hoverable>
+            <a-list v-if="online.length" :data-source="online" size="small">
+              <a-list-item slot="renderItem" slot-scope="item">
+                [[ item.user ]] · [[ item.device_id ]] · [[ item.ip ]] · сессий: [[ item.sessions ]]
+              </a-list-item>
+            </a-list>
+            <span v-else class="text-muted">никого онлайн</span>
+          </a-card>
+        </div>
+
+        <!-- Users -->
+        <div v-if="page === 'users'">
+          <a-card title="Главный пароль (iPhone / владелец)" style="margin-bottom:16px" hoverable>
+            <a-input v-model="mainPassword" style="max-width:320px;margin-right:8px"></a-input>
+            <a-button type="primary" @click="saveMainPass">Сохранить</a-button>
+          </a-card>
+          <a-card title="Дополнительные пароли" hoverable>
+            <a-button type="primary" icon="plus" @click="addUser" style="margin-bottom:12px">Добавить</a-button>
+            <a-table :columns="userCols" :data-source="users" :pagination="false" row-key="password" size="middle">
+              <span slot="password" slot-scope="text"><code>[[ text ]]</code></span>
+              <span slot="traffic" slot-scope="_, row">↑[[ row.up ]] ↓[[ row.down ]]</span>
+              <span slot="action" slot-scope="_, row">
+                <a-button type="danger" size="small" icon="delete" @click="delUser(row.password)"></a-button>
+              </span>
+            </a-table>
+          </a-card>
+        </div>
+
+        <!-- Settings -->
+        <div v-if="page === 'settings'">
+          <a-card title="Настройки панели" hoverable>
+            <a-form layout="vertical" style="max-width:400px">
+              <a-form-item label="Новый логин"><a-input v-model="newUser"></a-input></a-form-item>
+              <a-form-item label="Текущий пароль"><a-input-password v-model="oldPanelPass"></a-input-password></a-form-item>
+              <a-form-item label="Новый пароль"><a-input-password v-model="newPanelPass"></a-input-password></a-form-item>
+              <a-button type="primary" @click="savePanelPass">Сохранить</a-button>
+            </a-form>
+          </a-card>
+        </div>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+</a-layout>
+<style>
+  .text-muted { color: rgba(0,0,0,.45); }
+  body.dark .text-muted { color: rgba(255,255,255,.45); }
+</style>
+{{ template "page/body_scripts" . }}
+{{ template "component/aThemeSwitch" . }}
+{{ template "component/wdttSidebar" . }}
+<script>
+  const app = new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#app',
+    data: {
+      themeSwitcher,
+      page: '{{ .page }}',
+      loading: false,
+      dashCards: [],
+      online: [],
+      mainPassword: '',
+      users: [],
+      userCols: [
+        { title: 'Пароль', dataIndex: 'password', scopedSlots: { customRender: 'password' } },
+        { title: 'Устройство', dataIndex: 'device_id' },
+        { title: 'Срок', dataIndex: 'expires' },
+        { title: 'Трафик', scopedSlots: { customRender: 'traffic' } },
+        { title: '', scopedSlots: { customRender: 'action' }, width: 60 },
+      ],
+      newUser: '',
+      oldPanelPass: '',
+      newPanelPass: '',
+      refreshTimer: null,
+    },
+    async mounted() {
+      await this.loadPage();
+      if (this.page === 'dashboard') {
+        this.refreshTimer = setInterval(() => this.loadDashboard(), 10000);
+      }
+    },
+    beforeDestroy() {
+      if (this.refreshTimer) clearInterval(this.refreshTimer);
+    },
+    methods: {
+      async loadPage() {
+        if (this.page === 'dashboard') await this.loadDashboard();
+        if (this.page === 'users') await this.loadUsers();
+      },
+      toast(msg, ok) {
+        if (ok) this.$message.success(msg); else this.$message.error(msg);
+      },
+      async api(path, opts = {}) {
+        const msg = await HttpUtil.post('/panel/api/' + path.replace(/^\//, ''), opts.body || {});
+        if (!msg) return null;
+        return msg;
+      },
+      async apiGet(path) {
+        const res = await axios.get('panel/api/' + path.replace(/^\//, ''));
+        return res.data;
+      },
+      async loadDashboard() {
+        this.loading = true;
+        const msg = await this.apiGet('status');
+        this.loading = false;
+        if (!msg?.success) return;
+        const o = msg.obj, s = o.stats || {};
+        this.dashCards = [
+          { label: 'WDTT', value: o.wdtt_active ? 'ON' : 'OFF', dot: o.wdtt_active ? 'success' : 'error', sub: o.wdtt_iface || '—' },
+          { label: 'Xray WDTT', value: o.xray_active ? 'ON' : 'OFF', dot: o.xray_active ? 'success' : 'error', sub: o.xray_version || '—' },
+          { label: 'Онлайн', value: s.active_users || 0, sub: 'сессий: ' + (s.sessions || 0) },
+          { label: 'Трафик ↓', value: s.down_gb || '0', suffix: 'GB', sub: '↑ ' + (s.up_gb || '0') + ' GB' },
+          { label: 'IP сервера', value: o.server_ip || '—', sub: 'пароль: ' + (o.main_password || '—') },
+          { label: 'NAT', value: (s.nat || '—').slice(0, 24), sub: 'uptime: ' + (s.uptime || '—') },
+        ];
+        this.online = s.online || [];
+      },
+      async svc(name, action) {
+        const res = await fetch(basePath + 'panel/api/service/' + name + '/' + action, { method: 'POST' });
+        const msg = await res.json();
+        this.toast(name + ' ' + action + (msg.success ? ' OK' : ' FAIL'), msg.success);
+        if (msg.success && this.page === 'dashboard') this.loadDashboard();
+      },
+      async loadUsers() {
+        const msg = await this.apiGet('users');
+        if (!msg?.success) return;
+        this.mainPassword = msg.obj.main_password || '';
+        this.users = msg.obj.users || [];
+      },
+      async saveMainPass() {
+        const res = await fetch(basePath + 'panel/api/password/main', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ password: this.mainPassword })
+        });
+        const msg = await res.json();
+        this.toast(msg.success ? 'Пароль сохранён' : (msg.msg || 'ошибка'), msg.success);
+      },
+      async addUser() {
+        const res = await fetch(basePath + 'panel/api/users/add', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ count: 1 })
+        });
+        const msg = await res.json();
+        if (msg.success) { this.toast('Создан: ' + msg.obj.passwords.join(', '), true); this.loadUsers(); }
+        else this.toast(msg.msg || 'ошибка', false);
+      },
+      async delUser(pass) {
+        if (!confirm('Удалить пароль ' + pass + '?')) return;
+        const res = await fetch(basePath + 'panel/api/users/delete', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ password: pass })
+        });
+        const msg = await res.json();
+        if (msg.success) { this.toast('Удалён', true); this.loadUsers(); }
+        else this.toast(msg.msg || 'ошибка', false);
+      },
+      async savePanelPass() {
+        const res = await fetch(basePath + 'panel/api/password/panel', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            old_password: this.oldPanelPass,
+            new_password: this.newPanelPass,
+            new_username: this.newUser,
+          })
+        });
+        const msg = await res.json();
+        this.toast(msg.success ? 'Сохранено' : (msg.msg || 'ошибка'), msg.success);
+      },
+    },
+  });
+</script>
+{{ template "page/body_end" .}}

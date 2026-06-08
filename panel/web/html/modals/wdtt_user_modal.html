@@ -1,0 +1,299 @@
+{{define "modals/wdttUserModal"}}
+<a-modal id="user-modal" v-model="userModal.visible"
+  :title="userModal.isMain ? 'Главный пароль' : (userModal.isEdit ? 'Редактировать пользователя' : 'Добавить пользователя')"
+  :confirm-loading="userModal.saving" :closable="true" :mask-closable="false"
+  :class="themeSwitcher.currentTheme" ok-text="Сохранить" cancel-text="Закрыть"
+  @ok="userModal.save" width="720px">
+  <a-tabs default-active-key="main" :class="themeSwitcher.currentTheme">
+    <a-tab-pane key="main" tab="Основное">
+      <a-form layout="horizontal" :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+        <a-form-item v-if="!userModal.isMain" label="Активен">
+          <a-switch v-model="userForm.active"></a-switch>
+        </a-form-item>
+        <a-form-item>
+          <template slot="label">
+            Пароль
+            <a-icon type="sync" @click="regenPassword" v-if="!userModal.isEdit && !userModal.isMain"></a-icon>
+          </template>
+          <a-input v-model.trim="userForm.password"></a-input>
+        </a-form-item>
+        <a-form-item v-if="!userModal.isMain">
+          <template slot="label">
+            Device ID
+            <a-icon type="sync" @click="regenDeviceId"></a-icon>
+          </template>
+          <a-input v-model.trim="userForm.device_id" placeholder="Необязательно — привязка к устройству"></a-input>
+        </a-form-item>
+        <a-form-item v-if="userModal.isMain" label="Комментарий">
+          <span>[[ userForm.comment ]]</span>
+        </a-form-item>
+        <a-form-item v-else label="Комментарий">
+          <a-input v-model.trim="userForm.comment" placeholder="Имя, заметка"></a-input>
+        </a-form-item>
+        <a-form-item v-if="!userModal.isMain">
+          <template slot="label">
+            <a-tooltip title="0 = без ограничения">
+              Срок действия <a-icon type="question-circle"></a-icon>
+            </a-tooltip>
+          </template>
+          <a-space direction="vertical" style="width:100%">
+            <a-checkbox v-model="userForm.unlimited">Бессрочно</a-checkbox>
+            <a-date-picker v-if="!userForm.unlimited" v-model="userForm.expiryDate"
+              :style="{ width: '100%' }" format="DD.MM.YYYY" placeholder="Выберите дату"></a-date-picker>
+          </a-space>
+        </a-form-item>
+        <a-form-item v-if="!userModal.isMain">
+          <template slot="label">
+            <a-tooltip title="0 = без ограничения">
+              Лимит трафика (GB) <a-icon type="question-circle"></a-icon>
+            </a-tooltip>
+          </template>
+          <a-input-number v-model="userForm.total_gb" :min="0" :step="0.1" :style="{ width: '100%' }"></a-input-number>
+        </a-form-item>
+        <a-form-item v-if="userModal.isEdit || userModal.isMain" label="Использовано">
+          <a-tag :color="trafficTagColor">[[ formatBytes(trafficUsed) ]]</a-tag>
+          <span v-if="userForm.total_gb > 0" class="text-muted" style="margin-left:8px">
+            / [[ userForm.total_gb.toFixed(2) ]] GB
+          </span>
+          <span v-else-if="userModal.isMain" class="text-muted" style="margin-left:8px">/ ∞</span>
+          <a-button v-if="!userModal.isMain" size="small" icon="reload" style="margin-left:12px" :loading="userModal.resetting"
+            @click="resetTraffic">Сбросить</a-button>
+        </a-form-item>
+        <a-form-item v-if="userModal.isEdit || userModal.isMain" label="Детализация">
+          <a-tag color="blue">↑ [[ formatBytes(userForm.up_bytes) ]]</a-tag>
+          <a-tag color="green" style="margin-left:6px">↓ [[ formatBytes(userForm.down_bytes) ]]</a-tag>
+          <div v-if="userModal.isMain" class="text-muted" style="font-size:12px;margin-top:6px">
+            Общий трафик сервера с момента запуска WDTT
+          </div>
+        </a-form-item>
+      </a-form>
+    </a-tab-pane>
+    <a-tab-pane key="conn" tab="Подключение">
+      <a-alert type="info" show-icon style="margin-bottom:12px"
+        message="Параметры для клиента WDTT"></a-alert>
+      <table class="user-conn-table" :style="{ width: '100%' }">
+        <tr><td>Сервер</td><td>[[ userModal.serverIp || '—' ]]</td></tr>
+        <tr><td>DTLS порт</td><td>56000</td></tr>
+        <tr><td>WireGuard порт</td><td>56001</td></tr>
+        <tr><td>Пароль</td><td><code>[[ userForm.password || '—' ]]</code></td></tr>
+        <tr><td>Device ID</td><td>[[ userForm.device_id || 'любой при первом входе' ]]</td></tr>
+      </table>
+    </a-tab-pane>
+  </a-tabs>
+</a-modal>
+<script>
+  const WDTT_PASS_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+
+  const userModal = {
+    visible: false,
+    saving: false,
+    resetting: false,
+    isEdit: false,
+    isMain: false,
+    oldPassword: '',
+    serverIp: '',
+    onSaved: null,
+    showAdd(serverIp) {
+      this.isEdit = false;
+      this.isMain = false;
+      this.oldPassword = '';
+      this.serverIp = serverIp || '';
+      this.visible = true;
+      userModalApp.resetForm();
+    },
+    showEdit(row, serverIp) {
+      this.isEdit = !row.is_main;
+      this.isMain = !!row.is_main;
+      this.oldPassword = row.password;
+      this.serverIp = serverIp || '';
+      this.visible = true;
+      userModalApp.loadRow(row);
+    },
+    close() {
+      this.visible = false;
+      this.saving = false;
+    },
+    async save() {
+      await userModalApp.saveUser();
+    },
+  };
+
+  const userModalApp = new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#user-modal',
+    data: {
+      userModal,
+      userForm: {
+        password: '',
+        device_id: '',
+        comment: '',
+        active: true,
+        unlimited: true,
+        expiryDate: null,
+        expires_at: 0,
+        up_bytes: 0,
+        down_bytes: 0,
+        total_gb: 0,
+      },
+    },
+    computed: {
+      trafficUsed() {
+        return (Number(this.userForm.up_bytes) || 0) + (Number(this.userForm.down_bytes) || 0);
+      },
+      trafficTagColor() {
+        const total = Number(this.userForm.total_gb) || 0;
+        if (total <= 0) return 'purple';
+        const used = this.trafficUsed;
+        const limit = total * 1024 * 1024 * 1024;
+        if (used < limit * 0.9) return 'green';
+        if (used < limit) return 'orange';
+        return 'red';
+      },
+    },
+    watch: {
+      'userForm.unlimited'(v) {
+        if (v) {
+          this.userForm.expiryDate = null;
+          this.userForm.expires_at = 0;
+        }
+      },
+      'userForm.expiryDate'(v) {
+        if (this.userForm.unlimited) return;
+        this.userForm.expires_at = v ? moment(v).endOf('day').unix() : 0;
+      },
+    },
+    methods: {
+      genPassword() {
+        const arr = new Uint32Array(16);
+        window.crypto.getRandomValues(arr);
+        return Array.from(arr, v => WDTT_PASS_CHARS[v % WDTT_PASS_CHARS.length]).join('');
+      },
+      regenPassword() {
+        this.userForm.password = this.genPassword();
+      },
+      regenDeviceId() {
+        this.userForm.device_id = RandomUtil.randomUUID();
+      },
+      formatBytes(b) {
+        b = Number(b) || 0;
+        if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+        if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
+        return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+      },
+      resetForm() {
+        this.userForm = {
+          password: this.genPassword(),
+          device_id: '',
+          comment: '',
+          active: true,
+          unlimited: true,
+          expiryDate: null,
+          expires_at: 0,
+          up_bytes: 0,
+          down_bytes: 0,
+          total_gb: 0,
+        };
+      },
+      loadRow(row) {
+        this.userForm = {
+          password: row.password,
+          device_id: row.device_id || '',
+          comment: row.comment || '',
+          active: row.active !== false,
+          unlimited: !row.expires_at,
+          expiryDate: row.expires_at ? moment.unix(row.expires_at) : null,
+          expires_at: row.expires_at || 0,
+          up_bytes: row.up_bytes || 0,
+          down_bytes: row.down_bytes || 0,
+          total_gb: Number(row.total_gb) || 0,
+        };
+      },
+      resetTraffic() {
+        const self = this;
+        this.$confirm({
+          title: 'Сбросить трафик',
+          content: 'Обнулить счётчик ↑↓ для этого пользователя?',
+          class: themeSwitcher.currentTheme,
+          okText: 'Сбросить',
+          cancelText: 'Отмена',
+          onOk: async () => {
+            self.userModal.resetting = true;
+            try {
+              const res = await fetch(basePath + 'panel/api/users/reset-traffic', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: self.userForm.password }),
+              });
+              const msg = await res.json();
+              if (msg.success) {
+                Vue.prototype.$message.success('Трафик сброшен');
+                self.userForm.up_bytes = 0;
+                self.userForm.down_bytes = 0;
+                if (typeof self.userModal.onSaved === 'function') {
+                  await self.userModal.onSaved();
+                }
+              } else {
+                Vue.prototype.$message.error(msg.msg || 'ошибка');
+              }
+            } finally {
+              self.userModal.resetting = false;
+            }
+          },
+        });
+      },
+      async saveUser() {
+        if (!this.userForm.password) {
+          Vue.prototype.$message.error('Укажите пароль');
+          return;
+        }
+        this.userModal.saving = true;
+        try {
+          let res;
+          if (this.userModal.isMain) {
+            res = await fetch(basePath + 'panel/api/password/main', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ password: this.userForm.password }),
+            });
+          } else {
+            const body = {
+              password: this.userForm.password,
+              device_id: this.userForm.device_id,
+              comment: this.userForm.comment,
+              expires_at: this.userForm.unlimited ? 0 : this.userForm.expires_at,
+              total_gb: Number(this.userForm.total_gb) || 0,
+              active: this.userForm.active,
+            };
+            if (this.userModal.isEdit) {
+              res = await fetch(basePath + 'panel/api/users/update', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...body, old_password: this.userModal.oldPassword }),
+              });
+            } else {
+              res = await fetch(basePath + 'panel/api/users/add', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              });
+            }
+          }
+          const msg = await res.json();
+          if (msg.success) {
+            const okText = this.userModal.isMain ? 'Главный пароль сохранён'
+              : (this.userModal.isEdit ? 'Сохранено' : ('Создан: ' + (msg.obj && msg.obj.password || this.userForm.password)));
+            Vue.prototype.$message.success(okText);
+            this.userModal.close();
+            if (typeof this.userModal.onSaved === 'function') {
+              await this.userModal.onSaved();
+            }
+          } else {
+            Vue.prototype.$message.error(msg.msg || 'ошибка');
+          }
+        } catch (e) {
+          Vue.prototype.$message.error(String(e));
+        } finally {
+          this.userModal.saving = false;
+        }
+      },
+    },
+  });
+</script>
+{{end}}

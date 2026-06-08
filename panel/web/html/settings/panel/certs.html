@@ -1,0 +1,20 @@
+{{define "settings/panel/certs"}}
+<a-collapse default-active-key="1">
+    <a-collapse-panel key="1" header='{{ i18n "pages.settings.certs" }}'>
+        <a-setting-list-item paddings="small">
+            <template #title>{{ i18n "pages.settings.publicKeyPath"}}</template>
+            <template #description>{{ i18n "pages.settings.publicKeyPathDesc"}}</template>
+            <template #control>
+                <a-input type="text" v-model="allSetting.webCertFile"></a-input>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small">
+            <template #title>{{ i18n "pages.settings.privateKeyPath"}}</template>
+            <template #description>{{ i18n "pages.settings.privateKeyPathDesc"}}</template>
+            <template #control>
+                <a-input type="text" v-model="allSetting.webKeyFile"></a-input>
+            </template>
+        </a-setting-list-item>
+    </a-collapse-panel>
+</a-collapse>
+{{end}}

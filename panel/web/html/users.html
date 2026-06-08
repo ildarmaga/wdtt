@@ -1,0 +1,224 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' users-page'">
+  <wdtt-sidebar></wdtt-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loadingStates.spinning" :delay="500"
+        tip='{{ i18n "loading"}}' size="large">
+        <transition name="list" appear>
+          <a-alert type="error" v-if="showAlert && loadingStates.fetched"
+            :style="{ marginBottom: '10px' }"
+            message='{{ i18n "secAlertTitle" }}' color="red"
+            description='{{ i18n "secAlertSsl" }}' show-icon closable>
+          </a-alert>
+        </transition>
+        <transition name="list" appear>
+          <a-row v-if="!loadingStates.fetched">
+            <div :style="{ minHeight: 'calc(100vh - 120px)' }"></div>
+          </a-row>
+          <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-else>
+            <a-col>
+              <a-card title="Пользователи WDTT" hoverable>
+                <template #extra>
+                  <a-button-group>
+                    <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
+                    <a-popover placement="bottomRight" trigger="click" :overlay-class-name="themeSwitcher.currentTheme">
+                      <template #title>
+                        <div class="ant-custom-popover-title">
+                          <a-switch v-model="isRefreshEnabled" @change="toggleRefresh" size="small"></a-switch>
+                          <span>{{ i18n "pages.inbounds.autoRefresh" }}</span>
+                        </div>
+                      </template>
+                      <template #content>
+                        <a-space direction="vertical">
+                          <span>{{ i18n "pages.inbounds.autoRefreshInterval" }}</span>
+                          <a-select v-model="refreshInterval" :disabled="!isRefreshEnabled" :style="{ width: '100%' }"
+                            @change="changeRefreshInterval" :dropdown-class-name="themeSwitcher.currentTheme">
+                            <a-select-option v-for="key in [5,10,30,60]" :value="key*1000">[[ key ]]s</a-select-option>
+                          </a-select>
+                        </a-space>
+                      </template>
+                      <a-button icon="down"></a-button>
+                    </a-popover>
+                  </a-button-group>
+                </template>
+                <a-button type="primary" icon="plus" @click="openAddModal" style="margin-bottom:12px">
+                  Добавить пользователя
+                </a-button>
+                <a-table :columns="userCols" :data-source="users" :pagination="false" :row-key="rowKey" size="middle">
+                  <span slot="password" slot-scope="text, row">
+                    <a-tag v-if="row.is_main" color="gold" style="margin-right:6px">главный</a-tag>
+                    <code>[[ text ]]</code>
+                  </span>
+                  <span slot="comment" slot-scope="text">[[ text || '—' ]]</span>
+                  <span slot="device" slot-scope="text">[[ text || '—' ]]</span>
+                  <span slot="active" slot-scope="active">
+                    <a-tag :color="active ? 'green' : 'red'">[[ active ? 'активен' : 'выкл' ]]</a-tag>
+                  </span>
+                  <span slot="online" slot-scope="online">
+                    <a-tag v-if="online" color="green">{{ i18n "online" }}</a-tag>
+                    <a-tag v-else>{{ i18n "offline" }}</a-tag>
+                  </span>
+                  <span slot="traffic" slot-scope="_, row">
+                    <a-tag :color="trafficColor(row)" style="margin:0">[[ row.traffic_used_fmt || '0 B' ]]</a-tag>
+                    <span v-if="row.total_gb > 0" class="text-muted"> / [[ row.total_gb.toFixed(1) ]] GB</span>
+                    <span v-else class="text-muted"> / ∞</span>
+                    <div class="text-muted" style="font-size:11px;margin-top:2px">
+                      ↑ [[ row.up || '0 B' ]] ↓ [[ row.down || '0 B' ]]
+                    </div>
+                  </span>
+                  <span slot="action" slot-scope="_, row">
+                    <a-button size="small" icon="edit" @click="openEditModal(row)" style="margin-right:6px"></a-button>
+                    <a-button v-if="!row.is_main" type="danger" size="small" icon="delete" @click="delUser(row.password)"></a-button>
+                  </span>
+                </a-table>
+              </a-card>
+            </a-col>
+          </a-row>
+        </transition>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+</a-layout>
+
+<style>
+  @media (min-width: 769px) {
+    .users-page .ant-layout-content {
+      margin: 24px 16px;
+    }
+  }
+  .text-muted { color: rgba(0,0,0,.45); }
+  body.dark .text-muted { color: rgba(255,255,255,.45); }
+  .user-conn-table td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .user-conn-table tr:nth-child(odd) td { background: rgba(255,255,255,.03); }
+</style>
+{{ template "page/body_scripts" . }}
+{{ template "component/aThemeSwitch" . }}
+{{ template "component/wdttSidebar" . }}
+{{ template "modals/wdttUserModal" . }}
+<script>
+  const app = new Vue({
+    delimiters: ['[[', ']]'],
+    mixins: [MediaQueryMixin],
+    el: '#app',
+    data: {
+      themeSwitcher,
+      loadingStates: { fetched: false, spinning: false },
+      showAlert: false,
+      users: [],
+      serverIp: '',
+      isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true",
+      refreshing: false,
+      refreshInterval: Number(localStorage.getItem("refreshInterval")) || 5000,
+      userCols: [
+        { title: 'Пароль', dataIndex: 'password', scopedSlots: { customRender: 'password' } },
+        { title: 'Комментарий', dataIndex: 'comment', scopedSlots: { customRender: 'comment' } },
+        { title: 'Устройство', dataIndex: 'device_id', scopedSlots: { customRender: 'device' } },
+        { title: 'Срок', dataIndex: 'expires' },
+        { title: 'Статус', dataIndex: 'active', scopedSlots: { customRender: 'active' } },
+        { title: '{{ i18n "online" }}', dataIndex: 'online', scopedSlots: { customRender: 'online' }, width: 90, align: 'center' },
+        { title: 'Трафик', scopedSlots: { customRender: 'traffic' } },
+        { title: '', scopedSlots: { customRender: 'action' }, width: 100 },
+      ],
+    },
+    async mounted() {
+      if (window.location.protocol !== "https:") {
+        this.showAlert = true;
+      }
+      userModal.onSaved = () => this.loadUsers();
+      await this.loadServerIp();
+      if (this.isRefreshEnabled) {
+        this.startDataRefreshLoop();
+      } else {
+        await this.loadUsers({ withSpinner: true });
+      }
+    },
+    methods: {
+      rowKey(row) {
+        return row.is_main ? '__main__' : row.password;
+      },
+      toast(msg, ok) {
+        if (ok) this.$message.success(msg); else this.$message.error(msg);
+      },
+      openAddModal() {
+        userModal.showAdd(this.serverIp);
+      },
+      openEditModal(row) {
+        userModal.showEdit(row, this.serverIp);
+      },
+      trafficColor(row) {
+        if (!row.total_gb) return 'purple';
+        if (row.traffic_exceeded) return 'red';
+        const used = Number(row.traffic_used) || 0;
+        const limit = row.total_gb * 1024 * 1024 * 1024;
+        if (used < limit * 0.9) return 'green';
+        return 'orange';
+      },
+      async loadServerIp() {
+        const msg = await axios.get('panel/api/status').then(r => r.data).catch(() => null);
+        if (msg && msg.success) {
+          this.serverIp = msg.obj.server_ip || '';
+        }
+      },
+      async loadUsers(options = {}) {
+        const withSpinner = options.withSpinner === true;
+        this.refreshing = true;
+        if (withSpinner) {
+          this.loadingStates.spinning = true;
+        }
+        const msg = await axios.get('panel/api/users').then(r => r.data).catch(() => null);
+        if (!msg || !msg.success) {
+          this.refreshing = false;
+          if (withSpinner) this.loadingStates.spinning = false;
+          if (!this.loadingStates.fetched) this.loadingStates.fetched = true;
+          return;
+        }
+        this.users = msg.obj.users || [];
+        if (!this.loadingStates.fetched) {
+          this.loadingStates.fetched = true;
+        }
+        setTimeout(() => {
+          this.refreshing = false;
+          if (withSpinner) this.loadingStates.spinning = false;
+        }, 500);
+      },
+      async startDataRefreshLoop() {
+        while (this.isRefreshEnabled) {
+          try {
+            await this.loadUsers();
+          } catch (e) {
+            console.error(e);
+          }
+          await PromiseUtil.sleep(this.refreshInterval);
+        }
+      },
+      toggleRefresh() {
+        localStorage.setItem("isRefreshEnabled", this.isRefreshEnabled);
+        if (this.isRefreshEnabled) {
+          this.startDataRefreshLoop();
+        }
+      },
+      changeRefreshInterval() {
+        localStorage.setItem("refreshInterval", this.refreshInterval);
+      },
+      async manualRefresh() {
+        if (!this.refreshing) {
+          await this.loadUsers({ withSpinner: true });
+        }
+      },
+      async delUser(pass) {
+        if (!confirm('Удалить пользователя ' + pass + '?')) return;
+        const res = await fetch(basePath + 'panel/api/users/delete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pass })
+        });
+        const msg = await res.json();
+        if (msg.success) { this.toast('Удалён', true); this.loadUsers(); }
+        else this.toast(msg.msg || 'ошибка', false);
+      },
+    },
+  });
+</script>
+{{ template "page/body_end" .}}

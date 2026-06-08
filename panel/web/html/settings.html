@@ -1,0 +1,228 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' settings-page'">
+  <wdtt-sidebar></wdtt-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loadingStates.spinning" :delay="500" tip='{{ i18n "loading"}}' size="large">
+        <transition name="list" appear>
+          <a-alert type="error" v-if="confAlerts.length>0 && loadingStates.fetched" :style="{ marginBottom: '10px' }"
+            message='{{ i18n "secAlertTitle" }}' color="red" show-icon closable>
+            <template slot="description">
+              <b>{{ i18n "secAlertConf" }}</b>
+              <ul>
+                <li v-for="a in confAlerts">[[ a ]]</li>
+              </ul>
+            </template>
+          </a-alert>
+        </transition>
+        <transition name="list" appear>
+          <a-row v-if="!loadingStates.fetched">
+            <div :style="{ minHeight: 'calc(100vh - 120px)' }"></div>
+          </a-row>
+          <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-else>
+            <a-col>
+              <a-card hoverable>
+                <a-row :style="{ display: 'flex', flexWrap: 'wrap', alignItems: 'center' }">
+                  <a-col :xs="24" :sm="10" :style="{ padding: '4px' }">
+                    <a-space direction="horizontal">
+                      <a-button type="primary" :disabled="saveBtnDisable" @click="updateAllSetting">{{ i18n "pages.settings.save" }}</a-button>
+                      <a-button type="danger" :disabled="!saveBtnDisable" @click="restartPanel">{{ i18n "pages.settings.restartPanel" }}</a-button>
+                    </a-space>
+                  </a-col>
+                  <a-col :xs="24" :sm="14">
+                    <a-back-top :target="() => document.getElementById('content-layout')" visibility-height="200"></a-back-top>
+                    <a-alert type="warning" :style="{ float: 'right', width: 'fit-content' }"
+                      message='{{ i18n "pages.settings.infoDesc" }}' show-icon>
+                    </a-alert>
+                  </a-col>
+                </a-row>
+              </a-card>
+            </a-col>
+            <a-col>
+              <a-tabs default-active-key="1">
+                <a-tab-pane key="1" :style="{ paddingTop: '20px' }">
+                  <template #tab>
+                    <a-icon type="setting"></a-icon>
+                    <span>{{ i18n "pages.settings.panelSettings" }}</span>
+                  </template>
+                  {{ template "settings/panel/general" . }}
+                  <div style="margin-top:12px"></div>
+                  {{ template "settings/panel/certs" . }}
+                </a-tab-pane>
+                <a-tab-pane key="2" :style="{ paddingTop: '20px' }">
+                  <template #tab>
+                    <a-icon type="safety"></a-icon>
+                    <span>{{ i18n "pages.settings.securitySettings" }}</span>
+                  </template>
+                  {{ template "settings/panel/account" . }}
+                </a-tab-pane>
+              </a-tabs>
+            </a-col>
+          </a-row>
+        </transition>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+</a-layout>
+
+<style>
+  @media (min-width: 769px) {
+    .settings-page .ant-layout-content {
+      margin: 24px 16px;
+    }
+  }
+</style>
+{{ template "page/body_scripts" . }}
+{{ template "component/aThemeSwitch" . }}
+{{ template "component/wdttSidebar" . }}
+{{ template "component/aSettingListItem" . }}
+<script>
+  class PanelSetting {
+    constructor(data = {}) {
+      this.webListen = data.webListen || "";
+      this.webDomain = data.webDomain || "";
+      this.webPort = data.webPort || 2860;
+      this.webBasePath = data.webBasePath || "/wdtt/";
+      this.sessionMaxAge = data.sessionMaxAge || 60;
+      this.pageSize = data.pageSize ?? 50;
+      this.remarkModel = data.remarkModel || "-ieo";
+      this.webCertFile = data.webCertFile || "";
+      this.webKeyFile = data.webKeyFile || "";
+      this.twoFactorEnable = !!data.twoFactorEnable;
+    }
+    payload() {
+      return {
+        webListen: this.webListen,
+        webDomain: this.webDomain,
+        webPort: this.webPort,
+        webBasePath: this.webBasePath,
+        sessionMaxAge: this.sessionMaxAge,
+        pageSize: this.pageSize,
+        remarkModel: this.remarkModel,
+        webCertFile: this.webCertFile,
+        webKeyFile: this.webKeyFile,
+      };
+    }
+    equals(other) {
+      return JSON.stringify(this.payload()) === JSON.stringify(other.payload());
+    }
+  }
+
+  const app = new Vue({
+    delimiters: ['[[', ']]'],
+    mixins: [MediaQueryMixin],
+    el: '#app',
+    data: {
+      themeSwitcher,
+      loadingStates: { fetched: false, spinning: false },
+      oldAllSetting: new PanelSetting(),
+      allSetting: new PanelSetting(),
+      saveBtnDisable: true,
+      user: {},
+      lang: LanguageManager.getLanguage(),
+      remarkModels: { i: 'Inbound', e: 'Email', o: 'Other' },
+      remarkSeparators: [' ', '-', '_', '@', ':', '~', '|', ',', '.', '/'],
+    },
+    computed: {
+      remarkModel: {
+        get() {
+          const rm = this.allSetting.remarkModel || '-ieo';
+          return rm.length > 1 ? rm.substring(1).split('') : [];
+        },
+        set(v) {
+          const rs = (this.allSetting.remarkModel || '-')[0];
+          this.allSetting.remarkModel = rs + (v || []).join('');
+        },
+      },
+      remarkSeparator: {
+        get() {
+          const rm = this.allSetting.remarkModel || '-ieo';
+          return rm.length > 1 ? rm.charAt(0) : '-';
+        },
+        set(v) {
+          const rm = this.allSetting.remarkModel || '-ieo';
+          this.allSetting.remarkModel = v + rm.substring(1);
+        },
+      },
+      remarkSample() {
+        const parts = [];
+        this.remarkModel.forEach(r => parts.push(this.remarkModels[r] || r));
+        return parts.length ? parts.join(this.remarkSeparator) : '';
+      },
+      confAlerts() {
+        const alerts = [];
+        if (window.location.protocol !== "https:") alerts.push('{{ i18n "secAlertSsl" }}');
+        return alerts;
+      },
+    },
+    methods: {
+      loading(spinning = true) {
+        this.loadingStates.spinning = spinning;
+      },
+      async getAllSetting() {
+        const msg = await HttpUtil.post('/panel/setting/all');
+        if (!msg.success) return;
+        if (!this.loadingStates.fetched) this.loadingStates.fetched = true;
+        this.oldAllSetting = new PanelSetting(msg.obj);
+        this.allSetting = new PanelSetting(msg.obj);
+        if (!this.allSetting.remarkModel || this.allSetting.remarkModel.length < 2) {
+          this.allSetting.remarkModel = '-ieo';
+        }
+      },
+      async updateAllSetting() {
+        this.loading(true);
+        const msg = await HttpUtil.post('/panel/setting/update', this.allSetting.payload());
+        this.loading(false);
+        if (msg.success) {
+          this.$message.success('{{ i18n "pages.settings.toasts.modifySettings" }}');
+          await this.getAllSetting();
+        } else {
+          this.$message.error(msg.msg || '{{ i18n "pages.settings.toasts.getSettings" }}');
+        }
+      },
+      async updateUser() {
+        this.loading(true);
+        const msg = await HttpUtil.post('/panel/setting/updateUser', this.user);
+        this.loading(false);
+        if (msg.success) {
+          this.$message.success('{{ i18n "pages.settings.toasts.modifyUser" }}');
+          this.user = {};
+          window.location.replace(basePath + 'logout/');
+        } else {
+          this.$message.error(msg.msg || '{{ i18n "pages.settings.toasts.modifyUserError" }}');
+        }
+      },
+      async restartPanel() {
+        await new Promise(resolve => {
+          this.$confirm({
+            title: '{{ i18n "pages.settings.restartPanel" }}',
+            content: '{{ i18n "pages.settings.restartPanelDesc" }}',
+            class: themeSwitcher.currentTheme,
+            okText: '{{ i18n "sure" }}',
+            cancelText: '{{ i18n "cancel" }}',
+            onOk: () => resolve(),
+          });
+        });
+        this.loading(true);
+        const msg = await HttpUtil.post('/panel/setting/restartPanel');
+        if (msg.success) {
+          await PromiseUtil.sleep(3000);
+          window.location.reload();
+        } else {
+          this.loading(false);
+          this.$message.error(msg.msg || 'ошибка перезапуска');
+        }
+      },
+    },
+    async mounted() {
+      await this.getAllSetting();
+      while (true) {
+        await PromiseUtil.sleep(500);
+        this.saveBtnDisable = this.oldAllSetting.equals(this.allSetting);
+      }
+    },
+  });
+</script>
+{{ template "page/body_end" .}}

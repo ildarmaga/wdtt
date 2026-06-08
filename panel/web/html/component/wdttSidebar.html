@@ -1,0 +1,89 @@
+{{define "component/sidebar/wdttContent"}}
+<template>
+    <div class="ant-sidebar">
+        <a-layout-sider :theme="themeSwitcher.currentTheme" collapsible :collapsed="collapsed"
+            @collapse="(isCollapsed, type) => collapseHandle(isCollapsed, type)" breakpoint="md">
+            <a-theme-switch></a-theme-switch>
+            <a-menu :theme="themeSwitcher.currentTheme" mode="inline" :selected-keys="activeTab"
+                @click="({key}) => openLink(key)">
+                <a-menu-item v-for="tab in tabs" :key="tab.key">
+                    <a-icon :type="tab.icon"></a-icon>
+                    <span v-text="tab.title"></span>
+                </a-menu-item>
+            </a-menu>
+        </a-layout-sider>
+        <a-drawer placement="left" :closable="false" @close="closeDrawer" :visible="visible"
+            :wrap-class-name="themeSwitcher.currentTheme" :wrap-style="{ padding: 0 }" :style="{ height: '100%' }">
+            <div class="drawer-handle" @click="toggleDrawer" slot="handle">
+                <a-icon :type="visible ? 'close' : 'menu-fold'"></a-icon>
+            </div>
+            <a-theme-switch></a-theme-switch>
+            <a-menu :theme="themeSwitcher.currentTheme" mode="inline" :selected-keys="activeTab"
+                @click="({key}) => openLink(key)">
+                <a-menu-item v-for="tab in tabs" :key="tab.key">
+                    <a-icon :type="tab.icon"></a-icon>
+                    <span v-text="tab.title"></span>
+                </a-menu-item>
+            </a-menu>
+        </a-drawer>
+    </div>
+</template>
+{{end}}
+
+{{define "component/wdttSidebar"}}
+<style>
+    .ant-sidebar>.ant-layout-sider { height: 100%; }
+    .brand-wdtt {
+        text-align: center;
+        padding: 16px 8px 8px;
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 1px;
+        background: linear-gradient(135deg, #6366f1, #ec4899);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    body.dark .brand-wdtt {
+        background: linear-gradient(135deg, #60a5fa, #1d4ed8);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+</style>
+<script>
+    const SIDEBAR_COLLAPSED_KEY = "wdttSidebarCollapsed"
+    Vue.component('wdtt-sidebar', {
+        data() {
+            return {
+                tabs: [
+                    { key: '{{ .base_path }}panel/', icon: 'dashboard', title: '{{ i18n "menu.dashboard"}}' },
+                    { key: '{{ .base_path }}panel/users', icon: 'team', title: 'Пользователи' },
+                    { key: '{{ .base_path }}panel/xray', icon: 'tool', title: '{{ i18n "menu.xray"}}' },
+                    { key: '{{ .base_path }}panel/settings', icon: 'setting', title: '{{ i18n "pages.settings.title"}}' },
+                    { key: '{{ .base_path }}logout/', icon: 'logout', title: '{{ i18n "menu.logout"}}' },
+                ],
+                activeTab: ['{{ .request_uri }}'],
+                visible: false,
+                collapsed: JSON.parse(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) || 'false'),
+            }
+        },
+        methods: {
+            openLink(key) {
+                if (key.endsWith('logout/')) {
+                    HttpUtil.post('/logout').then(() => { location.href = basePath; });
+                    return;
+                }
+                location.href = key;
+            },
+            collapseHandle(isCollapsed) {
+                this.collapsed = isCollapsed;
+                localStorage.setItem(SIDEBAR_COLLAPSED_KEY, isCollapsed);
+            },
+            closeDrawer() { this.visible = false; },
+            toggleDrawer() { this.visible = !this.visible; },
+        },
+        template: `{{template "component/sidebar/wdttContent"}}`,
+    });
+</script>
+{{end}}

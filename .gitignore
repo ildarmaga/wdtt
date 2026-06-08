@@ -1,0 +1,22 @@
+# Binaries
+wdtt-server
+wdtt-server-*
+wdtt-panel
+panel/wdtt-panel
+server
+
+# Go
+*.test
+
+# Secrets
+*.key
+*.pem
+*.keystore
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.log
+*.tmp
+*.bak
