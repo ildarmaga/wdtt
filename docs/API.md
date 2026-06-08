@@ -1,8 +1,8 @@
 # WDTT Panel API
 
-Базовый URL панели: `http://<IP>:2860/wdtt/` (порт и путь настраиваются в `/etc/wdtt/panel.json`).
+Базовый URL панели: `https://<IP>:2860/wdtt/` (порт и путь настраиваются в `/etc/wdtt/panel.json`; при включённом SSL HTTP автоматически редиректит на HTTPS).
 
-Все эндпоинты ниже — относительно `http://<IP>:2860/wdtt/`.
+Все эндпоинты ниже — относительно `https://<IP>:2860/wdtt/`.
 
 ## Аутентификация
 
@@ -17,7 +17,7 @@
 Пример с curl (после логина cookie в файле):
 
 ```bash
-BASE="http://127.0.0.1:2860/wdtt"
+BASE="https://127.0.0.1:2860/wdtt"
 curl -c /tmp/wdtt.cookie -X POST "$BASE/login" \
   -d "username=admin&password=wdtt"
 

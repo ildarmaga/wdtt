@@ -7,7 +7,15 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"wdtt-panel/network"
 )
+
+type quietLogger struct{}
+
+func (quietLogger) Write(p []byte) (int, error) {
+	return network.NewQuietTLSLog().Write(p)
+}
 
 func panelListenAddr(cfg *PanelConfig) string {
 	port := cfg.Port
@@ -52,7 +60,7 @@ func startPanelServer(cfg *PanelConfig, handler http.Handler) error {
 			if err != nil {
 				log.Printf("Error loading certificates: %v — панель без HTTPS", err)
 			} else {
-				listener = tls.NewListener(listener, &tls.Config{
+				listener = network.NewMuxListener(listener, &tls.Config{
 					Certificates: []tls.Certificate{cert},
 					MinVersion:   tls.VersionTLS12,
 				})
@@ -70,5 +78,9 @@ func startPanelServer(cfg *PanelConfig, handler http.Handler) error {
 		log.Printf("Проверьте пути к сертификату и перезапустите панель")
 	}
 	log.Printf("Логин: %s / пароль по умолчанию: wdtt (смените в настройках)", cfg.Username)
-	return http.Serve(listener, handler)
+	srv := &http.Server{
+		Handler:  handler,
+		ErrorLog: log.New(quietLogger{}, "", log.LstdFlags),
+	}
+	return srv.Serve(listener)
 }
