@@ -20,7 +20,6 @@ var assetsFS embed.FS
 var (
 	htmlTemplates *template.Template
 	startTime     = time.Now()
-	panelVersion  = "1.0"
 )
 
 func initTemplates() error {

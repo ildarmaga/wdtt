@@ -545,6 +545,3 @@ func max(a, b int) int {
 	return b
 }
 
-func formatPanelVersion() string {
-	return panelVersion
-}

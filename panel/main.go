@@ -1,8 +1,11 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -11,6 +14,13 @@ type App struct {
 }
 
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println(formatPanelVersion())
+		os.Exit(0)
+	}
+
 	cfg, err := loadPanelConfig()
 	if err != nil {
 		log.Fatal(err)
