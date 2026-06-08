@@ -356,6 +356,10 @@ func resetUserTraffic(pass string) error {
 	}
 	entry.UpBytes = 0
 	entry.DownBytes = 0
+	// Сброс квоты: сервер ставит IsDeactivated при исчерпании GB — снимаем блокировку
+	if !trafficExceeded(entry) {
+		entry.IsDeactivated = false
+	}
 	if err := savePasswords(db); err != nil {
 		return err
 	}
