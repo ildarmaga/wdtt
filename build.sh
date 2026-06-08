@@ -9,6 +9,6 @@ case "$ARCH" in
   *) echo "Usage: $0 [amd64|arm64]"; exit 1 ;;
 esac
 CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" \
-  go build -trimpath -ldflags="-s -w" -o "$OUT" server.go
+  go build -trimpath -ldflags="-s -w" -o "$OUT" .
 chmod +x "$OUT"
 echo "OK: $OUT"
