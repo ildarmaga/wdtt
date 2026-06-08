@@ -1,8 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
+	"log"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -30,9 +36,64 @@ func (a *App) handleSettingAll(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, panelSettingsMap(a.cfg))
 }
 
-func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
+func parsePanelSettingsReq(r *http.Request) (panelSettingsReq, error) {
 	var req panelSettingsReq
-	if err := readJSON(r, &req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return req, err
+	}
+	defer r.Body.Close()
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		return req, json.Unmarshal(body, &req)
+	}
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return req, err
+	}
+	req.WebListen = values.Get("webListen")
+	req.WebDomain = values.Get("webDomain")
+	req.WebBasePath = values.Get("webBasePath")
+	req.RemarkModel = values.Get("remarkModel")
+	req.WebCertFile = values.Get("webCertFile")
+	req.WebKeyFile = values.Get("webKeyFile")
+	if p := values.Get("webPort"); p != "" {
+		req.WebPort, _ = strconv.Atoi(p)
+	}
+	if p := values.Get("sessionMaxAge"); p != "" {
+		req.SessionMaxAge, _ = strconv.Atoi(p)
+	}
+	if p := values.Get("pageSize"); p != "" {
+		req.PageSize, _ = strconv.Atoi(p)
+	}
+	return req, nil
+}
+
+func parsePanelUserReq(r *http.Request) (panelUserReq, error) {
+	var req panelUserReq
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return req, err
+	}
+	defer r.Body.Close()
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		return req, json.Unmarshal(body, &req)
+	}
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return req, err
+	}
+	req.OldUsername = values.Get("oldUsername")
+	req.OldPassword = values.Get("oldPassword")
+	req.NewUsername = values.Get("newUsername")
+	req.NewPassword = values.Get("newPassword")
+	return req, nil
+}
+
+func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
+	req, err := parsePanelSettingsReq(r)
+	if err != nil {
 		jsonError(w, err.Error(), 400)
 		return
 	}
@@ -54,9 +115,18 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.PageSize < 0 {
 		req.PageSize = 0
 	}
+	if err := validatePanelTLS(req.WebCertFile, req.WebKeyFile); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
 
 	a.cfg.WebListen = strings.TrimSpace(req.WebListen)
 	a.cfg.WebDomain = strings.TrimSpace(req.WebDomain)
+	if a.cfg.WebDomain == "" && req.WebCertFile != "" {
+		if d := domainFromCertPath(req.WebCertFile); d != "" {
+			a.cfg.WebDomain = d
+		}
+	}
 	a.cfg.Port = req.WebPort
 	if req.WebBasePath != "" {
 		a.cfg.WebBasePath = req.WebBasePath
@@ -78,8 +148,8 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSettingUpdateUser(w http.ResponseWriter, r *http.Request) {
-	var req panelUserReq
-	if err := readJSON(r, &req); err != nil {
+	req, err := parsePanelUserReq(r)
+	if err != nil {
 		jsonError(w, err.Error(), 400)
 		return
 	}
@@ -114,9 +184,15 @@ func (a *App) handleSettingUpdateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSettingRestartPanel(w http.ResponseWriter, r *http.Request) {
-	if err := serviceRestart(panelServiceUnit); err != nil {
-		jsonError(w, err.Error(), 500)
-		return
-	}
+	// Ответ до restart: иначе systemctl убивает процесс и клиент видит 503.
 	jsonOK(w, nil)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		if err := serviceRestart(panelServiceUnit); err != nil {
+			log.Printf("restart panel: %v", err)
+		}
+	}()
 }

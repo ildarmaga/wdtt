@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -83,10 +82,7 @@ func main() {
 	mux.HandleFunc(api+"xray/config", app.requireAuth(app.handleXrayConfig))
 	mux.HandleFunc(api+"logs", app.requireAuth(app.handleLogs))
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("WDTT Panel: http://0.0.0.0%s%s", addr, base)
-	log.Printf("Логин: %s / пароль по умолчанию: wdtt (смените в настройках)", cfg.Username)
-	log.Fatal(http.ListenAndServe(addr, gzipMiddleware(mux)))
+	log.Fatal(startPanelServer(cfg, gzipMiddleware(mux)))
 }
 
 func (a *App) serveLogin(w http.ResponseWriter, r *http.Request) {

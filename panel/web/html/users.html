@@ -185,7 +185,7 @@
       async loadServerIp() {
         const msg = await axios.get('panel/api/status').then(r => r.data).catch(() => null);
         if (msg && msg.success) {
-          this.serverIp = msg.obj.server_ip || '';
+          this.serverIp = msg.obj.default_link_host || msg.obj.server_ip || '';
         }
       },
       async loadUsers(options = {}) {

@@ -39,7 +39,9 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"main_password":    db.MainPassword,
 		"users_count":      len(db.Passwords),
 		"devices_count":    len(db.Devices),
-		"server_ip":        a.serverIP(),
+		"server_ip":          a.serverIP(),
+		"default_link_host":  a.defaultLinkHost(),
+		"panel_tls":          panelTLSEnabled(a.cfg),
 	})
 }
 
@@ -59,9 +61,9 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inbound, _ := loadWdttInbound()
-	serverIP := a.serverIP()
+	linkHost := a.resolveLinkHost(inbound)
 	stats := loadServerStats()
-	users := []map[string]interface{}{mainUserRow(db, stats, inbound, serverIP)}
+	users := []map[string]interface{}{mainUserRow(db, stats, inbound, linkHost)}
 	for pass, entry := range db.Passwords {
 		used := trafficUsed(entry)
 		dtlsPort, wgPort, clientPort := resolveUserPorts(entry, inbound)
@@ -92,7 +94,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			"dtls_port":          dtlsPort,
 			"wg_port":            wgPort,
 			"client_port":        clientPort,
-			"link":               buildWdttLink(serverIP, pass, entry.VkHash, entry, inbound),
+			"link":               buildWdttLink(linkHost, pass, entry.VkHash, entry, inbound),
 			"vk_hash":            entry.VkHash,
 		}
 		users = append(users, u)
@@ -109,15 +111,17 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		"users":         users,
 		"devices":       devices,
 		"inbound": map[string]interface{}{
-			"tag":         inbound.Tag,
-			"remark":      inbound.Remark,
-			"listen_host": inbound.ListenHost,
-			"server_host": inbound.ServerHost,
-			"dtls_port":   inbound.DtlsPort,
-			"wg_port":     inbound.WgPort,
-			"client_port": inbound.ClientPort,
-			"dns":         inbound.DNS,
-			"max_users":   inbound.MaxUsers,
+			"tag":               inbound.Tag,
+			"remark":            inbound.Remark,
+			"listen_host":       inbound.ListenHost,
+			"server_host":       inbound.ServerHost,
+			"default_link_host": a.defaultLinkHost(),
+			"panel_tls":         panelTLSEnabled(a.cfg),
+			"dtls_port":         inbound.DtlsPort,
+			"wg_port":           inbound.WgPort,
+			"client_port":       inbound.ClientPort,
+			"dns":               inbound.DNS,
+			"max_users":         inbound.MaxUsers,
 		},
 	})
 }

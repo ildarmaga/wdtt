@@ -61,11 +61,11 @@
                   </a-form-item>
                   <a-form-item>
                     <template slot="label">
-                      <a-tooltip title="Публичный IP или домен для ссылок. Пусто = автоопределение">
+                      <a-tooltip title="Домен или IP в wdtt:// ссылках (DTLS, не HTTPS). Пусто = домен из SSL-сертификата панели, иначе публичный IP">
                         Адрес в ссылке <a-icon type="question-circle"></a-icon>
                       </a-tooltip>
                     </template>
-                    <a-input v-model.trim="inbound.server_host" :placeholder="inbound.server_ip || 'авто'"></a-input>
+                    <a-input v-model.trim="inbound.server_host" :placeholder="inbound.default_link_host || inbound.server_ip || 'авто'"></a-input>
                   </a-form-item>
                   <a-form-item>
                     <template slot="label">
@@ -138,6 +138,8 @@
       this.dns = data.dns || '1.1.1.1';
       this.max_users = Number(data.max_users) || 10;
       this.server_ip = data.server_ip || '';
+      this.default_link_host = data.default_link_host || '';
+      this.panel_tls = !!data.panel_tls;
       this.service_active = !!data.service_active;
       this.iface_up = !!data.iface_up;
       this.iface_addr = data.iface_addr || '';

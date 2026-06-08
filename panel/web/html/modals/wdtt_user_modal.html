@@ -216,7 +216,7 @@
         };
       },
       connHost() {
-        return (this.userModal.inbound.server_host || this.userModal.serverIp || '').trim();
+        return (this.userModal.inbound.server_host || this.userModal.inbound.default_link_host || this.userModal.serverIp || '').trim();
       },
       devicesLabel() {
         if (!this.userForm.device_ids.length) {
