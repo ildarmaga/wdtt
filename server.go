@@ -848,10 +848,8 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 				}
 
 				dbMutex.Lock()
-				if cleanupExpiredPasswordsLocked(wgDev) > 0 {
-					saveDB()
-				}
-				if len(db.Passwords) >= maxGeneratedPasswords {
+				suspendExpiredPasswordsLocked(wgDev)
+				if countActivePasswordsLocked() >= maxGeneratedPasswords {
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("❌ Лимит паролей: максимум %d активных. Удалите ненужный пароль через /list.", maxGeneratedPasswords), nil)
 					continue
@@ -897,10 +895,8 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 
 			} else if cmd == "/new" {
 				dbMutex.Lock()
-				if cleanupExpiredPasswordsLocked(wgDev) > 0 {
-					saveDB()
-				}
-				if len(db.Passwords) >= maxGeneratedPasswords {
+				suspendExpiredPasswordsLocked(wgDev)
+				if countActivePasswordsLocked() >= maxGeneratedPasswords {
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("❌ Лимит паролей: максимум %d активных. Удалите ненужный пароль через /list.", maxGeneratedPasswords), nil)
 					continue
@@ -938,30 +934,37 @@ func upsertPeerInWG(wgDev *device.Device, dev *ClientDevice) {
 	wgDev.IpcSet(fmt.Sprintf("public_key=%s\nallowed_ip=%s/32\n", pubHex, dev.IP))
 }
 
-func cleanupExpiredPasswordsLocked(wgDev *device.Device) int {
-	removed := 0
-	for p, entry := range db.Passwords {
-		if isPasswordExpired(entry) {
-			if entry != nil && entry.DeviceID != "" {
-				removePeerFromWG(wgDev, db.Devices[entry.DeviceID])
-				delete(db.Devices, entry.DeviceID)
-			}
-			delete(db.Passwords, p)
-			serverWrapKeys.RemovePassword(p)
-			removed++
+func countActivePasswordsLocked() int {
+	n := 0
+	for _, entry := range db.Passwords {
+		if entry != nil && !isPasswordExpired(entry) {
+			n++
 		}
 	}
-	return removed
+	return n
 }
 
-func cleanupExpiredPasswords(wgDev *device.Device) int {
+// Отключает истёкших от WG, но оставляет в базе для продления в панели.
+func suspendExpiredPasswordsLocked(wgDev *device.Device) int {
+	suspended := 0
+	for _, entry := range db.Passwords {
+		if entry == nil || !isPasswordExpired(entry) {
+			continue
+		}
+		if entry.DeviceID != "" {
+			if dev, ok := db.Devices[entry.DeviceID]; ok {
+				removePeerFromWG(wgDev, dev)
+			}
+		}
+		suspended++
+	}
+	return suspended
+}
+
+func suspendExpiredPasswords(wgDev *device.Device) int {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
-	removed := cleanupExpiredPasswordsLocked(wgDev)
-	if removed > 0 {
-		saveDB()
-	}
-	return removed
+	return suspendExpiredPasswordsLocked(wgDev)
 }
 
 func expiredPasswordJanitor(ctx context.Context, wgDev *device.Device) {
@@ -972,8 +975,8 @@ func expiredPasswordJanitor(ctx context.Context, wgDev *device.Device) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if removed := cleanupExpiredPasswords(wgDev); removed > 0 {
-				log.Printf("[DB] Удалено истёкших паролей: %d", removed)
+			if n := suspendExpiredPasswords(wgDev); n > 0 {
+				log.Printf("[DB] Отключено истёкших паролей (остались в базе): %d", n)
 			}
 		}
 	}
@@ -983,7 +986,15 @@ func syncPersistedPeersToWG(wgDev *device.Device) {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 	count := 0
-	for _, dev := range db.Devices {
+	for deviceID, dev := range db.Devices {
+		pass := passwordForDeviceLocked(deviceID)
+		if pass == "" {
+			continue
+		}
+		entry := db.Passwords[pass]
+		if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
+			continue
+		}
 		upsertPeerInWG(wgDev, dev)
 		count++
 	}
@@ -996,10 +1007,7 @@ func sendPasswordList(token string, adminID int64, wgDev *device.Device) {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 
-	// Очистка истёкших
-	if cleanupExpiredPasswordsLocked(wgDev) > 0 {
-		saveDB()
-	}
+	suspendExpiredPasswordsLocked(wgDev)
 
 	txt := "🔐 *Пароли:*\n\n"
 	txt += fmt.Sprintf("🔒 Главный: `%s` (владелец)\n\n", db.MainPassword)
@@ -1013,7 +1021,7 @@ func sendPasswordList(token string, adminID int64, wgDev *device.Device) {
 	if len(db.Passwords) == 0 {
 		txt += "_Нет сгенерированных паролей._\n"
 	} else {
-		txt += fmt.Sprintf("_Активно: %d/%d_\n\n", len(db.Passwords), maxGeneratedPasswords)
+		txt += fmt.Sprintf("_Активно: %d/%d (всего в базе: %d)_\n\n", countActivePasswordsLocked(), maxGeneratedPasswords, len(db.Passwords))
 		for p, entry := range db.Passwords {
 			status := "🟢"
 			if entry.DeviceID != "" {
@@ -2147,8 +2155,8 @@ func main() {
 		}
 		log.Fatalf("[WG] Запуск: %v", err)
 	}
-	if removed := cleanupExpiredPasswords(wgDev); removed > 0 {
-		log.Printf("[DB] Удалено истёкших паролей при старте: %d", removed)
+	if n := suspendExpiredPasswords(wgDev); n > 0 {
+		log.Printf("[DB] Отключено истёкших паролей при старте (остались в базе): %d", n)
 	}
 	syncPersistedPeersToWG(wgDev)
 	syncAllSpeedLimits()

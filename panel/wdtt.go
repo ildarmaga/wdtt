@@ -60,6 +60,23 @@ func trafficExceeded(entry *PasswordEntry) bool {
 	return trafficUsed(entry) >= entry.TotalBytes
 }
 
+func isPasswordExpired(entry *PasswordEntry) bool {
+	if entry == nil || entry.ExpiresAt == 0 {
+		return false
+	}
+	return time.Now().Unix() > entry.ExpiresAt
+}
+
+func countActivePasswords(db *PasswordsDB) int {
+	n := 0
+	for _, e := range db.Passwords {
+		if e != nil && !isPasswordExpired(e) {
+			n++
+		}
+	}
+	return n
+}
+
 type DeviceEntry struct {
 	DeviceID string `json:"device_id"`
 	IP       string `json:"ip"`
@@ -270,8 +287,8 @@ func createUser(password string, entry *PasswordEntry) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(db.Passwords) >= 10 {
-		return "", fmt.Errorf("максимум 10 паролей")
+	if countActivePasswords(db) >= 10 {
+		return "", fmt.Errorf("максимум 10 активных паролей (истёкшие не считаются)")
 	}
 	if _, exists := db.Passwords[password]; exists {
 		return "", fmt.Errorf("пароль уже существует")
@@ -329,6 +346,11 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
 		entry.DownBytes = cur.DownBytes
 		entry.UpBytes = cur.UpBytes
 		db.Passwords[oldPassword] = entry
+	}
+	wasExpired := isPasswordExpired(cur)
+	nowValid := !isPasswordExpired(entry)
+	if wasExpired && nowValid && !trafficExceeded(entry) {
+		entry.IsDeactivated = false
 	}
 	if err := savePasswords(db); err != nil {
 		return err

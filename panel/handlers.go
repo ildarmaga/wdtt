@@ -79,7 +79,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			"traffic_used":       used,
 			"traffic_used_fmt":   formatBytes(used),
 			"traffic_exceeded":   trafficExceeded(entry),
-			"active":             !entry.IsDeactivated,
+			"active":             !entry.IsDeactivated && !isPasswordExpired(entry),
 			"online":             userOnlineFromStats(pass, entry.DeviceID, false, stats),
 		}
 		users = append(users, u)
