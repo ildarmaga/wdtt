@@ -1,0 +1,36 @@
+name: Build WDTT
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - run: chmod +x build.sh && ./build.sh ${{ matrix.goarch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wdtt-server-linux-${{ matrix.goarch }}
+          path: wdtt-server-linux-${{ matrix.goarch }}
+
+  panel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - run: chmod +x panel/build.sh && ./panel/build.sh wdtt-panel-linux-amd64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wdtt-panel-linux-amd64
+          path: wdtt-panel-linux-amd64
