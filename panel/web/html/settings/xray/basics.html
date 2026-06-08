@@ -121,9 +121,6 @@
                 <a-select v-model="accessLog"
                     :dropdown-class-name="themeSwitcher.currentTheme"
                     :style="{ width: '100%' }">
-                    <a-select-option value>
-                        <span>Empty</span>
-                    </a-select-option>
                     <a-select-option v-for="s in log.access" :value="s">
                         <span>[[ s ]]</span>
                     </a-select-option>
@@ -138,9 +135,6 @@
                 <a-select v-model="errorLog"
                     :dropdown-class-name="themeSwitcher.currentTheme"
                     :style="{ width: '100%' }">
-                    <a-select-option value>
-                        <span>Empty</span>
-                    </a-select-option>
                     <a-select-option v-for="s in log.error" :value="s">
                         <span>[[ s ]]</span>
                     </a-select-option>

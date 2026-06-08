@@ -298,8 +298,8 @@
       routingDomainStrategies: ["AsIs", "IPIfNonMatch", "IPOnDemand"],
       log: {
         loglevel: ["none", "debug", "info", "warning", "error"],
-        access: ["none", "/var/log/wdtt-xray/access.log", "./access.log"],
-        error: ["none", "/var/log/wdtt-xray/error.log", "./error.log"],
+        access: ["none", "/var/log/wdtt-xray/access.log"],
+        error: ["none", "/var/log/wdtt-xray/error.log"],
         dnsLog: false,
         maskAddress: ["quarter", "half", "full"],
       },
@@ -1296,8 +1296,11 @@
       },
       accessLog: {
         get: function () {
-          if (!this.templateSettings || !this.templateSettings.log || !this.templateSettings.log.access) return "";
-          return this.templateSettings.log.access;
+          if (!this.templateSettings || !this.templateSettings.log) return "none";
+          var v = this.templateSettings.log.access;
+          if (!v || v === "none") return "none";
+          if (v === "./access.log") return "/var/log/wdtt-xray/access.log";
+          return v;
         },
         set: function (newValue) {
           newTemplateSettings = this.templateSettings;
@@ -1307,8 +1310,11 @@
       },
       errorLog: {
         get: function () {
-          if (!this.templateSettings || !this.templateSettings.log || !this.templateSettings.log.error) return "";
-          return this.templateSettings.log.error;
+          if (!this.templateSettings || !this.templateSettings.log) return "none";
+          var v = this.templateSettings.log.error;
+          if (!v || v === "none") return "none";
+          if (v === "./error.log") return "/var/log/wdtt-xray/error.log";
+          return v;
         },
         set: function (newValue) {
           newTemplateSettings = this.templateSettings;

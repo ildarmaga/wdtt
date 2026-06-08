@@ -68,6 +68,9 @@
                     <div class="text-muted" style="font-size:11px;margin-top:2px">
                       ↑ [[ row.up || '0 B' ]] ↓ [[ row.down || '0 B' ]]
                     </div>
+                    <div v-if="row.max_down_mbps > 0 || row.max_up_mbps > 0" class="text-muted" style="font-size:11px;margin-top:2px">
+                      лимит: <span v-if="row.max_down_mbps > 0">↓ [[ row.max_down_mbps ]] MB/s</span><span v-if="row.max_down_mbps > 0 && row.max_up_mbps > 0"> · </span><span v-if="row.max_up_mbps > 0">↑ [[ row.max_up_mbps ]] MB/s</span>
+                    </div>
                   </span>
                   <span slot="action" slot-scope="_, row">
                     <a-button size="small" icon="edit" @click="openEditModal(row)" style="margin-right:6px"></a-button>

@@ -19,13 +19,15 @@ type PasswordsDB struct {
 }
 
 type PasswordEntry struct {
-	DeviceID      string `json:"device_id"`
-	ExpiresAt     int64  `json:"expires_at"`
-	DownBytes     int64  `json:"down_bytes"`
-	UpBytes       int64  `json:"up_bytes"`
-	TotalBytes    int64  `json:"total_bytes,omitempty"`
-	IsDeactivated bool   `json:"is_deactivated,omitempty"`
-	Comment       string `json:"comment,omitempty"`
+	DeviceID      string  `json:"device_id"`
+	ExpiresAt     int64   `json:"expires_at"`
+	DownBytes     int64   `json:"down_bytes"`
+	UpBytes       int64   `json:"up_bytes"`
+	TotalBytes    int64   `json:"total_bytes,omitempty"`
+	MaxDownMBps   float64 `json:"max_down_mbps,omitempty"`
+	MaxUpMBps     float64 `json:"max_up_mbps,omitempty"`
+	IsDeactivated bool    `json:"is_deactivated,omitempty"`
+	Comment       string  `json:"comment,omitempty"`
 }
 
 const oneGB = 1024 * 1024 * 1024
@@ -335,6 +337,8 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
 		cur.DeviceID != entry.DeviceID ||
 		cur.ExpiresAt != entry.ExpiresAt ||
 		cur.TotalBytes != entry.TotalBytes ||
+		cur.MaxDownMBps != entry.MaxDownMBps ||
+		cur.MaxUpMBps != entry.MaxUpMBps ||
 		cur.IsDeactivated != entry.IsDeactivated {
 		serviceRestart(wdttServiceUnit)
 	}

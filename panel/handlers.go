@@ -74,6 +74,8 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			"down_bytes":         entry.DownBytes,
 			"total_bytes":        entry.TotalBytes,
 			"total_gb":           bytesToGB(entry.TotalBytes),
+			"max_down_mbps":      entry.MaxDownMBps,
+			"max_up_mbps":        entry.MaxUpMBps,
 			"traffic_used":       used,
 			"traffic_used_fmt":   formatBytes(used),
 			"traffic_exceeded":   trafficExceeded(entry),
@@ -97,13 +99,15 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 }
 
 type userAPIReq struct {
-	Password  string  `json:"password"`
-	DeviceID  string  `json:"device_id"`
-	Comment   string  `json:"comment"`
-	ExpiresAt int64   `json:"expires_at"`
-	TotalGB   float64 `json:"total_gb"`
-	Active    *bool   `json:"active"`
-	Count     int    `json:"count"`
+	Password    string  `json:"password"`
+	DeviceID    string  `json:"device_id"`
+	Comment     string  `json:"comment"`
+	ExpiresAt   int64   `json:"expires_at"`
+	TotalGB     float64 `json:"total_gb"`
+	MaxDownMBps float64 `json:"max_down_mbps"`
+	MaxUpMBps   float64 `json:"max_up_mbps"`
+	Active      *bool   `json:"active"`
+	Count       int     `json:"count"`
 }
 
 func passwordEntryFromReq(req userAPIReq) *PasswordEntry {
@@ -116,6 +120,8 @@ func passwordEntryFromReq(req userAPIReq) *PasswordEntry {
 		Comment:       strings.TrimSpace(req.Comment),
 		ExpiresAt:     req.ExpiresAt,
 		TotalBytes:    gbToBytes(req.TotalGB),
+		MaxDownMBps:   req.MaxDownMBps,
+		MaxUpMBps:     req.MaxUpMBps,
 		IsDeactivated: !active,
 	}
 }

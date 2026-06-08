@@ -277,9 +277,9 @@
               </a-col>
               <a-col :sm="24" :lg="12">
                 <a-card title='{{ i18n "usage"}}' hoverable>
-                  <a-tag color="green"> {{ i18n "pages.index.memory" }}: [[
-                    SizeFormatter.sizeFormat(status.appStats.mem) ]] </a-tag>
-                  <a-tag color="green"> {{ i18n "pages.index.threads" }}: [[ status.appStats.threads ]] </a-tag>
+                  <a-tag color="green">Panel: [[ SizeFormatter.sizeFormat(status.appStats.panel.mem) ]]</a-tag>
+                  <a-tag color="green">Xray: [[ SizeFormatter.sizeFormat(status.appStats.xray.mem) ]]</a-tag>
+                  <a-tag color="green">WDTT: [[ SizeFormatter.sizeFormat(status.appStats.wdtt.mem) ]]</a-tag>
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
@@ -821,7 +821,12 @@
       this.udpCount = 0;
       this.uptime = 0;
       this.appUptime = 0;
-      this.appStats = { threads: 0, mem: 0, uptime: 0 };
+      this.appStats = {
+        panel: { threads: 0, mem: 0 },
+        xray: { threads: 0, mem: 0 },
+        wdtt: { threads: 0, mem: 0 },
+        uptime: 0,
+      };
 
       this.xray = { state: 'stop', stateMsg: "", errorMsg: "", version: "", color: "", uptime: 0 };
       this.wdtt = { state: 'stop', stateMsg: "", errorMsg: "", color: "", activeUsers: 0, sessions: 0, iface: "", mainPassword: "", downGB: "0", upGB: "0", uptime: 0 };
@@ -845,7 +850,12 @@
       this.udpCount = data.udpCount;
       this.uptime = data.uptime;
       this.appUptime = data.appUptime;
-      this.appStats = data.appStats;
+      this.appStats = {
+        panel: (data.appStats && data.appStats.panel) || { threads: 0, mem: 0 },
+        xray: (data.appStats && data.appStats.xray) || { threads: 0, mem: 0 },
+        wdtt: (data.appStats && data.appStats.wdtt) || { threads: 0, mem: 0 },
+        uptime: (data.appStats && data.appStats.uptime) || 0,
+      };
       this.xray = data.xray;
       if (data.wdtt) {
         this.wdtt = data.wdtt;

@@ -162,15 +162,17 @@ type ClientDevice struct {
 }
 
 type PasswordEntry struct {
-	DeviceID      string `json:"device_id"`  // пусто = ещё не привязан
-	ExpiresAt     int64  `json:"expires_at"` // unix timestamp
-	DownBytes     int64  `json:"down_bytes"` // скачано клиентом
-	UpBytes       int64  `json:"up_bytes"`   // отдано клиентом
-	TotalBytes    int64  `json:"total_bytes,omitempty"` // 0 = без лимита
-	Comment       string `json:"comment,omitempty"`
-	VkHash        string `json:"vk_hash,omitempty"`
-	Ports         string `json:"ports,omitempty"` // "dtls,wg,tun"
-	IsDeactivated bool   `json:"is_deactivated,omitempty"`
+	DeviceID      string  `json:"device_id"`  // пусто = ещё не привязан
+	ExpiresAt     int64   `json:"expires_at"` // unix timestamp
+	DownBytes     int64   `json:"down_bytes"` // скачано клиентом
+	UpBytes       int64   `json:"up_bytes"`   // отдано клиентом
+	TotalBytes    int64   `json:"total_bytes,omitempty"` // 0 = без лимита
+	MaxDownMBps   float64 `json:"max_down_mbps,omitempty"` // 0 = без лимита, MB/s
+	MaxUpMBps     float64 `json:"max_up_mbps,omitempty"`   // 0 = без лимита, MB/s
+	Comment       string  `json:"comment,omitempty"`
+	VkHash        string  `json:"vk_hash,omitempty"`
+	Ports         string  `json:"ports,omitempty"` // "dtls,wg,tun"
+	IsDeactivated bool    `json:"is_deactivated,omitempty"`
 }
 
 
@@ -2149,7 +2151,9 @@ func main() {
 		log.Printf("[DB] Удалено истёкших паролей при старте: %d", removed)
 	}
 	syncPersistedPeersToWG(wgDev)
+	syncAllSpeedLimits()
 	defer func() {
+		resetTcOnIface(wgIfaceName)
 		wgDev.Close()
 		runCmdSilent("ip", "link", "del", wgIfaceName)
 		if xuiEgressEnabled && xuiCfg != nil {
@@ -2324,6 +2328,9 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				connDeviceID = deviceID
 				connUserIP = dev.IP
 				upsertPeerInWG(wgDev, dev)
+				if isGenPass && entry != nil {
+					applySpeedLimitForEntryUnlocked(entry)
+				}
 				clientConn.Write([]byte(buildClientConfig(keys.serverPublic, dev.PrivKey, dev.IP, clientPort)))
 			} else {
 				clientConn.Write([]byte("NOCONF"))

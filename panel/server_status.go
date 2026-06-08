@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,10 +69,16 @@ type serverStatus struct {
 		IPv6 string `json:"ipv6"`
 	} `json:"publicIP"`
 	AppStats struct {
-		Threads uint32 `json:"threads"`
-		Mem     uint64 `json:"mem"`
-		Uptime  uint64 `json:"uptime"`
+		Panel  serviceUsage `json:"panel"`
+		Xray   serviceUsage `json:"xray"`
+		Wdtt   serviceUsage `json:"wdtt"`
+		Uptime uint64       `json:"uptime"`
 	} `json:"appStats"`
+}
+
+type serviceUsage struct {
+	Mem     uint64 `json:"mem"`
+	Threads uint32 `json:"threads"`
 }
 
 var (
@@ -82,10 +87,10 @@ var (
 	lastCPUIdle    uint64
 	lastCPUTotal   uint64
 	hasCPUSample   bool
-	lastNetRx      uint64
-	lastNetTx      uint64
-	hasNetSample   bool
-	lastNetSampleT time.Time
+	lastVpnRx      uint64
+	lastVpnTx      uint64
+	hasVpnSample   bool
+	lastVpnSampleT time.Time
 	cpuHistory     []map[string]interface{}
 	panelStart     = time.Now()
 	cachedIPv4     string
@@ -153,8 +158,8 @@ func collectServerStatus() *serverStatus {
 	s.Loads = readLoads()
 	s.Uptime = readOSUptime()
 	s.TCPCount, s.UDPCount = readConnCounts()
-	s.NetIO.Up, s.NetIO.Down = readNetSpeed()
-	s.NetTraffic.Sent, s.NetTraffic.Recv = readNetTraffic()
+	s.NetIO.Up, s.NetIO.Down = vpnTrafficSpeed()
+	s.NetTraffic.Sent, s.NetTraffic.Recv = vpnTrafficTotals()
 	s.PublicIP.IPv4 = cachedIPv4
 	s.PublicIP.IPv6 = cachedIPv6
 	if s.PublicIP.IPv4 == "" {
@@ -165,10 +170,9 @@ func collectServerStatus() *serverStatus {
 	}
 
 	s.AppStats.Uptime = uint64(time.Since(panelStart).Seconds())
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-	s.AppStats.Mem = mem.Alloc
-	s.AppStats.Threads = uint32(runtime.NumGoroutine())
+	s.AppStats.Panel = readServiceUsage(panelServiceUnit)
+	s.AppStats.Xray = readServiceUsage(xrayServiceUnit)
+	s.AppStats.Wdtt = readServiceUsage(wdttServiceUnit)
 
 	fillXrayStatus(s)
 	fillWdttStatus(s)
@@ -216,6 +220,50 @@ func fillWdttStatus(s *serverStatus) {
 	if t, err := serviceUptime(wdttServiceUnit); err == nil {
 		s.Wdtt.Uptime = t
 	}
+}
+
+func readServiceUsage(unit string) serviceUsage {
+	pid, err := serviceMainPID(unit)
+	if err != nil || pid <= 0 {
+		return serviceUsage{}
+	}
+	return readProcessUsage(pid)
+}
+
+func serviceMainPID(unit string) (int, error) {
+	out, err := runCmd("systemctl", "show", unit, "--property=MainPID", "--value")
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, err
+	}
+	return pid, nil
+}
+
+func readProcessUsage(pid int) serviceUsage {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
+	if err != nil {
+		return serviceUsage{}
+	}
+	var u serviceUsage
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "VmRSS:") {
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				kb, _ := strconv.ParseUint(f[1], 10, 64)
+				u.Mem = kb * 1024
+			}
+		} else if strings.HasPrefix(line, "Threads:") {
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				n, _ := strconv.ParseUint(f[1], 10, 32)
+				u.Threads = uint32(n)
+			}
+		}
+	}
+	return u
 }
 
 func serviceUptime(unit string) (uint64, error) {
@@ -356,30 +404,36 @@ func readConnCounts() (tcp, udp int) {
 	return
 }
 
-func readNetTraffic() (sent, recv uint64) {
-	rx, tx := readNetBytes()
+const vpnTrafficIface = "wdtt0"
+
+func vpnTrafficTotals() (sent, recv uint64) {
+	rx, tx := readIfaceBytes(vpnTrafficIface)
 	return tx, rx
 }
 
-func readNetSpeed() (up, down uint64) {
-	rx, tx := readNetBytes()
+func vpnTrafficSpeed() (up, down uint64) {
+	rx, tx := readIfaceBytes(vpnTrafficIface)
 	now := time.Now()
 	statusMu.Lock()
 	defer statusMu.Unlock()
-	if hasNetSample {
-		dt := now.Sub(lastNetSampleT).Seconds()
+	if hasVpnSample {
+		dt := now.Sub(lastVpnSampleT).Seconds()
 		if dt > 0 {
-			up = uint64(float64(tx-lastNetTx) / dt)
-			down = uint64(float64(rx-lastNetRx) / dt)
+			if tx >= lastVpnTx {
+				up = uint64(float64(tx-lastVpnTx) / dt)
+			}
+			if rx >= lastVpnRx {
+				down = uint64(float64(rx-lastVpnRx) / dt)
+			}
 		}
 	}
-	lastNetRx, lastNetTx = rx, tx
-	lastNetSampleT = now
-	hasNetSample = true
+	lastVpnRx, lastVpnTx = rx, tx
+	lastVpnSampleT = now
+	hasVpnSample = true
 	return
 }
 
-func readNetBytes() (rx, tx uint64) {
+func readIfaceBytes(iface string) (rx, tx uint64) {
 	f, err := os.Open("/proc/net/dev")
 	if err != nil {
 		return
@@ -388,22 +442,19 @@ func readNetBytes() (rx, tx uint64) {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
-		if strings.Contains(line, ":") && !strings.Contains(line, "lo:") {
-			parts := strings.Split(line, ":")
-			if len(parts) != 2 {
-				continue
-			}
-			if strings.TrimSpace(parts[0]) == "lo" {
-				continue
-			}
-			flds := strings.Fields(parts[1])
-			if len(flds) >= 9 {
-				r, _ := strconv.ParseUint(flds[0], 10, 64)
-				t, _ := strconv.ParseUint(flds[8], 10, 64)
-				rx += r
-				tx += t
-			}
+		if !strings.Contains(line, ":") {
+			continue
 		}
+		parts := strings.Split(line, ":")
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) != iface {
+			continue
+		}
+		flds := strings.Fields(parts[1])
+		if len(flds) >= 9 {
+			rx, _ = strconv.ParseUint(flds[0], 10, 64)
+			tx, _ = strconv.ParseUint(flds[8], 10, 64)
+		}
+		return
 	}
 	return
 }
