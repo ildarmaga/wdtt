@@ -175,13 +175,29 @@ func gbStringToBytes(s string) int64 {
 	return int64(v * float64(oneGB))
 }
 
+func passwordsTrafficTotals(db *PasswordsDB) (up, down int64) {
+	if db == nil {
+		return 0, 0
+	}
+	for _, e := range db.Passwords {
+		if e == nil {
+			continue
+		}
+		up += e.UpBytes
+		down += e.DownBytes
+	}
+	return up, down
+}
+
 func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig, serverIP string) map[string]interface{} {
 	upBytes := int64(0)
 	downBytes := int64(0)
 	deviceIDs := []string{}
+	if entry, ok := db.Passwords[db.MainPassword]; ok && entry != nil {
+		upBytes = entry.UpBytes
+		downBytes = entry.DownBytes
+	}
 	if stats != nil {
-		upBytes = gbStringToBytes(stats.UpGB)
-		downBytes = gbStringToBytes(stats.DownGB)
 		for _, o := range stats.Online {
 			user, _ := o["user"].(string)
 			if user != "main" {

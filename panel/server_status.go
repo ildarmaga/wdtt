@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -50,6 +51,8 @@ type serverStatus struct {
 		MainPass    string       `json:"mainPassword"`
 		DownGB      string       `json:"downGB"`
 		UpGB        string       `json:"upGB"`
+		DownBytes   int64        `json:"downBytes"`
+		UpBytes     int64        `json:"upBytes"`
 		Uptime      uint64       `json:"uptime"`
 	} `json:"wdtt"`
 	Uptime   uint64    `json:"uptime"`
@@ -160,7 +163,13 @@ func collectServerStatus() *serverStatus {
 	s.Uptime = readOSUptime()
 	s.TCPCount, s.UDPCount = readConnCounts()
 	s.NetIO.Up, s.NetIO.Down = vpnTrafficSpeed()
-	s.NetTraffic.Sent, s.NetTraffic.Recv = vpnTrafficTotals()
+	if db, _ := loadPasswords(); db != nil {
+		up, down := passwordsTrafficTotals(db)
+		s.NetTraffic.Sent = uint64(up)
+		s.NetTraffic.Recv = uint64(down)
+	} else {
+		s.NetTraffic.Sent, s.NetTraffic.Recv = vpnTrafficTotals()
+	}
 	s.PublicIP.IPv4 = cachedIPv4
 	s.PublicIP.IPv6 = cachedIPv6
 	if s.PublicIP.IPv4 == "" {
@@ -212,10 +221,13 @@ func fillWdttStatus(s *serverStatus) {
 	if stats != nil {
 		s.Wdtt.ActiveUsers = stats.ActiveUsers
 		s.Wdtt.Sessions = stats.Sessions
-		s.Wdtt.DownGB = stats.DownGB
-		s.Wdtt.UpGB = stats.UpGB
 	}
 	if db != nil {
+		up, down := passwordsTrafficTotals(db)
+		s.Wdtt.UpBytes = up
+		s.Wdtt.DownBytes = down
+		s.Wdtt.UpGB = fmt.Sprintf("%.2f", float64(up)/float64(oneGB))
+		s.Wdtt.DownGB = fmt.Sprintf("%.2f", float64(down)/float64(oneGB))
 		s.Wdtt.MainPass = db.MainPassword
 	}
 	s.Wdtt.Iface = getWdttIface()

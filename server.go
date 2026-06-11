@@ -372,6 +372,9 @@ func initDB(dir, mainPass, adminID, botToken string) {
 	db.MainPassword = mainPass
 	db.AdminID = adminID
 	db.BotToken = botToken
+	if db.MainPassword != "" {
+		ensureMainPasswordEntryLocked()
+	}
 	saveDB()
 	if err := refreshWrapKeysFromDBLocked(); err != nil {
 		log.Fatalf("[WRAP] init keys: %v", err)
@@ -448,12 +451,31 @@ func resolveTrafficPassword(connPassword string, connIsMainPass bool, connDevice
 	if !connIsMainPass && connPassword != "" {
 		return connPassword
 	}
-	return passwordForDeviceLocked(connDeviceID)
+	if pass := passwordForDeviceLocked(connDeviceID); pass != "" {
+		return pass
+	}
+	if connIsMainPass && db.MainPassword != "" {
+		return db.MainPassword
+	}
+	return ""
+}
+
+func ensureMainPasswordEntryLocked() {
+	if db.MainPassword == "" {
+		return
+	}
+	if _, ok := db.Passwords[db.MainPassword]; ok {
+		return
+	}
+	db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец"}
 }
 
 func addTrafficLocked(password string, bytes int64, isDownload bool) bool {
 	if password == "" {
 		return true
+	}
+	if password == db.MainPassword {
+		ensureMainPasswordEntryLocked()
 	}
 	e, ok := db.Passwords[password]
 	if !ok || e == nil || isPasswordExpired(e) || e.IsDeactivated || isTrafficExceeded(e) {

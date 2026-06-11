@@ -65,6 +65,9 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 	stats := loadServerStats()
 	users := []map[string]interface{}{mainUserRow(db, stats, inbound, linkHost)}
 	for pass, entry := range db.Passwords {
+		if pass == db.MainPassword {
+			continue
+		}
 		used := trafficUsed(entry)
 		dtlsPort, wgPort, clientPort := resolveUserPorts(entry, inbound)
 		normalizeEntryDevices(entry)

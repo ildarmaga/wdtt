@@ -198,18 +198,7 @@ func inboundMaxUsers() int {
 }
 
 func inboundTrafficTotals(db *PasswordsDB, stats *ServerStats) (int64, int64) {
-	var up, down int64
-	if db != nil {
-		for _, e := range db.Passwords {
-			up += e.UpBytes
-			down += e.DownBytes
-		}
-	}
-	if stats != nil {
-		up += gbStringToBytes(stats.UpGB)
-		down += gbStringToBytes(stats.DownGB)
-	}
-	return up, down
+	return passwordsTrafficTotals(db)
 }
 
 func collectWdttInboundStatus(cfg WdttInboundConfig) WdttInboundStatus {

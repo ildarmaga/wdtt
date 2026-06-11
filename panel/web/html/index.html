@@ -31,31 +31,16 @@
     overflow: visible;
     padding: 8px 0 4px;
   }
-  .wdtt-card .wdtt-head {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 6px;
-    overflow-x: auto;
-    max-width: 100%;
-  }
-  .wdtt-card .wdtt-brand {
-    font-weight: 700;
-    flex-shrink: 0;
-    margin-right: 2px;
-  }
-  .wdtt-card .wdtt-tags {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 6px;
-    line-height: 1.4;
-    margin-top: 0;
-    align-items: center;
-    flex-shrink: 0;
-  }
-  .wdtt-card .wdtt-tags .ant-tag {
+  .wdtt-card .wdtt-metrics {
     margin: 0;
-    flex-shrink: 0;
+  }
+  .wdtt-card .wdtt-metrics .ant-col {
+    text-align: center;
+  }
+  .wdtt-card .wdtt-metrics .metric-label {
+    font-size: 12px;
+    opacity: 0.75;
+    margin-bottom: 4px;
   }
 </style>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' index-page'">
@@ -214,23 +199,39 @@
               <a-col :sm="24" :lg="12">
                 <a-card hoverable class="wdtt-card">
                   <template #title>
-                    <div class="wdtt-head">
-                      <span class="wdtt-brand">WDTT</span>
+                    <a-space direction="horizontal">
+                      <span>WDTT</span>
                       <a-tag v-if="isMobile" :color="status.wdtt.color">[[ status.wdtt.stateMsg ]]</a-tag>
-                      <div class="wdtt-tags">
-                        <a-tag color="blue">Онлайн: [[ status.wdtt.activeUsers ]]</a-tag>
-                        <a-tag color="cyan">Сессий: [[ status.wdtt.sessions ]]</a-tag>
-                        <a-tag color="purple">[[ status.wdtt.iface ]]</a-tag>
-                        <a-tag color="green">↓ [[ status.wdtt.downGB ]] GB</a-tag>
-                        <a-tag color="orange">↑ [[ status.wdtt.upGB ]] GB</a-tag>
-                        <a-tag v-if="status.wdtt.mainPassword">Пароль: [[ status.wdtt.mainPassword ]]</a-tag>
-                      </div>
-                    </div>
+                    </a-space>
                   </template>
                   <template #extra>
                     <a-badge :status="status.wdtt.color === 'green' ? 'processing' : 'default'"
                       :text="status.wdtt.stateMsg" :color="status.wdtt.color" />
                   </template>
+                  <a-row class="wdtt-metrics" :gutter="[8, 12]">
+                    <a-col :span="8">
+                      <div class="metric-label">Онлайн</div>
+                      <a-tag color="blue">[[ status.wdtt.activeUsers ]]</a-tag>
+                    </a-col>
+                    <a-col :span="8">
+                      <div class="metric-label">Сессий</div>
+                      <a-tag color="cyan">[[ status.wdtt.sessions ]]</a-tag>
+                    </a-col>
+                    <a-col :span="8">
+                      <div class="metric-label">Интерфейс</div>
+                      <a-tag color="purple">[[ status.wdtt.ifaceShort ]]</a-tag>
+                    </a-col>
+                    <a-col :span="12">
+                      <a-custom-statistic :value="SizeFormatter.sizeFormat(status.wdtt.downBytes)">
+                        <template #prefix><a-icon type="cloud-download" /></template>
+                      </a-custom-statistic>
+                    </a-col>
+                    <a-col :span="12">
+                      <a-custom-statistic :value="SizeFormatter.sizeFormat(status.wdtt.upBytes)">
+                        <template #prefix><a-icon type="cloud-upload" /></template>
+                      </a-custom-statistic>
+                    </a-col>
+                  </a-row>
                   <template #actions>
                     <a-space direction="horizontal" @click="openWdttJournal()" class="jc-center">
                       <a-icon type="bars"></a-icon>
@@ -821,7 +822,7 @@
       };
 
       this.xray = { state: 'stop', stateMsg: "", errorMsg: "", version: "", color: "", uptime: 0 };
-      this.wdtt = { state: 'stop', stateMsg: "", errorMsg: "", color: "", activeUsers: 0, sessions: 0, iface: "", mainPassword: "", downGB: "0", upGB: "0", uptime: 0 };
+      this.wdtt = { state: 'stop', stateMsg: "", errorMsg: "", color: "", activeUsers: 0, sessions: 0, iface: "", ifaceShort: "wdtt0", mainPassword: "", downGB: "0", upGB: "0", downBytes: 0, upBytes: 0, uptime: 0 };
 
       if (data == null) {
         return;
@@ -851,6 +852,8 @@
       this.xray = data.xray;
       if (data.wdtt) {
         this.wdtt = data.wdtt;
+        const iface = this.wdtt.iface || '';
+        this.wdtt.ifaceShort = iface.split('/')[0] || 'wdtt0';
         switch (this.wdtt.state) {
           case 'running':
             this.wdtt.color = "green";
