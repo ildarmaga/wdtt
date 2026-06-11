@@ -3,12 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -25,15 +27,20 @@ const (
 )
 
 type WdttInboundConfig struct {
-	Tag        string `json:"tag"`
-	Remark     string `json:"remark"`
-	ListenHost string `json:"listen_host"`
-	ServerHost string `json:"server_host"`
-	DtlsPort   int    `json:"dtls_port"`
-	WgPort     int    `json:"wg_port"`
-	ClientPort int    `json:"client_port"`
-	DNS        string `json:"dns"`
-	MaxUsers   int    `json:"max_users"`
+	Tag                 string `json:"tag"`
+	Remark              string `json:"remark"`
+	Enable              bool   `json:"enable"`
+	ListenHost          string `json:"listen_host"`
+	ServerHost          string `json:"server_host"`
+	DtlsPort            int    `json:"dtls_port"`
+	WgPort              int    `json:"wg_port"`
+	ClientPort          int    `json:"client_port"`
+	DNS                 string `json:"dns"`
+	MaxUsers            int    `json:"max_users"`
+	HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
+	MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
+	AdminAddr           string `json:"admin_addr"`
+	Create              bool   `json:"create"`
 }
 
 type WdttInboundStatus struct {
@@ -53,15 +60,24 @@ type WdttInboundStatus struct {
 
 func defaultWdttInbound() WdttInboundConfig {
 	return WdttInboundConfig{
-		Tag:        wdttInboundTag,
-		Remark:     "WDTT",
-		ListenHost: "0.0.0.0",
-		DtlsPort:   defaultDtlsPort,
-		WgPort:     defaultWgPort,
-		ClientPort: defaultClientPort,
-		DNS:        defaultClientDNS,
-		MaxUsers:   defaultMaxUsers,
+		Tag:                 wdttInboundTag,
+		Remark:              "WDTT",
+		Enable:              true,
+		ListenHost:          "0.0.0.0",
+		DtlsPort:            defaultDtlsPort,
+		WgPort:              defaultWgPort,
+		ClientPort:          defaultClientPort,
+		DNS:                 defaultClientDNS,
+		MaxUsers:            defaultMaxUsers,
+		HandshakeTimeoutSec: 30,
+		MaxDtlsPerDevice:    0,
+		AdminAddr:           "127.0.0.1:2861",
 	}
+}
+
+func wdttInboundFileExists() bool {
+	_, err := os.Stat(wdttInboundPath)
+	return err == nil
 }
 
 func (c *WdttInboundConfig) normalize() {
@@ -89,6 +105,15 @@ func (c *WdttInboundConfig) normalize() {
 	}
 	if c.MaxUsers <= 0 {
 		c.MaxUsers = def.MaxUsers
+	}
+	if c.HandshakeTimeoutSec <= 0 {
+		c.HandshakeTimeoutSec = def.HandshakeTimeoutSec
+	}
+	if c.MaxDtlsPerDevice < 0 {
+		c.MaxDtlsPerDevice = def.MaxDtlsPerDevice
+	}
+	if strings.TrimSpace(c.AdminAddr) == "" {
+		c.AdminAddr = def.AdminAddr
 	}
 }
 
@@ -120,6 +145,19 @@ func (c WdttInboundConfig) validate() error {
 	if c.MaxUsers < 1 || c.MaxUsers > maxUsersSubnetLimit {
 		return fmt.Errorf("лимит пользователей: от 1 до %d", maxUsersSubnetLimit)
 	}
+	if c.HandshakeTimeoutSec < 5 || c.HandshakeTimeoutSec > 600 {
+		return fmt.Errorf("таймаут DTLS handshake: от 5 до 600 секунд")
+	}
+	if c.MaxDtlsPerDevice < 0 || c.MaxDtlsPerDevice > 50 {
+		return fmt.Errorf("лимит DTLS на устройство: от 0 (без лимита) до 50")
+	}
+	adminHost, _, err := net.SplitHostPort(strings.TrimSpace(c.AdminAddr))
+	if err != nil || adminHost == "" {
+		return fmt.Errorf("admin-addr: укажите host:port, например 127.0.0.1:2861")
+	}
+	if ip := net.ParseIP(adminHost); ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("admin-addr: только localhost (127.0.0.0/8)")
+	}
 	return nil
 }
 
@@ -148,6 +186,21 @@ func inboundMaxUsers() int {
 	cfg, _ := loadWdttInbound()
 	cfg.normalize()
 	return cfg.MaxUsers
+}
+
+func inboundTrafficTotals(db *PasswordsDB, stats *ServerStats) (int64, int64) {
+	var up, down int64
+	if db != nil {
+		for _, e := range db.Passwords {
+			up += e.UpBytes
+			down += e.DownBytes
+		}
+	}
+	if stats != nil {
+		up += gbStringToBytes(stats.UpGB)
+		down += gbStringToBytes(stats.DownGB)
+	}
+	return up, down
 }
 
 func collectWdttInboundStatus(cfg WdttInboundConfig) WdttInboundStatus {
@@ -229,9 +282,12 @@ func saveWdttInbound(cfg WdttInboundConfig) error {
 }
 
 var (
-	reListen   = regexp.MustCompile(`-listen\s+(\S+)`)
-	reWgPort   = regexp.MustCompile(`-wg-port\s+(\d+)`)
-	rePassword = regexp.MustCompile(`-password\s+(\S+)`)
+	reListen            = regexp.MustCompile(`-listen\s+(\S+)`)
+	reWgPort            = regexp.MustCompile(`-wg-port\s+(\d+)`)
+	rePassword          = regexp.MustCompile(`-password\s+(\S+)`)
+	reHandshakeTimeout  = regexp.MustCompile(`-handshake-timeout(?:=|\s+)(\S+)`)
+	reMaxDtlsPerDevice  = regexp.MustCompile(`-max-dtls-per-device(?:=|\s+)(\d+)`)
+	reAdminAddr         = regexp.MustCompile(`-admin-addr(?:=|\s+)(\S+)`)
 )
 
 func parseWdttInboundFromService() (WdttInboundConfig, error) {
@@ -259,6 +315,19 @@ func parseWdttInboundFromService() (WdttInboundConfig, error) {
 			if p, err := strconv.Atoi(m[1]); err == nil {
 				cfg.WgPort = p
 			}
+		}
+		if m := reHandshakeTimeout.FindStringSubmatch(line); len(m) == 2 {
+			if d, err := time.ParseDuration(m[1]); err == nil && d > 0 {
+				cfg.HandshakeTimeoutSec = int(d.Seconds())
+			}
+		}
+		if m := reMaxDtlsPerDevice.FindStringSubmatch(line); len(m) == 2 {
+			if p, err := strconv.Atoi(m[1]); err == nil {
+				cfg.MaxDtlsPerDevice = p
+			}
+		}
+		if m := reAdminAddr.FindStringSubmatch(line); len(m) == 2 {
+			cfg.AdminAddr = m[1]
 		}
 		break
 	}
@@ -302,9 +371,10 @@ func removeWdttFirewallPort(port int) {
 
 func writeWdttServiceFile(cfg WdttInboundConfig, password string) error {
 	cfg.normalize()
-	extra := ""
+	extra := fmt.Sprintf(" -handshake-timeout=%ds -max-dtls-per-device %d -admin-addr %s",
+		cfg.HandshakeTimeoutSec, cfg.MaxDtlsPerDevice, cfg.AdminAddr)
 	if password != "" {
-		extra = " -password " + password
+		extra += " -password " + password
 	}
 	iptPre := fmt.Sprintf(
 		`ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p tcp --dport 22 -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 22 -m comment --comment %s -j ACCEPT; fi"`,
@@ -332,19 +402,40 @@ WantedBy=multi-user.target
 	return os.WriteFile(wdttServicePath, []byte(content), 0644)
 }
 
-func applyWdttInbound(cfg WdttInboundConfig) error {
+func inboundRequiresRestart(old, cfg WdttInboundConfig) bool {
+	old.normalize()
+	cfg.normalize()
+	if cfg.Create {
+		return true
+	}
+	if old.Enable != cfg.Enable {
+		return true
+	}
+	if old.ListenHost != cfg.ListenHost || old.DtlsPort != cfg.DtlsPort || old.WgPort != cfg.WgPort {
+		return true
+	}
+	if old.AdminAddr != cfg.AdminAddr {
+		return true
+	}
+	return false
+}
+
+func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
+	if cfg.Create && wdttInboundFileExists() {
+		return false, fmt.Errorf("на панели допускается только одно WDTT-подключение")
+	}
 	old, _ := loadWdttInbound()
 	old.normalize()
 	cfg.normalize()
 	if err := cfg.validate(); err != nil {
-		return err
+		return false, err
+	}
+	if err := saveWdttInbound(cfg); err != nil {
+		return false, err
 	}
 	password := parseWdttServicePassword()
-	if err := saveWdttInbound(cfg); err != nil {
-		return err
-	}
 	if err := writeWdttServiceFile(cfg, password); err != nil {
-		return err
+		return false, err
 	}
 	if old.DtlsPort != cfg.DtlsPort {
 		removeWdttFirewallPort(old.DtlsPort)
@@ -353,7 +444,24 @@ func applyWdttInbound(cfg WdttInboundConfig) error {
 		removeWdttFirewallPort(old.WgPort)
 	}
 	runCmd("systemctl", "daemon-reload")
-	return restartWdttWithDeps()
+	if !cfg.Enable {
+		runCmd("systemctl", "stop", wdttServiceUnit)
+		return false, nil
+	}
+	if inboundRequiresRestart(old, cfg) {
+		if err := restartWdttWithDeps(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if err := wdttHotReload(); err != nil {
+		log.Printf("[panel] inbound hot-reload: %v — перезапуск WDTT", err)
+		if err := restartWdttWithDeps(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func resolveUserPorts(entry *PasswordEntry, inbound WdttInboundConfig) (dtls, wg, client int) {

@@ -30,7 +30,6 @@ import (
 	"crypto/cipher"
 
 	"github.com/pion/dtls/v3"
-	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/hkdf"
@@ -59,6 +58,7 @@ const (
 var (
 	clientDNS             = defaultClientDNS
 	maxGeneratedPasswords = defaultMaxUsers
+	dtlsHandshakeTimeout  = 30 * time.Second
 )
 
 // ==================== База данных и Бот ====================
@@ -113,13 +113,17 @@ const (
 func loadInboundSettings(configDir string) {
 	clientDNS = defaultClientDNS
 	maxGeneratedPasswords = defaultMaxUsers
+	dtlsHandshakeTimeout = 30 * time.Second
+	maxDTLSPerDevice = 3
 	data, err := os.ReadFile(filepath.Join(configDir, "inbound.json"))
 	if err != nil {
 		return
 	}
 	var raw struct {
-		DNS      string `json:"dns"`
-		MaxUsers int    `json:"max_users"`
+		DNS                 string `json:"dns"`
+		MaxUsers            int    `json:"max_users"`
+		HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
+		MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
 	}
 	if json.Unmarshal(data, &raw) != nil {
 		return
@@ -129,6 +133,12 @@ func loadInboundSettings(configDir string) {
 	}
 	if raw.MaxUsers >= 1 && raw.MaxUsers <= maxUsersSubnetLimit {
 		maxGeneratedPasswords = raw.MaxUsers
+	}
+	if raw.HandshakeTimeoutSec >= 5 && raw.HandshakeTimeoutSec <= 600 {
+		dtlsHandshakeTimeout = time.Duration(raw.HandshakeTimeoutSec) * time.Second
+	}
+	if raw.MaxDtlsPerDevice >= 0 && raw.MaxDtlsPerDevice <= 50 {
+		maxDTLSPerDevice = int32(raw.MaxDtlsPerDevice)
 	}
 }
 
@@ -362,9 +372,22 @@ func initDB(dir, mainPass, adminID, botToken string) {
 	}
 }
 
-func saveDB() {
-	data, _ := json.MarshalIndent(db, "", "  ")
-	os.WriteFile(dbFile, data, 0600)
+func saveDB() error {
+	data, err := json.MarshalIndent(db, "", "  ")
+	if err != nil {
+		log.Printf("[DB] save: marshal: %v", err)
+		return err
+	}
+	tmp := dbFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		log.Printf("[DB] save: write: %v", err)
+		return err
+	}
+	if err := os.Rename(tmp, dbFile); err != nil {
+		log.Printf("[DB] save: rename: %v", err)
+		return err
+	}
+	return nil
 }
 
 func isPasswordExpired(entry *PasswordEntry) bool {
@@ -1615,7 +1638,13 @@ func main() {
 	mainPass := flag.String("password", "", "пароль владельца")
 	adminID := flag.String("admin", "", "Telegram Admin ID")
 	botToken := flag.String("bot-token", "", "Telegram Bot Token")
+	handshakeTimeout := flag.Duration("handshake-timeout", 30*time.Second, "таймаут DTLS handshake")
+	adminAddr := flag.String("admin-addr", "127.0.0.1:2861", "HTTP admin (localhost): /health, POST /admin/reload")
+	maxDTLSPerDeviceFlag := flag.Int("max-dtls-per-device", 0, "макс. параллельных GETCONF на device_id (0 = без лимита)")
 	flag.Parse()
+	dtlsHandshakeTimeout = *handshakeTimeout
+	maxDTLSPerDevice = int32(*maxDTLSPerDeviceFlag)
+	adminListenAddr = *adminAddr
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.Println("══════════════════════════════════════════")
@@ -1629,9 +1658,8 @@ func main() {
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-sig
+		log.Println("[SERVER] Shutdown signal received, draining connections...")
 		cancel()
-		time.Sleep(2 * time.Second)
-		os.Exit(0)
 	}()
 
 	initDB(*configDir, *mainPass, *adminID, *botToken)
@@ -1663,10 +1691,15 @@ func main() {
 	go statsLoop(ctx, *configDir)
 	go userPresenceLoop(ctx)
 	go expiredPasswordJanitor(ctx, wgDev)
+	go getconfFailJanitor(ctx)
 	go botLoop(*botToken, *adminID, wgDev)
+	startAdminServer(ctx, wgDev)
 
 	addr, _ := net.ResolveUDPAddr("udp", *listen)
-	cert, _ := selfsign.GenerateSelfSigned()
+	cert, err := loadOrGenerateDTLSCert(*configDir)
+	if err != nil {
+		log.Fatalf("[DTLS] Сертификат: %v", err)
+	}
 	if serverWrapKeys.Count() == 0 {
 		log.Fatalf("[WRAP] нет активных паролей для WRAP")
 	}
@@ -1694,7 +1727,23 @@ func main() {
 		if err != nil {
 			select {
 			case <-ctx.Done():
-				wg.Wait()
+				drain := make(chan struct{})
+				go func() {
+					wg.Wait()
+					close(drain)
+				}()
+				select {
+				case <-drain:
+				case <-time.After(30 * time.Second):
+					log.Println("[SERVER] Shutdown timeout (30s), active connections abandoned")
+				}
+				if trafficDirty.Load() {
+					dbMutex.Lock()
+					saveDB()
+					trafficDirty.Store(false)
+					dbMutex.Unlock()
+				}
+				log.Println("[SERVER] Stopped")
 				return
 			default:
 			}
@@ -1724,11 +1773,16 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		return
 	}
 
-	hctx, hcancel := context.WithTimeout(ctx, 30*time.Second)
+	remoteAddr := clientConn.RemoteAddr()
+	hsTimeout := relayHandshakeTimeoutFor(remoteAddr)
+	hctx, hcancel := context.WithTimeout(ctx, hsTimeout)
 	if err := dtlsConn.HandshakeContext(hctx); err != nil {
+		log.Printf("[DTLS] Handshake failed from %s (timeout %s): %v", remoteAddr, hsTimeout, err)
+		relayNoteHandshakeFail(remoteAddr)
 		hcancel()
 		return
 	}
+	relayNoteHandshakeOK(remoteAddr)
 	hcancel()
 
 	atomic.AddInt32(&activeConns, 1)
@@ -1738,12 +1792,21 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	n, err := clientConn.Read(buf)
 	if err != nil {
+		log.Printf("[DTLS] First read failed from %s: %v", clientConn.RemoteAddr(), err)
 		return
 	}
 	clientConn.SetReadDeadline(time.Time{})
 
 	firstPacket := buf[:n]
 	firstStr := string(firstPacket)
+
+	if !strings.HasPrefix(firstStr, "GETCONF:") {
+		preview := firstStr
+		if len(preview) > 32 {
+			preview = preview[:32] + "..."
+		}
+		log.Printf("[DTLS] Unexpected first packet from %s: %q", clientConn.RemoteAddr(), preview)
+	}
 
 	if strings.HasPrefix(firstStr, "GETCONF:") {
 		parts := strings.Split(strings.TrimSpace(strings.TrimPrefix(firstStr, "GETCONF:")), "|")
@@ -1766,6 +1829,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		isMainPass := password != "" && password == db.MainPassword
 		entry, isGenPass := db.Passwords[password]
 		valid := isMainPass || (isGenPass && !isPasswordExpired(entry) && !isTrafficExceeded(entry))
+		getconfSlot := false
 
 		if valid && isGenPass && entry.IsDeactivated {
 			clientConn.Write([]byte("DENIED:deactivated"))
@@ -1777,6 +1841,16 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				maskPassword(password), len(allEntryDeviceIDs(entry)), entryMaxDevices(entry), deviceID)
 			dbMutex.Unlock()
 		} else if valid {
+			if maxDTLSPerDevice > 0 {
+				if !dtlsSlotAcquire(deviceID) {
+					clientConn.Write([]byte("DENIED:too_many_sessions"))
+					log.Printf("[WG] Отказ: слишком много параллельных GETCONF для %s (лимит %d)", deviceID, maxDTLSPerDevice)
+					dbMutex.Unlock()
+					return
+				}
+				getconfSlot = true
+			}
+
 			connPassword = password
 			connIsMainPass = isMainPass
 
@@ -1824,6 +1898,8 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 					applySpeedLimitForEntryUnlocked(entry)
 				}
 				clientConn.Write([]byte(buildClientConfig(keys.serverPublic, dev.PrivKey, dev.IP, clientPort)))
+				log.Printf("[WG] GETCONF OK: device=%s ip=%s from %s", deviceID, dev.IP, clientConn.RemoteAddr())
+				getconfFailReset(clientConn.RemoteAddr())
 			} else {
 				clientConn.Write([]byte("NOCONF"))
 			}
@@ -1837,9 +1913,15 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				log.Printf("[WG] Отказ: пароль %s истёк, от %s", maskPassword(password), deviceID)
 			} else {
 				clientConn.Write([]byte("DENIED:wrong_password"))
-				log.Printf("[WG] Отказ (неверный пароль) от %s", deviceID)
+				getconfFailLog(clientConn.RemoteAddr(), "wrong_password")
 			}
 			dbMutex.Unlock()
+		}
+		if getconfSlot {
+			dtlsSlotRelease(deviceID)
+		}
+		if connDeviceID != "" {
+			relaySessionEvictIdle(connDeviceID, relayStaleEvictIdle)
 		}
 
 		clientConn.SetReadDeadline(time.Now().Add(5 * time.Minute))
@@ -1891,6 +1973,50 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	pctx, pcancel := context.WithCancel(ctx)
 	defer pcancel()
 
+	var relaySess *relaySession
+	if connDeviceID != "" {
+		relaySess = relaySessionRegister(connDeviceID, pcancel)
+		defer relaySessionUnregister(connDeviceID, relaySess)
+	}
+
+	// Учёт трафика без per-packet mutex: копим в локальные atomic-счётчики,
+	// сбрасываем в БД раз в секунду и тогда же проверяем лимит/деактивацию.
+	var sessUpBytes, sessDownBytes int64
+	flushTraffic := func() bool {
+		up := atomic.SwapInt64(&sessUpBytes, 0)
+		down := atomic.SwapInt64(&sessDownBytes, 0)
+		if up == 0 && down == 0 {
+			return true
+		}
+		dbMutex.Lock()
+		pass := resolveTrafficPassword(connPassword, connIsMainPass, connDeviceID)
+		ok := true
+		if up > 0 {
+			ok = addTrafficLocked(pass, up, false) && ok
+		}
+		if down > 0 {
+			ok = addTrafficLocked(pass, down, true) && ok
+		}
+		dbMutex.Unlock()
+		return ok
+	}
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-pctx.Done():
+				flushTraffic()
+				return
+			case <-t.C:
+				if !flushTraffic() {
+					pcancel()
+					return
+				}
+			}
+		}
+	}()
+
 	context.AfterFunc(pctx, func() {
 		clientConn.SetDeadline(time.Now())
 		wgConn.SetDeadline(time.Now())
@@ -1918,18 +2044,17 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			}
 			// Skip DTLS keepalive packets (1-byte 0xFF ping from client)
 			if nn == 1 && (*b)[0] == 0xFF {
+				if relaySess != nil {
+					relaySess.touch()
+				}
 				continue
 			}
 			atomic.AddInt64(&totalBytesFromClient, int64(nn))
 			userTouchActivity(connDeviceID)
-			// Per-password upload tracking
-			dbMutex.Lock()
-			pass := resolveTrafficPassword(connPassword, connIsMainPass, connDeviceID)
-			if !addTrafficLocked(pass, int64(nn), false) {
-				dbMutex.Unlock()
-				return
+			if relaySess != nil {
+				relaySess.touch()
 			}
-			dbMutex.Unlock()
+			atomic.AddInt64(&sessUpBytes, int64(nn))
 			if _, err := wgConn.Write((*b)[:nn]); err != nil {
 				return
 			}
@@ -1961,14 +2086,10 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			}
 			atomic.AddInt64(&totalBytesToClient, int64(nn))
 			userTouchActivity(connDeviceID)
-			// Per-password download tracking
-			dbMutex.Lock()
-			pass := resolveTrafficPassword(connPassword, connIsMainPass, connDeviceID)
-			if !addTrafficLocked(pass, int64(nn), true) {
-				dbMutex.Unlock()
-				return
+			if relaySess != nil {
+				relaySess.touch()
 			}
-			dbMutex.Unlock()
+			atomic.AddInt64(&sessDownBytes, int64(nn))
 			if _, err := clientConn.Write((*b)[:nn]); err != nil {
 				return
 			}
@@ -2145,10 +2266,14 @@ func listenWrapped(addr *net.UDPAddr, keys *wrapKeyStore) (dtlsnet.PacketListene
 	if keys == nil || keys.Count() == 0 {
 		return nil, errors.New("wrap: no active keys")
 	}
-	inner, err := pionudp.Listen("udp", addr)
+	inner, err := (&pionudp.ListenConfig{
+		ReadBufferSize:  8 << 20,
+		WriteBufferSize: 2 << 20,
+	}).Listen("udp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("wrap: udp listen: %w", err)
 	}
+	log.Printf("[WRAP] UDP buffers: read=8MB write=2MB on %s", addr.String())
 	return &wrapPacketListener{
 		inner: dtlsnet.PacketListenerFromListener(inner),
 		keys:  keys,
@@ -2189,6 +2314,9 @@ func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 		return 0, addr, err
 	}
 	raw := buf[:n]
+	if relayShouldDrop(addr) {
+		return 0, addr, errors.New("relay stale: dropped")
+	}
 
 	if atomic.LoadInt32(&c.selected) == 0 {
 		key, m, uErr := c.keys.Unwrap(raw, p)

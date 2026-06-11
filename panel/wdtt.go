@@ -312,7 +312,7 @@ func createUser(password string, entry *PasswordEntry) (string, error) {
 	if err := savePasswords(db); err != nil {
 		return "", err
 	}
-	restartWdttWithDeps()
+	applyWdttConfigChange()
 	return password, nil
 }
 
@@ -367,9 +367,6 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
 	if wasExpired && nowValid && !trafficExceeded(entry) {
 		entry.IsDeactivated = false
 	}
-	if err := savePasswords(db); err != nil {
-		return err
-	}
 	normalizeEntryDevices(cur)
 	normalizeEntryDevices(entry)
 	if len(entry.DeviceIDs) == 0 && entry.DeviceID == "" {
@@ -387,17 +384,10 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
 			delete(db.Devices, devID)
 		}
 	}
-	if newPassword != oldPassword ||
-		!deviceIDsEqual(cur.DeviceIDs, entry.DeviceIDs) ||
-		cur.MaxDevices != entry.MaxDevices ||
-		cur.ExpiresAt != entry.ExpiresAt ||
-		cur.TotalBytes != entry.TotalBytes ||
-		cur.MaxDownMBps != entry.MaxDownMBps ||
-		cur.MaxUpMBps != entry.MaxUpMBps ||
-		cur.IsDeactivated != entry.IsDeactivated {
-		restartWdttWithDeps()
+	if err := savePasswords(db); err != nil {
+		return err
 	}
-	return nil
+	return applyWdttConfigChange()
 }
 
 func resetUserTraffic(pass string) error {
@@ -418,7 +408,7 @@ func resetUserTraffic(pass string) error {
 	if err := savePasswords(db); err != nil {
 		return err
 	}
-	return restartWdttWithDeps()
+	return applyWdttConfigChange()
 }
 
 func deleteUserPassword(pass string) error {
@@ -435,8 +425,7 @@ func deleteUserPassword(pass string) error {
 	if err := savePasswords(db); err != nil {
 		return err
 	}
-	restartWdttWithDeps()
-	return nil
+	return applyWdttConfigChange()
 }
 
 func formatBytes(b int64) string {

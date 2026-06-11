@@ -139,7 +139,8 @@
                   <template #title>
                     <a-space direction="horizontal">
                       <span>{{ i18n "pages.index.xrayStatus" }}</span>
-                      <a-tag v-if="isMobile && status.xray.version != 'Unknown'" color="green">
+                      <a-tag v-if="isMobile && status.xray.version != 'Unknown'" color="green"
+                        class="cursor-pointer" @click="openSelectV2rayVersion">
                         v[[ status.xray.version ]]
                       </a-tag>
                     </a-space>
@@ -183,9 +184,10 @@
                       <a-icon type="reload"></a-icon>
                       <span v-if="!isMobile">{{ i18n "pages.index.restartXray" }}</span>
                     </a-space>
-                    <a-space direction="horizontal" class="jc-center" style="cursor:default">
-                      <span v-if="!isMobile" style="color:rgba(255,255,255,.65)">
-                        [[ status.xray.version != 'Unknown' ? 'v' + status.xray.version : '—' ]]
+                    <a-space direction="horizontal" @click="openSelectV2rayVersion" class="jc-center cursor-pointer">
+                      <a-icon type="tool"></a-icon>
+                      <span v-if="!isMobile">
+                        [[ status.xray.version != 'Unknown' ? `v${status.xray.version}` : '{{ i18n "pages.index.xraySwitch" }}' ]]
                       </span>
                     </a-space>
                   </template>
@@ -246,8 +248,10 @@
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
-                <a-card title='WDTT Panel' hoverable>
-                  <a-tag color="green"><span>v{{ .cur_ver }}</span></a-tag>
+                <a-card title='WDTT Panel' hoverable :body-style="{ padding: '12px 24px' }">
+                  <a rel="noopener" href="https://github.com/ildarmaga/wdtt/releases" target="_blank">
+                    <a-tag color="green"><span>v{{ .cur_ver }}</span></a-tag>
+                  </a>
                   <a-tag color="purple" @click="openXraySettings" style="cursor:pointer">
                     <span>{{ i18n "menu.xray" }}</span>
                   </a-tag>
@@ -264,18 +268,6 @@
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
-                <a-card title='{{ i18n "pages.index.systemLoad" }}' hoverable>
-                  <a-tag color="green">
-                    <a-tooltip>
-                      [[ status.loads[0] ]] | [[ status.loads[1] ]] | [[ status.loads[2] ]]
-                      <template slot="title">
-                        {{ i18n "pages.index.systemLoadDesc" }}
-                      </template>
-                    </a-tooltip>
-                  </a-tag>
-                </a-card>
-              </a-col>
-              <a-col :sm="24" :lg="12">
                 <a-card title='{{ i18n "usage"}}' hoverable>
                   <a-tag color="green">Panel: [[ SizeFormatter.sizeFormat(status.appStats.panel.mem) ]]</a-tag>
                   <a-tag color="green">Xray: [[ SizeFormatter.sizeFormat(status.appStats.xray.mem) ]]</a-tag>
@@ -286,7 +278,7 @@
                 <a-card title='{{ i18n "pages.index.overallSpeed" }}' hoverable>
                   <a-row :gutter="isMobile ? [8,8] : 0">
                     <a-col :span="12">
-                      <a-custom-statistic title='{{ i18n "pages.index.upload" }}'
+                      <a-custom-statistic
                         :value="SizeFormatter.sizeFormat(status.netIO.up)">
                         <template #prefix>
                           <a-icon type="arrow-up" />
@@ -297,7 +289,7 @@
                       </a-custom-statistic>
                     </a-col>
                     <a-col :span="12">
-                      <a-custom-statistic title='{{ i18n "pages.index.download" }}'
+                      <a-custom-statistic
                         :value="SizeFormatter.sizeFormat(status.netIO.down)">
                         <template #prefix>
                           <a-icon type="arrow-down" />
@@ -314,7 +306,7 @@
                 <a-card title='{{ i18n "pages.index.totalData" }}' hoverable>
                   <a-row :gutter="isMobile ? [8,8] : 0">
                     <a-col :span="12">
-                      <a-custom-statistic title='{{ i18n "pages.index.sent" }}'
+                      <a-custom-statistic
                         :value="SizeFormatter.sizeFormat(status.netTraffic.sent)">
                         <template #prefix>
                           <a-icon type="cloud-upload" />
@@ -322,7 +314,7 @@
                       </a-custom-statistic>
                     </a-col>
                     <a-col :span="12">
-                      <a-custom-statistic title='{{ i18n "pages.index.received" }}'
+                      <a-custom-statistic
                         :value="SizeFormatter.sizeFormat(status.netTraffic.recv)">
                         <template #prefix>
                           <a-icon type="cloud-download" />
@@ -1302,8 +1294,9 @@
           onOk: async () => {
             versionModal.hide();
             this.loading(true, '{{ i18n "pages.index.dontRefresh"}}');
-            await HttpUtil.post(`/panel/api/server/installXray/${version}`);
+            const msg = await HttpUtil.post(`/panel/api/server/installXray/${version}`);
             this.loading(false);
+            if (msg && msg.success) await this.getStatus();
           },
         });
       },
@@ -1323,8 +1316,9 @@
             const url = isSingleFile
               ? `/panel/api/server/updateGeofile/${fileName}`
               : `/panel/api/server/updateGeofile`;
-            await HttpUtil.post(url);
+            const msg = await HttpUtil.post(url);
             this.loading(false);
+            if (msg && msg.success) await this.getStatus();
           },
         });
       },

@@ -1,0 +1,74 @@
+{{define "modals/xrayInboundModal"}}
+<a-modal id="xray-inbound-modal" v-model="xrayInModal.visible" :title="xrayInModal.title"
+  :dialog-style="{ top: '20px' }" @ok="xrayInModal.ok"
+  :confirm-loading="xrayInModal.confirmLoading" :closable="true" :mask-closable="false"
+  :class="themeSwitcher.currentTheme"
+  :ok-text="xrayInModal.okText" cancel-text='{{ i18n "close" }}' width="720px">
+  {{template "form/inbound"}}
+</a-modal>
+<script>
+  const xrayInModal = {
+    title: '',
+    visible: false,
+    confirmLoading: false,
+    okText: '{{ i18n "sure" }}',
+    isEdit: false,
+    confirm: null,
+    inbound: new Inbound(),
+    dbInbound: new DBInbound(),
+    ok() {
+      if (typeof this.confirm === 'function') {
+        return this.confirm(this.inbound, this.dbInbound);
+      }
+    },
+    show({ title = '', okText = '{{ i18n "sure" }}', inbound = null, dbInbound = null, confirm = () => {}, isEdit = false }) {
+      this.title = title;
+      this.okText = okText;
+      if (inbound) {
+        this.inbound = Inbound.fromJson(inbound.toJson());
+      } else {
+        this.inbound = new Inbound();
+        this.inbound.protocol = Protocols.MIXED;
+        this.inbound.port = 10808;
+        this.inbound.tag = 'inbound-' + RandomUtil.randomInteger(1000, 9999);
+        this.inbound.sniffing = new Sniffing();
+        this.inbound.settings.auth = 'noauth';
+        this.inbound.settings.udp = true;
+        this.inbound.settings.ip = '127.0.0.1';
+      }
+      if (dbInbound) {
+        this.dbInbound = new DBInbound(dbInbound);
+      } else {
+        this.dbInbound = new DBInbound({ enable: true, remark: 'mixed-in', trafficReset: 'never' });
+      }
+      this.confirm = confirm;
+      this.visible = true;
+      this.isEdit = isEdit;
+    },
+    close() {
+      xrayInModal.visible = false;
+      xrayInModal.loading(false);
+    },
+    loading(loading = true) {
+      xrayInModal.confirmLoading = loading;
+    },
+  };
+
+  new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#xray-inbound-modal',
+    data: {
+      xrayInModal,
+      get inbound() {
+        return xrayInModal.inbound;
+      },
+      get dbInbound() {
+        return xrayInModal.dbInbound;
+      },
+      get isEdit() {
+        return xrayInModal.isEdit;
+      },
+    },
+  });
+</script>
+{{end}}

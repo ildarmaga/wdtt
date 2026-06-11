@@ -155,7 +155,7 @@ func validateXrayConfig(raw string) error {
 	return nil
 }
 
-func saveXrayConfig(raw string) error {
+func writeXrayConfig(raw string) error {
 	oldRaw, _ := loadXrayConfigRaw()
 	merged, err := preserveProtectedInbounds(oldRaw, raw)
 	if err != nil {
@@ -176,6 +176,13 @@ func saveXrayConfig(raw string) error {
 	}
 	os.MkdirAll(filepath.Dir(xrayConfigPath), 0755)
 	if err := os.WriteFile(xrayConfigPath, []byte(merged), 0644); err != nil {
+		return err
+	}
+	return nil
+}
+
+func saveXrayConfig(raw string) error {
+	if err := writeXrayConfig(raw); err != nil {
 		return err
 	}
 	return serviceRestart(xrayServiceUnit)

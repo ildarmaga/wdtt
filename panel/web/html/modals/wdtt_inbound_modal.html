@@ -1,0 +1,175 @@
+{{define "modals/wdttInboundModal"}}
+<a-modal id="wdtt-inbound-modal" v-model="inboundModal.visible"
+  :title="inboundModal.isCreate ? modalTitles.create : modalTitles.edit"
+  :confirm-loading="inboundModal.saving" :closable="true" :mask-closable="false"
+  :class="themeSwitcher.currentTheme"
+  :ok-text="inboundModal.isCreate ? 'Создать' : 'Сохранить'"
+  cancel-text="Закрыть"
+  @ok="inboundModal.save" width="720px">
+  <a-alert type="warning" show-icon style="margin-bottom:16px"
+    message="Смена портов обновит systemd и firewall. Клиентам нужны новые ссылки."></a-alert>
+  <a-form layout="horizontal" :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+    <a-form-item label='{{ i18n "pages.inbounds.enable" }}'>
+      <a-switch v-model="inboundForm.enable"></a-switch>
+    </a-form-item>
+    <a-form-item label='{{ i18n "pages.inbounds.remark" }}'>
+      <a-input v-model.trim="inboundForm.remark" placeholder="WDTT"></a-input>
+    </a-form-item>
+    <a-form-item label="Тег">
+      <a-input v-model.trim="inboundForm.tag" placeholder="wdtt-in"></a-input>
+    </a-form-item>
+    <a-form-item label="Адрес прослушивания">
+      <a-input v-model.trim="inboundForm.listen_host" placeholder="0.0.0.0"></a-input>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="Домен или IP в wdtt:// ссылках (DTLS, не HTTPS). Пусто = домен из SSL-сертификата панели, иначе публичный IP">
+          Адрес в ссылке <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input v-model.trim="inboundForm.server_host"
+        :placeholder="inboundForm.default_link_host || inboundForm.server_ip || 'авто'"></a-input>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="UDP порт DTLS — основной вход клиентов">
+          DTLS порт <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.dtls_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="UDP порт WireGuard (userspace), открывается в firewall">
+          WireGuard порт <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.wg_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="Локальный порт WireGuard на устройстве клиента (127.0.0.1)">
+          Порт клиента <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.client_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="DNS в WG-конфиге клиента (выдаётся при подключении)">
+          DNS клиента <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input v-model.trim="inboundForm.dns" placeholder="1.1.1.1"></a-input>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="Максимум активных паролей (истёкшие не считаются). Подсеть 10.66.66.0/24 — до 249">
+          Лимит пользователей <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.max_users" :min="1" :max="249" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-divider>Расширенные</a-divider>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="Сколько ждать DTLS handshake от клиента (сек). На нестабильном Wi‑Fi можно 45–60">
+          DTLS timeout, сек <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.handshake_timeout_sec" :min="5" :max="600" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="Макс. параллельных DTLS-сессий на одно устройство (iOS открывает несколько). 0 = без лимита">
+          DTLS на device <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.max_dtls_per_device" :min="0" :max="50" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="HTTP для hot-reload из панели (только localhost). Менять только если порт 2861 занят">
+          Admin HTTP <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input v-model.trim="inboundForm.admin_addr" placeholder="127.0.0.1:2861"></a-input>
+    </a-form-item>
+  </a-form>
+</a-modal>
+<script>
+  const inboundModal = {
+    visible: false,
+    saving: false,
+    isCreate: false,
+    onSaved: null,
+    show(data) {
+      this.isCreate = false;
+      inboundModalApp.loadForm(data);
+      this.visible = true;
+    },
+    showCreate(data) {
+      this.isCreate = true;
+      inboundModalApp.loadForm(data || new InboundSetting());
+      this.visible = true;
+    },
+    close() {
+      this.visible = false;
+    },
+    async save() {
+      await inboundModalApp.saveInbound();
+    },
+  };
+
+  const inboundModalApp = new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#wdtt-inbound-modal',
+    data: {
+      inboundModal,
+      inboundForm: new InboundSetting(),
+      modalTitles: {
+        create: 'Создать WDTT',
+        edit: 'Изменить WDTT',
+      },
+    },
+    methods: {
+      loadForm(data) {
+        this.inboundForm = new InboundSetting(data);
+      },
+      async saveInbound() {
+        const self = this;
+        await new Promise((resolve, reject) => {
+          self.$confirm({
+            title: self.inboundModal.isCreate ? 'Создать WDTT' : 'Сохранить WDTT',
+            content: 'WDTT будет перезапущен с новыми настройками. Продолжить?',
+            class: themeSwitcher.currentTheme,
+            okText: self.inboundModal.isCreate ? 'Создать' : 'Сохранить',
+            cancelText: 'Отмена',
+            onOk: () => resolve(),
+            onCancel: () => reject(),
+          });
+        });
+        this.inboundModal.saving = true;
+        try {
+          const res = await fetch(basePath + 'panel/api/inbound/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(this.inboundForm.payload(this.inboundModal.isCreate)),
+          }).then(r => r.json()).catch(() => null);
+          if (res && res.success) {
+            this.inboundModal.close();
+            if (typeof this.inboundModal.onSaved === 'function') {
+              await this.inboundModal.onSaved(res.obj);
+            }
+          } else {
+            this.$message.error((res && res.msg) || 'ошибка сохранения');
+            return Promise.reject();
+          }
+        } finally {
+          this.inboundModal.saving = false;
+        }
+      },
+    },
+  });
+</script>
+{{end}}

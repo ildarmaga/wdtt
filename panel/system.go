@@ -2,12 +2,25 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os/exec"
 	"strings"
 	"sync/atomic"
 	"time"
 )
+
+const wdttAdminReloadPath = "/admin/reload"
+
+func wdttAdminReloadURL() string {
+	cfg, err := loadWdttInbound()
+	addr := "127.0.0.1:2861"
+	if err == nil && strings.TrimSpace(cfg.AdminAddr) != "" {
+		addr = strings.TrimSpace(cfg.AdminAddr)
+	}
+	return "http://" + addr + wdttAdminReloadPath
+}
 
 var xrayManuallyStopped atomic.Bool
 
@@ -88,6 +101,34 @@ func ensureXrayFollowsWdtt() {
 	if err := serviceStart(xrayServiceUnit); err != nil {
 		log.Printf("[watchdog] не удалось запустить Xray: %v", err)
 	}
+}
+
+// wdttHotReload применяет passwords.json и tc-лимиты без перезапуска wdtt-server.
+func wdttHotReload() error {
+	if !serviceActive(wdttServiceUnit) {
+		return fmt.Errorf("WDTT не запущен")
+	}
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Post(wdttAdminReloadURL(), "application/json", strings.NewReader("{}"))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("admin reload HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// applyWdttConfigChange сохраняет конфиг и применяет hot-reload; при ошибке — полный restart.
+func applyWdttConfigChange() error {
+	if err := wdttHotReload(); err == nil {
+		return nil
+	} else {
+		log.Printf("[panel] hot-reload не удался (%v), перезапуск WDTT", err)
+	}
+	return restartWdttWithDeps()
 }
 
 // restartWdttWithDeps перезапускает WDTT и гарантированно поднимает Xray, если он включён в systemd.

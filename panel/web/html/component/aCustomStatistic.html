@@ -1,6 +1,6 @@
 {{define "component/customStatistic"}}
 <template>
-    <a-statistic :title="title" :value="value">
+    <a-statistic :title="title || undefined" :value="value">
         <template #prefix>
             <slot name="prefix"></slot>
         </template>
@@ -21,6 +21,9 @@
   }
   .ant-statistic-content {
     font-size: 16px;
+  }
+  .ant-statistic-title:empty {
+    display: none;
   }
 </style>
 

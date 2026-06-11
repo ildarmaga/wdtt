@@ -20,3 +20,12 @@ server
 *.log
 *.tmp
 *.bak
+
+# Backups
+*.backup-*
+*.backup
+wdtt-backups/
+
+# Python caches
+__pycache__/
+*.pyc

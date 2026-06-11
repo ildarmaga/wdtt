@@ -12,102 +12,142 @@
           </a-row>
           <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-else>
             <a-col>
-              <a-card hoverable>
-                <a-row :style="{ display: 'flex', flexWrap: 'wrap', alignItems: 'center' }">
-                  <a-col :xs="24" :sm="10" :style="{ padding: '4px' }">
-                    <a-space direction="horizontal">
-                      <a-button type="primary" :disabled="saveBtnDisable" @click="saveInbound">
-                        Сохранить и перезапустить
+              <a-card title="WDTT" hoverable style="margin-bottom:16px">
+                <template #extra>
+                  <a-button v-if="!wdttConfigured" type="primary" icon="plus" size="small" @click="openWdttCreate">
+                    Создать WDTT
+                  </a-button>
+                </template>
+                <a-table :columns="wdttCols" :data-source="wdttRows" :pagination="false"
+                  :row-key="row => row.key" bordered size="middle"
+                  :locale='{ emptyText: "WDTT не настроен" }'>
+                  <template slot="wdttOperate" slot-scope="_, row">
+                    <a-dropdown :trigger="['click']">
+                      <a-icon @click="e => e.preventDefault()" type="more"
+                        :style="{ fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }"></a-icon>
+                      <a-menu slot="overlay" :theme="themeSwitcher.currentTheme">
+                        <a-menu-item @click="openWdttEdit(row)">
+                          <a-icon type="edit"></a-icon>
+                          <span>Изменить WDTT</span>
+                        </a-menu-item>
+                        <a-menu-item @click="copyMainLink(row)">
+                          <a-icon type="link"></a-icon>
+                          <span>{{ i18n "pages.inbounds.copyLink" }}</span>
+                        </a-menu-item>
+                        <a-menu-item @click="restartWdtt">
+                          <a-icon type="reload"></a-icon>
+                          <span>Перезапустить WDTT</span>
+                        </a-menu-item>
+                        <a-menu-item @click="goUsers">
+                          <a-icon type="team"></a-icon>
+                          <span>{{ i18n "menu.users" }}</span>
+                        </a-menu-item>
+                      </a-menu>
+                    </a-dropdown>
+                  </template>
+                  <template slot="wdttEnable" slot-scope="_, row">
+                    <a-switch :checked="row.service_active" :loading="row.toggling"
+                      @change="checked => toggleWdttService(row, checked)"></a-switch>
+                  </template>
+                  <template slot="wdttRemark" slot-scope="text">[[ text || '—' ]]</template>
+                  <template slot="wdttPort" slot-scope="_, row">
+                    <span class="connections-port-cell">
+                      <a-tooltip title="UDP порт DTLS — основной вход клиентов">
+                        <a-tag color="blue" :style="{ margin: 0 }">[[ row.dtls_port ]]</a-tag>
+                      </a-tooltip>
+                      <a-tooltip title="UDP порт WireGuard (userspace)">
+                        <a-tag color="green" :style="{ margin: 0 }">[[ row.wg_port ]]</a-tag>
+                      </a-tooltip>
+                    </span>
+                  </template>
+                  <template slot="wdttProtocol">
+                    <a-tag color="purple" :style="{ margin: 0 }">WDTT</a-tag>
+                    <a-tag color="blue" :style="{ margin: 0 }">DTLS</a-tag>
+                    <a-tag color="green" :style="{ margin: 0 }">WG</a-tag>
+                  </template>
+                  <template slot="wdttUsers" slot-scope="_, row">
+                    <a @click="goUsers" style="cursor:pointer">
+                      <a-tag color="green" style="margin:0">[[ row.active_users ]]</a-tag>
+                    </a>
+                  </template>
+                  <template slot="wdttTraffic" slot-scope="_, row">
+                    <a-tag color="green" style="margin:0">[[ row.traffic_used_fmt || '0 B' ]] / ∞</a-tag>
+                  </template>
+                </a-table>
+              </a-card>
+
+              <a-card title='{{ i18n "pages.inbounds.title" }}' hoverable>
+                <template #extra>
+                  <a-button-group>
+                    <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
+                    <a-popover placement="bottomRight" trigger="click" :overlay-class-name="themeSwitcher.currentTheme">
+                      <template #title>
+                        <div class="ant-custom-popover-title">
+                          <a-switch v-model="isRefreshEnabled" @change="toggleRefresh" size="small"></a-switch>
+                          <span>{{ i18n "pages.inbounds.autoRefresh" }}</span>
+                        </div>
+                      </template>
+                      <template #content>
+                        <a-space direction="vertical">
+                          <span>{{ i18n "pages.inbounds.autoRefreshInterval" }}</span>
+                          <a-select v-model="refreshInterval" :disabled="!isRefreshEnabled" :style="{ width: '100%' }"
+                            @change="changeRefreshInterval" :dropdown-class-name="themeSwitcher.currentTheme">
+                            <a-select-option v-for="key in [5,10,30,60]" :value="key*1000">[[ key ]]s</a-select-option>
+                          </a-select>
+                        </a-space>
+                      </template>
+                      <a-button icon="down"></a-button>
+                    </a-popover>
+                  </a-button-group>
+                </template>
+
+                <a-row :gutter="[8, 8]" style="margin-bottom:12px">
+                  <a-col :xs="24" :sm="12">
+                    <a-space wrap>
+                      <a-button type="primary" icon="plus" @click="openXrayCreate">
+                        {{ i18n "pages.inbounds.addInbound" }}
                       </a-button>
-                      <a-button @click="restartWdtt" :loading="restarting">Перезапустить WDTT</a-button>
-                      <a-button icon="reload" @click="refreshStatus" :loading="statusLoading">Обновить статус</a-button>
                     </a-space>
                   </a-col>
-                  <a-col :xs="24" :sm="14">
-                    <a-alert type="warning" :style="{ float: 'right', width: 'fit-content' }"
-                      message="Смена портов обновит systemd и firewall. Клиентам нужны новые ссылки." show-icon>
-                    </a-alert>
+                  <a-col :xs="24" :sm="12" :style="{ textAlign: isMobile ? 'left' : 'right' }">
+                    <a-input-search v-model="searchText" placeholder="Поиск..." allow-clear style="max-width:280px"></a-input-search>
                   </a-col>
                 </a-row>
-              </a-card>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-card title="Статус" hoverable>
-                <a-row :gutter="[8, 8]">
-                  <a-col :span="12"><a-tag :color="statusTag(inbound.service_active)">Сервис: [[ inbound.service_active ? 'активен' : 'остановлен' ]]</a-tag></a-col>
-                  <a-col :span="12"><a-tag :color="statusTag(inbound.iface_up)">wdtt0: [[ inbound.iface_up ? inbound.iface_addr : 'нет' ]]</a-tag></a-col>
-                  <a-col :span="12"><a-tag :color="statusTag(inbound.dtls_listening)">DTLS :[[ inbound.dtls_port ]] слушает</a-tag></a-col>
-                  <a-col :span="12"><a-tag :color="statusTag(inbound.wg_listening)">WG :[[ inbound.wg_port ]] слушает</a-tag></a-col>
-                  <a-col :span="12"><a-tag :color="statusTag(inbound.dtls_firewall)">Firewall DTLS</a-tag></a-col>
-                  <a-col :span="12"><a-tag :color="statusTag(inbound.wg_firewall)">Firewall WG</a-tag></a-col>
-                  <a-col :span="12"><a-tag color="blue">Активных: [[ inbound.active_users ]]/[[ inbound.max_users ]]</a-tag></a-col>
-                  <a-col :span="12"><a-tag color="cyan">Онлайн: [[ inbound.online_users ]]</a-tag></a-col>
-                  <a-col :span="12"><a-tag :color="statusTag(inbound.xray_active)">Xray: [[ inbound.xray_active ? 'активен' : 'выкл' ]]</a-tag></a-col>
-                  <a-col :span="12"><a-tag>DNS: [[ inbound.dns ]]</a-tag></a-col>
-                </a-row>
-              </a-card>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-card title="WDTT Inbound" hoverable>
-                <a-form layout="horizontal" :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
-                  <a-form-item label="Тег">
-                    <a-input v-model.trim="inbound.tag" placeholder="wdtt-in"></a-input>
-                  </a-form-item>
-                  <a-form-item label="Название (remark)">
-                    <a-input v-model.trim="inbound.remark" placeholder="WDTT"></a-input>
-                  </a-form-item>
-                  <a-form-item label="Адрес прослушивания">
-                    <a-input v-model.trim="inbound.listen_host" placeholder="0.0.0.0"></a-input>
-                  </a-form-item>
-                  <a-form-item>
-                    <template slot="label">
-                      <a-tooltip title="Домен или IP в wdtt:// ссылках (DTLS, не HTTPS). Пусто = домен из SSL-сертификата панели, иначе публичный IP">
-                        Адрес в ссылке <a-icon type="question-circle"></a-icon>
-                      </a-tooltip>
-                    </template>
-                    <a-input v-model.trim="inbound.server_host" :placeholder="inbound.default_link_host || inbound.server_ip || 'авто'"></a-input>
-                  </a-form-item>
-                  <a-form-item>
-                    <template slot="label">
-                      <a-tooltip title="UDP порт DTLS — основной вход клиентов">
-                        DTLS порт <a-icon type="question-circle"></a-icon>
-                      </a-tooltip>
-                    </template>
-                    <a-input-number v-model="inbound.dtls_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
-                  </a-form-item>
-                  <a-form-item>
-                    <template slot="label">
-                      <a-tooltip title="UDP порт WireGuard (userspace), открывается в firewall">
-                        WireGuard порт <a-icon type="question-circle"></a-icon>
-                      </a-tooltip>
-                    </template>
-                    <a-input-number v-model="inbound.wg_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
-                  </a-form-item>
-                  <a-form-item>
-                    <template slot="label">
-                      <a-tooltip title="Локальный порт WireGuard на устройстве клиента (127.0.0.1)">
-                        Порт клиента <a-icon type="question-circle"></a-icon>
-                      </a-tooltip>
-                    </template>
-                    <a-input-number v-model="inbound.client_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
-                  </a-form-item>
-                  <a-form-item>
-                    <template slot="label">
-                      <a-tooltip title="DNS в WG-конфиге клиента (выдаётся при подключении)">
-                        DNS клиента <a-icon type="question-circle"></a-icon>
-                      </a-tooltip>
-                    </template>
-                    <a-input v-model.trim="inbound.dns" placeholder="1.1.1.1"></a-input>
-                  </a-form-item>
-                  <a-form-item>
-                    <template slot="label">
-                      <a-tooltip title="Максимум активных паролей (истёкшие не считаются). Подсеть 10.66.66.0/24 — до 249">
-                        Лимит пользователей <a-icon type="question-circle"></a-icon>
-                      </a-tooltip>
-                    </template>
-                    <a-input-number v-model="inbound.max_users" :min="1" :max="249" :style="{ width: '100%' }"></a-input-number>
-                  </a-form-item>
-                </a-form>
+
+                <a-table :columns="xrayCols" :data-source="filteredXrayRows" :pagination="false"
+                  :row-key="row => row.tag" bordered size="middle"
+                  :locale='{ filterConfirm: `{{ i18n "confirm" }}`, filterReset: `{{ i18n "reset" }}` }'>
+                  <template slot="xrayOperate" slot-scope="_, row">
+                    <a-dropdown :trigger="['click']">
+                      <a-icon @click="e => e.preventDefault()" type="more"
+                        :style="{ fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }"></a-icon>
+                      <a-menu slot="overlay" :theme="themeSwitcher.currentTheme">
+                        <a-menu-item @click="openXrayEdit(row)">
+                          <a-icon type="edit"></a-icon>
+                          <span>{{ i18n "pages.inbounds.modifyInbound" }}</span>
+                        </a-menu-item>
+                        <a-menu-item @click="deleteXrayInbound(row)">
+                          <a-icon type="delete"></a-icon>
+                          <span>{{ i18n "delete" }}</span>
+                        </a-menu-item>
+                      </a-menu>
+                    </a-dropdown>
+                  </template>
+                  <template slot="xrayEnable" slot-scope="_, row">
+                    <a-switch :checked="row.enable" :loading="row.toggling"
+                      @change="checked => toggleXrayEnable(row, checked)"></a-switch>
+                  </template>
+                  <template slot="xrayRemark" slot-scope="_, row">[[ row.remark || row.tag ]]</template>
+                  <template slot="xrayPort" slot-scope="_, row">
+                    <a-tag color="blue" :style="{ margin: 0 }">[[ row.port ]]</a-tag>
+                  </template>
+                  <template slot="xrayProtocol" slot-scope="_, row">
+                    <a-tag color="purple" :style="{ margin: 0 }">[[ row.protocol ]]</a-tag>
+                  </template>
+                  <template slot="xrayTraffic" slot-scope="_, row">
+                    <a-tag color="green" style="margin:0">∞</a-tag>
+                  </template>
+                </a-table>
               </a-card>
             </a-col>
           </a-row>
@@ -121,8 +161,29 @@
   @media (min-width: 769px) {
     .connections-page .ant-layout-content { margin: 24px 16px; }
   }
+  .connections-page .ant-table-content > table {
+    table-layout: fixed;
+    width: 100%;
+  }
+  .connections-page .ant-table-thead > tr > th,
+  .connections-page .ant-table-tbody > tr > td {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .connections-page span.ant-tag { text-align: center; }
+  .connections-page .connections-port-cell {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    white-space: nowrap;
+    max-width: 100%;
+  }
 </style>
 {{ template "page/body_scripts" . }}
+<script src="{{ .base_path }}assets/js/wdtt-share.js?{{ .cur_ver }}"></script>
+<script src="{{ .base_path }}assets/js/model/inbound.js?{{ .cur_ver }}"></script>
+<script src="{{ .base_path }}assets/js/model/dbinbound.js?{{ .cur_ver }}"></script>
 {{ template "component/aThemeSwitch" . }}
 {{ template "component/wdttSidebar" . }}
 <script>
@@ -130,6 +191,7 @@
     constructor(data = {}) {
       this.tag = data.tag || 'wdtt-in';
       this.remark = data.remark || 'WDTT';
+      this.enable = data.enable !== false;
       this.listen_host = data.listen_host || '0.0.0.0';
       this.server_host = data.server_host || '';
       this.dtls_port = Number(data.dtls_port) || 56000;
@@ -137,25 +199,25 @@
       this.client_port = Number(data.client_port) || 9000;
       this.dns = data.dns || '1.1.1.1';
       this.max_users = Number(data.max_users) || 10;
+      this.handshake_timeout_sec = Number(data.handshake_timeout_sec) || 30;
+      this.max_dtls_per_device = Number.isFinite(Number(data.max_dtls_per_device)) ? Number(data.max_dtls_per_device) : 0;
+      this.admin_addr = data.admin_addr || '127.0.0.1:2861';
       this.server_ip = data.server_ip || '';
       this.default_link_host = data.default_link_host || '';
       this.panel_tls = !!data.panel_tls;
+      this.configured = !!data.configured;
       this.service_active = !!data.service_active;
-      this.iface_up = !!data.iface_up;
-      this.iface_addr = data.iface_addr || '';
-      this.dtls_firewall = !!data.dtls_firewall;
-      this.wg_firewall = !!data.wg_firewall;
-      this.dtls_listening = !!data.dtls_listening;
-      this.wg_listening = !!data.wg_listening;
       this.active_users = Number(data.active_users) || 0;
-      this.total_users = Number(data.total_users) || 0;
-      this.online_users = Number(data.online_users) || 0;
-      this.xray_active = !!data.xray_active;
+      this.link_main = data.link_main || '';
+      this.traffic_used_fmt = data.traffic_used_fmt || '0 B';
+      this.toggling = false;
     }
-    payload() {
+    payload(isCreate = false) {
       return {
+        create: !!isCreate,
         tag: this.tag,
         remark: this.remark,
+        enable: !!this.enable,
         listen_host: this.listen_host,
         server_host: this.server_host,
         dtls_port: Number(this.dtls_port),
@@ -163,26 +225,71 @@
         client_port: Number(this.client_port),
         dns: this.dns,
         max_users: Number(this.max_users),
+        handshake_timeout_sec: Number(this.handshake_timeout_sec) || 30,
+        max_dtls_per_device: Number(this.max_dtls_per_device),
+        admin_addr: (this.admin_addr || '127.0.0.1:2861').trim(),
       };
     }
-    equals(other) {
-      return JSON.stringify(this.payload()) === JSON.stringify(other.payload());
-    }
-    applyStatus(data) {
-      this.service_active = !!data.service_active;
-      this.iface_up = !!data.iface_up;
-      this.iface_addr = data.iface_addr || '';
-      this.dtls_firewall = !!data.dtls_firewall;
-      this.wg_firewall = !!data.wg_firewall;
-      this.dtls_listening = !!data.dtls_listening;
-      this.wg_listening = !!data.wg_listening;
-      this.active_users = Number(data.active_users) || 0;
-      this.total_users = Number(data.total_users) || 0;
-      this.online_users = Number(data.online_users) || 0;
-      this.xray_active = !!data.xray_active;
-    }
+  }
+  function panelRowToXrayModels(row) {
+    const dbInbound = new DBInbound({
+      remark: row.remark || row.tag,
+      enable: row.enable !== false,
+      total: row.total || 0,
+      expiryTime: row.expiryTime || 0,
+      trafficReset: row.trafficReset || 'never',
+    });
+    const inbound = Inbound.fromJson({
+      tag: row.tag,
+      listen: row.listen || '',
+      port: Number(row.port) || 10808,
+      protocol: row.protocol || Protocols.MIXED,
+      settings: row.settings || { auth: 'noauth', udp: true, ip: '127.0.0.1' },
+      sniffing: row.sniffing || { enabled: false, destOverride: ['http', 'tls', 'quic', 'fakedns'] },
+    });
+    return { inbound, dbInbound };
+  }
+  function newXrayMixedModels() {
+    const inbound = new Inbound();
+    inbound.protocol = Protocols.MIXED;
+    inbound.port = 10808;
+    inbound.tag = 'inbound-' + RandomUtil.randomInteger(1000, 9999);
+    inbound.settings.auth = 'noauth';
+    inbound.settings.udp = true;
+    inbound.settings.ip = '127.0.0.1';
+    const dbInbound = new DBInbound({ enable: true, remark: 'mixed-in', trafficReset: 'never' });
+    return { inbound, dbInbound };
   }
 
+  async function panelApiJson(path, options = {}) {
+    const res = await fetch(basePath + path.replace(/^\//, ''), {
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+    if (res.status === 401) {
+      window.location.reload();
+      throw new Error('session expired');
+    }
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (e) {
+      throw new Error('Неверный ответ сервера');
+    }
+    if (!data || data.success !== true) {
+      throw new Error((data && data.msg) || ('HTTP ' + res.status));
+    }
+    return data;
+  }
+</script>
+{{ template "modals/wdttInboundModal" . }}
+{{ template "modals/xrayInboundModal" . }}
+<script>
   const app = new Vue({
     delimiters: ['[[', ']]'],
     mixins: [MediaQueryMixin],
@@ -190,78 +297,250 @@
     data: {
       themeSwitcher,
       loadingStates: { fetched: false, spinning: false },
-      oldInbound: new InboundSetting(),
-      inbound: new InboundSetting(),
-      saveBtnDisable: true,
-      restarting: false,
-      statusLoading: false,
+      wdtt: new InboundSetting(),
+      wdttConfigured: false,
+      xrayInbounds: [],
+      searchText: '',
+      refreshing: false,
+      isRefreshEnabled: localStorage.getItem("inboundRefreshEnabled") === "true",
+      refreshInterval: Number(localStorage.getItem("inboundRefreshInterval")) || 5000,
+      wdttCols: [
+        { title: 'ID', dataIndex: 'id', width: 52, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.operate" }}', scopedSlots: { customRender: 'wdttOperate' }, width: 72, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.enable" }}', scopedSlots: { customRender: 'wdttEnable' }, width: 104, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.remark" }}', dataIndex: 'remark', scopedSlots: { customRender: 'wdttRemark' }, ellipsis: true },
+        { title: '{{ i18n "pages.inbounds.port" }}', scopedSlots: { customRender: 'wdttPort' }, width: 136, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.protocol" }}', scopedSlots: { customRender: 'wdttProtocol' }, width: 168, align: 'center' },
+        { title: '{{ i18n "menu.users" }}', scopedSlots: { customRender: 'wdttUsers' }, width: 128, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.traffic" }}', scopedSlots: { customRender: 'wdttTraffic' }, width: 168, align: 'center' },
+      ],
+      xrayCols: [
+        { title: 'ID', dataIndex: 'id', width: 52, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.operate" }}', scopedSlots: { customRender: 'xrayOperate' }, width: 72, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.enable" }}', scopedSlots: { customRender: 'xrayEnable' }, width: 104, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.remark" }}', scopedSlots: { customRender: 'xrayRemark' }, ellipsis: true },
+        { title: '{{ i18n "pages.inbounds.port" }}', scopedSlots: { customRender: 'xrayPort' }, width: 100, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.protocol" }}', scopedSlots: { customRender: 'xrayProtocol' }, width: 120, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.traffic" }}', scopedSlots: { customRender: 'xrayTraffic' }, width: 120, align: 'center' },
+      ],
+    },
+    computed: {
+      wdttRows() {
+        if (!this.wdttConfigured) return [];
+        return [Object.assign({ id: 1, key: this.wdtt.tag || 'wdtt-in' }, this.wdtt)];
+      },
+      filteredXrayRows() {
+        const q = (this.searchText || '').trim().toLowerCase();
+        if (!q) return this.xrayInbounds;
+        return this.xrayInbounds.filter(row => {
+          const hay = [row.remark, row.tag, row.protocol, String(row.port), row.listen].join(' ').toLowerCase();
+          return hay.includes(q);
+        });
+      },
     },
     methods: {
-      statusTag(ok) {
-        return ok ? 'green' : 'red';
+      toast(msg, ok) {
+        if (ok) this.$message.success(msg); else this.$message.error(msg);
       },
-      loading(spinning = true) {
-        this.loadingStates.spinning = spinning;
+      goUsers() { location.href = basePath + 'panel/users'; },
+      openWdttCreate() {
+        if (this.wdttConfigured) {
+          this.toast('На панели допускается только одно WDTT-подключение', false);
+          return;
+        }
+        inboundModal.showCreate(new InboundSetting({
+          tag: 'wdtt-in', remark: 'WDTT', enable: true, listen_host: '0.0.0.0',
+          dtls_port: 56000, wg_port: 56001, client_port: 9000, dns: '1.1.1.1', max_users: 10,
+          server_ip: this.wdtt.server_ip, default_link_host: this.wdtt.default_link_host,
+          panel_tls: this.wdtt.panel_tls,
+        }));
       },
-      async loadInbound() {
-        const res = await fetch(basePath + 'panel/api/inbound').then(r => r.json()).catch(() => null);
-        if (!res || !res.success) return;
-        if (!this.loadingStates.fetched) this.loadingStates.fetched = true;
-        this.oldInbound = new InboundSetting(res.obj);
-        this.inbound = new InboundSetting(res.obj);
+      openWdttEdit(row) { inboundModal.show(row || this.wdtt); },
+      openXrayCreate() {
+        const { inbound, dbInbound } = newXrayMixedModels();
+        xrayInModal.show({
+          title: '{{ i18n "pages.inbounds.addInbound" }}',
+          okText: '{{ i18n "create" }}',
+          inbound,
+          dbInbound,
+          isEdit: false,
+          confirm: async (inbound, dbInbound) => {
+            await this.saveXrayInbound(inbound, dbInbound, true);
+          },
+        });
       },
-      async refreshStatus() {
-        this.statusLoading = true;
-        const res = await fetch(basePath + 'panel/api/inbound').then(r => r.json()).catch(() => null);
-        this.statusLoading = false;
-        if (res && res.success) {
-          this.inbound.applyStatus(res.obj);
-          this.oldInbound.applyStatus(res.obj);
+      openXrayEdit(row) {
+        const { inbound, dbInbound } = panelRowToXrayModels(row);
+        xrayInModal.show({
+          title: '{{ i18n "pages.inbounds.modifyInbound" }}',
+          okText: '{{ i18n "update" }}',
+          inbound,
+          dbInbound,
+          isEdit: true,
+          confirm: async (inbound, dbInbound) => {
+            await this.saveXrayInbound(inbound, dbInbound, false);
+          },
+        });
+      },
+      copyMainLink(row) {
+        const self = this;
+        wdttCopyLink(row.link_main, () => self.toast('Ссылка скопирована', true),
+          (msg) => self.toast(msg || 'Ссылка недоступна', false));
+      },
+      async loadWdtt() {
+        const res = await panelApiJson('panel/api/inbound', { method: 'GET' }).catch(() => null);
+        if (res && res.obj) {
+          this.wdtt = new InboundSetting(res.obj);
+          this.wdttConfigured = !!res.obj.configured;
         }
       },
-      async saveInbound() {
-        await new Promise(resolve => {
-          this.$confirm({
-            title: 'Сохранить inbound',
-            content: 'WDTT будет перезапущен с новыми настройками. Продолжить?',
+      async loadXrayInbounds() {
+        const res = await panelApiJson('panel/api/xray-inbounds', { method: 'GET' }).catch(() => null);
+        if (res && res.obj) {
+          this.xrayInbounds = (res.obj.inbounds || []).map((row, i) => Object.assign({ id: i + 1, toggling: false }, row));
+        }
+      },
+      async loadAll(options = {}) {
+        const withSpinner = options.withSpinner === true;
+        this.refreshing = true;
+        if (withSpinner) this.loadingStates.spinning = true;
+        await Promise.all([this.loadWdtt(), this.loadXrayInbounds()]);
+        if (!this.loadingStates.fetched) this.loadingStates.fetched = true;
+        setTimeout(() => {
+          this.refreshing = false;
+          if (withSpinner) this.loadingStates.spinning = false;
+        }, 400);
+      },
+      async manualRefresh() {
+        if (!this.refreshing) await this.loadAll({ withSpinner: true });
+      },
+      async toggleWdttService(row, enabled) {
+        row.toggling = true;
+        const action = enabled ? 'start' : 'stop';
+        const res = await HttpUtil.post('/panel/api/service/wdtt/' + action).catch(() => null);
+        row.toggling = false;
+        if (res && res.success) {
+          this.toast(enabled ? 'WDTT запущен' : 'WDTT остановлен', true);
+          await this.loadWdtt();
+        } else {
+          this.toast((res && res.msg) || 'ошибка', false);
+          await this.loadWdtt();
+        }
+      },
+      async saveXrayInbound(inbound, dbInbound, isCreate) {
+        xrayInModal.loading(true);
+        try {
+          const payload = {
+            create: !!isCreate,
+            tag: (inbound.tag || '').trim(),
+            remark: (dbInbound.remark || inbound.tag || '').trim(),
+            enable: !!dbInbound.enable,
+            protocol: inbound.protocol || Protocols.MIXED,
+            listen: (inbound.listen || '').trim(),
+            port: Number(inbound.port) || 0,
+            settings: inbound.settings.toJson(),
+            sniffing: inbound.sniffing.toJson(),
+            total: dbInbound.total || 0,
+            expiryTime: dbInbound.expiryTime || 0,
+            trafficReset: dbInbound.trafficReset || 'never',
+          };
+          const res = await panelApiJson('panel/api/xray-inbounds/save', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          xrayInModal.close();
+          this.toast('Подключение сохранено', true);
+          this.xrayInbounds = (res.obj.inbounds || []).map(row => Object.assign({ toggling: false }, row));
+        } catch (err) {
+          this.toast(err.message || 'ошибка сохранения', false);
+          throw err;
+        } finally {
+          xrayInModal.loading(false);
+        }
+      },
+      async toggleXrayEnable(row, enabled) {
+        row.toggling = true;
+        const payload = {
+          create: false,
+          tag: row.tag,
+          remark: row.remark || row.tag,
+          enable: enabled,
+          protocol: row.protocol,
+          listen: row.listen || '0.0.0.0',
+          port: Number(row.port) || 0,
+          settings: row.settings || {},
+          sniffing: row.sniffing || { enabled: false, destOverride: ['http', 'tls', 'quic', 'fakedns'] },
+          total: row.total || 0,
+          expiryTime: row.expiryTime || 0,
+          trafficReset: row.trafficReset || 'never',
+        };
+        const res = await panelApiJson('panel/api/xray-inbounds/save', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }).catch(err => {
+          this.toast(err.message || 'ошибка', false);
+          return null;
+        });
+        row.toggling = false;
+        if (res && res.obj) {
+          this.xrayInbounds = (res.obj.inbounds || []).map(r => Object.assign({ toggling: false }, r));
+        } else {
+          await this.loadXrayInbounds();
+        }
+      },
+      async deleteXrayInbound(row) {
+        const self = this;
+        await new Promise((resolve, reject) => {
+          self.$confirm({
+            title: '{{ i18n "delete" }}',
+            content: 'Удалить inbound «' + (row.remark || row.tag) + '»?',
             class: themeSwitcher.currentTheme,
-            okText: 'Сохранить',
-            cancelText: 'Отмена',
+            okText: '{{ i18n "delete" }}',
+            okType: 'danger',
+            cancelText: '{{ i18n "cancel" }}',
             onOk: () => resolve(),
+            onCancel: () => reject(),
           });
         });
-        this.loading(true);
-        const res = await fetch(basePath + 'panel/api/inbound/save', {
+        const res = await panelApiJson('panel/api/xray-inbounds/delete', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.inbound.payload()),
-        }).then(r => r.json()).catch(() => null);
-        this.loading(false);
-        if (res && res.success) {
-          this.$message.success('Inbound сохранён, WDTT перезапущен');
-          await this.loadInbound();
-        } else {
-          this.$message.error((res && res.msg) || 'ошибка сохранения');
+          body: JSON.stringify({ tag: row.tag }),
+        }).catch(err => {
+          this.toast(err.message || 'ошибка', false);
+          return null;
+        });
+        if (res && res.obj !== undefined) {
+          this.toast('Удалено', true);
+          await this.loadXrayInbounds();
         }
       },
       async restartWdtt() {
-        this.restarting = true;
         const res = await HttpUtil.post('/panel/api/service/wdtt/restart').catch(() => null);
-        this.restarting = false;
-        if (res && res.success) {
-          this.$message.success('WDTT перезапущен');
-          await this.loadInbound();
-        } else {
-          this.$message.error((res && res.msg) || 'ошибка перезапуска');
+        if (res && res.success) { this.toast('WDTT перезапущен', true); await this.loadWdtt(); }
+        else this.toast((res && res.msg) || 'ошибка', false);
+      },
+      async startDataRefreshLoop() {
+        while (this.isRefreshEnabled) {
+          try { await this.loadAll(); } catch (e) { console.error(e); }
+          await PromiseUtil.sleep(this.refreshInterval);
         }
+      },
+      toggleRefresh() {
+        localStorage.setItem("inboundRefreshEnabled", this.isRefreshEnabled);
+        if (this.isRefreshEnabled) this.startDataRefreshLoop();
+      },
+      changeRefreshInterval() {
+        localStorage.setItem("inboundRefreshInterval", this.refreshInterval);
       },
     },
     async mounted() {
-      await this.loadInbound();
-      while (true) {
-        await PromiseUtil.sleep(500);
-        this.saveBtnDisable = this.oldInbound.equals(this.inbound);
-      }
+      inboundModal.onSaved = async (obj) => {
+        this.toast('WDTT сохранён', true);
+        this.wdtt = new InboundSetting(obj);
+        this.wdttConfigured = true;
+      };
+      if (this.isRefreshEnabled) this.startDataRefreshLoop();
+      else await this.loadAll({ withSpinner: true });
     },
   });
 </script>
