@@ -64,6 +64,14 @@
     </a-form-item>
     <a-form-item>
       <template slot="label">
+        <a-tooltip title="MTU в WireGuard-конфиге клиента и на интерфейсе wdtt0. Для iOS/TURN обычно 1280">
+          MTU <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.mtu" :min="576" :max="1500" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
         <a-tooltip title="Максимум активных паролей (истёкшие не считаются). Подсеть 10.66.66.0/24 — до 249">
           Лимит пользователей <a-icon type="question-circle"></a-icon>
         </a-tooltip>

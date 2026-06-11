@@ -31,6 +31,7 @@ func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
 		"server_host":      cfg.ServerHost,
 		"client_port":      cfg.ClientPort,
 		"dns":              cfg.DNS,
+		"mtu":              cfg.MTU,
 		"max_users":        cfg.MaxUsers,
 		"handshake_timeout_sec": cfg.HandshakeTimeoutSec,
 		"max_dtls_per_device":   cfg.MaxDtlsPerDevice,

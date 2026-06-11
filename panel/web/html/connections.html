@@ -198,6 +198,7 @@
       this.wg_port = Number(data.wg_port) || 56001;
       this.client_port = Number(data.client_port) || 9000;
       this.dns = data.dns || '1.1.1.1';
+      this.mtu = Number(data.mtu) || 1280;
       this.max_users = Number(data.max_users) || 10;
       this.handshake_timeout_sec = Number(data.handshake_timeout_sec) || 30;
       this.max_dtls_per_device = Number.isFinite(Number(data.max_dtls_per_device)) ? Number(data.max_dtls_per_device) : 0;
@@ -224,6 +225,7 @@
         wg_port: Number(this.wg_port),
         client_port: Number(this.client_port),
         dns: this.dns,
+        mtu: Number(this.mtu) || 1280,
         max_users: Number(this.max_users),
         handshake_timeout_sec: Number(this.handshake_timeout_sec) || 30,
         max_dtls_per_device: Number(this.max_dtls_per_device),

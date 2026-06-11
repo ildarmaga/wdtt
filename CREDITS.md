@@ -16,6 +16,11 @@ WDTT-server основан на идее и реализации VPN-тунне�
 | Сервер | Логика `GETCONF`, выдача WG-конфига клиенту, базовая структура `server.go` |
 | Клиент | Совместимость с Android/Go-клиентом из репозитория (порты, handshake) |
 
+| Клиент | Совместимость с WDTT |
+|--------|----------------------|
+| [vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) (iOS) | ✅ `wdtt://`, TURN override, TestFlight |
+| [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) (Android) | ✅ базовый протокол DTLS + WG |
+
 ### Что добавлено в WDTT (этот репозиторий)
 
 - Мультипользовательский режим, лимиты трафика и скорости (`tc`)
@@ -42,5 +47,6 @@ WDTT также использует **GPL v3** — см. [LICENSE](LICENSE).
 ## Ссылки
 
 - Upstream VPN: https://github.com/amurcanov/proxy-turn-vk-android
+- iOS-клиент: https://github.com/anton48/vk-turn-proxy-ios
 - WDTT (этот репозиторий): https://github.com/ildarmaga/wdtt
 - Установщик: https://github.com/ildarmaga/wdtt-install

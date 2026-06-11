@@ -51,7 +51,7 @@ const (
 	defaultClientDNS         = "1.1.1.1"
 	defaultMaxUsers          = 10
 	maxUsersSubnetLimit      = 249
-	wgMTU                    = 1280
+	defaultWgMTU             = 1280
 	keepalive                = 25
 )
 
@@ -59,6 +59,7 @@ var (
 	clientDNS             = defaultClientDNS
 	maxGeneratedPasswords = defaultMaxUsers
 	dtlsHandshakeTimeout  = 30 * time.Second
+	wgMTU                 = defaultWgMTU
 )
 
 // ==================== База данных и Бот ====================
@@ -115,6 +116,7 @@ func loadInboundSettings(configDir string) {
 	maxGeneratedPasswords = defaultMaxUsers
 	dtlsHandshakeTimeout = 30 * time.Second
 	maxDTLSPerDevice = 3
+	wgMTU = defaultWgMTU
 	data, err := os.ReadFile(filepath.Join(configDir, "inbound.json"))
 	if err != nil {
 		return
@@ -124,6 +126,7 @@ func loadInboundSettings(configDir string) {
 		MaxUsers            int    `json:"max_users"`
 		HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
 		MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
+		MTU                 int    `json:"mtu"`
 	}
 	if json.Unmarshal(data, &raw) != nil {
 		return
@@ -139,6 +142,9 @@ func loadInboundSettings(configDir string) {
 	}
 	if raw.MaxDtlsPerDevice >= 0 && raw.MaxDtlsPerDevice <= 50 {
 		maxDTLSPerDevice = int32(raw.MaxDtlsPerDevice)
+	}
+	if raw.MTU >= 576 && raw.MTU <= 1500 {
+		wgMTU = raw.MTU
 	}
 }
 
@@ -1664,7 +1670,7 @@ func main() {
 
 	initDB(*configDir, *mainPass, *adminID, *botToken)
 	loadInboundSettings(*configDir)
-	log.Printf("[CFG] DNS клиентов: %s, лимит активных: %d", clientDNS, maxGeneratedPasswords)
+	log.Printf("[CFG] DNS клиентов: %s, MTU: %d, лимит активных: %d", clientDNS, wgMTU, maxGeneratedPasswords)
 
 	keys, err := loadOrGenerateKeys(*configDir)
 	if err != nil {

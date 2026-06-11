@@ -25,6 +25,15 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 
 Панель: `http://IP:2860/wdtt/` — `admin` / `wdtt`
 
+## Клиенты
+
+| Платформа | Клиент | Ссылки |
+|-----------|--------|--------|
+| **iOS** | [vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) | TestFlight / IPA из Releases, поддержка `wdtt://` |
+| **Android** | [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Совместим с протоколом WDTT |
+
+Сервер совместим с iOS-клиентом [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) — DTLS + TURN relay + WireGuard, ссылки `wdtt://`.
+
 ## Компоненты
 
 | Компонент | Описание |
@@ -59,7 +68,8 @@ chmod +x panel/build.sh
 |-------------|------------|
 | [ildarmaga/wdtt](https://github.com/ildarmaga/wdtt) | Сервер + панель (этот репо) |
 | [ildarmaga/wdtt-install](https://github.com/ildarmaga/wdtt-install) | Установщик одной строкой |
-| [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Исходный VPN-протокол |
+| [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) | iOS-клиент (совместим с WDTT) |
+| [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Android-клиент / исходный VPN-протокол |
 
 ## Лицензия
 

@@ -23,6 +23,7 @@ const (
 	defaultClientPort   = 9000
 	defaultClientDNS    = "1.1.1.1"
 	defaultMaxUsers     = 10
+	defaultWgMTU        = 1280
 	maxUsersSubnetLimit = 249
 )
 
@@ -36,6 +37,7 @@ type WdttInboundConfig struct {
 	WgPort              int    `json:"wg_port"`
 	ClientPort          int    `json:"client_port"`
 	DNS                 string `json:"dns"`
+	MTU                 int    `json:"mtu"`
 	MaxUsers            int    `json:"max_users"`
 	HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
 	MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
@@ -68,6 +70,7 @@ func defaultWdttInbound() WdttInboundConfig {
 		WgPort:              defaultWgPort,
 		ClientPort:          defaultClientPort,
 		DNS:                 defaultClientDNS,
+		MTU:                 defaultWgMTU,
 		MaxUsers:            defaultMaxUsers,
 		HandshakeTimeoutSec: 30,
 		MaxDtlsPerDevice:    0,
@@ -102,6 +105,9 @@ func (c *WdttInboundConfig) normalize() {
 	}
 	if strings.TrimSpace(c.DNS) == "" {
 		c.DNS = def.DNS
+	}
+	if c.MTU <= 0 {
+		c.MTU = def.MTU
 	}
 	if c.MaxUsers <= 0 {
 		c.MaxUsers = def.MaxUsers
@@ -141,6 +147,9 @@ func (c WdttInboundConfig) validate() error {
 	}
 	if !validDNSHost(dns) {
 		return fmt.Errorf("неверный DNS: %s", dns)
+	}
+	if c.MTU < 576 || c.MTU > 1500 {
+		return fmt.Errorf("MTU: от 576 до 1500")
 	}
 	if c.MaxUsers < 1 || c.MaxUsers > maxUsersSubnetLimit {
 		return fmt.Errorf("лимит пользователей: от 1 до %d", maxUsersSubnetLimit)
@@ -415,6 +424,9 @@ func inboundRequiresRestart(old, cfg WdttInboundConfig) bool {
 		return true
 	}
 	if old.AdminAddr != cfg.AdminAddr {
+		return true
+	}
+	if old.MTU != cfg.MTU {
 		return true
 	}
 	return false
