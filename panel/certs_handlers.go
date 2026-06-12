@@ -10,6 +10,7 @@ type certIssueReq struct {
 	IP           string `json:"ip"`
 	IPv6         string `json:"ipv6"`
 	HTTPPort     int    `json:"httpPort"`
+	AcmeEmail    string `json:"acmeEmail"`
 	ApplyToPanel bool   `json:"applyToPanel"`
 	RestartPanel bool   `json:"restartPanel"`
 }
@@ -62,7 +63,7 @@ func (a *App) handleCertsIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := a.cfg
 	go func() {
-		result, err := issueAcmeDomain(domain, req.HTTPPort, req.ApplyToPanel, cfg)
+		result, err := issueAcmeDomain(domain, req.HTTPPort, req.ApplyToPanel, cfg, req.AcmeEmail)
 		if err != nil {
 			acmeJobFail(err)
 			return
@@ -95,7 +96,7 @@ func (a *App) handleCertsIssueIP(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := a.cfg
 	go func() {
-		result, err := issueAcmeIP(req.IP, req.IPv6, req.HTTPPort, req.ApplyToPanel, cfg)
+		result, err := issueAcmeIP(req.IP, req.IPv6, req.HTTPPort, req.ApplyToPanel, cfg, req.AcmeEmail)
 		if err != nil {
 			acmeJobFail(err)
 			return

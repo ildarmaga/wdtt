@@ -161,6 +161,7 @@
         domain: '',
         ip: '',
         ipv6: '',
+        acmeEmail: '',
         httpPort: 80,
         applyToPanel: true,
         restartPanel: true,
@@ -347,6 +348,7 @@
           '/panel/api/certs/issue',
           {
             domain: this.certForm.domain,
+            acmeEmail: (this.certForm.acmeEmail || '').trim(),
             httpPort: this.certForm.httpPort || 80,
             applyToPanel: this.certForm.applyToPanel,
             restartPanel: this.certForm.restartPanel,
@@ -367,6 +369,7 @@
           {
             ip: this.certForm.ip,
             ipv6: this.certForm.ipv6,
+            acmeEmail: (this.certForm.acmeEmail || '').trim(),
             httpPort: this.certForm.httpPort || 80,
             applyToPanel: this.certForm.applyToPanel,
             restartPanel: this.certForm.restartPanel,
