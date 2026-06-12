@@ -255,6 +255,8 @@ func (c WdttInboundConfig) listenAddr() string {
 func loadWdttInbound() (WdttInboundConfig, error) {
 	if panelDBEnabled() {
 		if cfg, err := loadInboundNorm(); err == nil {
+			cfg.normalize()
+			syncInboundJSONBackup(cfg)
 			return cfg, nil
 		}
 	}
@@ -277,6 +279,31 @@ func loadWdttInbound() (WdttInboundConfig, error) {
 		return svc, nil
 	}
 	return cfg, nil
+}
+
+// syncInboundJSONBackup дописывает inbound.json (mtu и др.) из БД при dual-write.
+func syncInboundJSONBackup(cfg WdttInboundConfig) {
+	cfg.normalize()
+	data, err := os.ReadFile(wdttInboundPath)
+	if err == nil {
+		var raw map[string]json.RawMessage
+		if json.Unmarshal(data, &raw) == nil {
+			if _, hasMTU := raw["mtu"]; hasMTU {
+				var onDisk WdttInboundConfig
+				if json.Unmarshal(data, &onDisk) == nil {
+					onDisk.normalize()
+					if onDisk.MTU == cfg.MTU && onDisk.DNS == cfg.DNS &&
+						onDisk.MaxUsers == cfg.MaxUsers && onDisk.HandshakeTimeoutSec == cfg.HandshakeTimeoutSec &&
+						onDisk.MaxDtlsPerDevice == cfg.MaxDtlsPerDevice {
+						return
+					}
+				}
+			}
+		}
+	}
+	if err := writeJSONFile(wdttInboundPath, cfg, 0600); err != nil {
+		log.Printf("panel inbound json sync: %v", err)
+	}
 }
 
 func saveWdttInbound(cfg WdttInboundConfig) error {

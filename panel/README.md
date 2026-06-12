@@ -55,11 +55,15 @@ gh release create v1.0.0 wdtt-panel-linux-amd64
 
 ## Конфигурация
 
+Primary — `/etc/wdtt/panel.db`. JSON — dual-write backup.
+
 | Файл | Назначение |
 |------|------------|
-| `/etc/wdtt/panel.json` | логин, порт, base path |
-| `/etc/wdtt/passwords.json` | пользователи VPN |
-| `/etc/wdtt-xray/config.json` | конфиг Xray |
+| `/etc/wdtt/panel.db` | SQLite: панель, users, inbound, xray |
+| `/etc/wdtt/panel.json` | backup: логин, порт, base path |
+| `/etc/wdtt/passwords.json` | backup: пользователи VPN |
+| `/etc/wdtt/inbound.json` | backup: DNS, MTU, лимиты |
+| `/etc/wdtt-xray/config.json` | backup: конфиг Xray (xray читает с диска) |
 
 ## Зависимости
 

@@ -108,6 +108,7 @@ func saveJSONDual(key, path string, v interface{}, perm os.FileMode) error {
 			return fmt.Errorf("panel db normalize %s: %w", key, err)
 		}
 	}
+	// Dual-write JSON backup (primary source: panel.db).
 	return writeJSONFile(path, v, perm)
 }
 

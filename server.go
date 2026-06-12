@@ -316,6 +316,7 @@ func refreshWrapKeysFromDBLocked() error {
 }
 
 func initDB(dir, mainPass, adminID, botToken string) {
+	// dbFile — путь dual-write backup; primary: panel.db (SQLite).
 	dbFile = filepath.Join(dir, "passwords.json")
 	if incoming, err := loadDatabaseFromDiskSource(); err == nil && incoming != nil {
 		db = incoming
@@ -2229,7 +2230,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		return
 	}
 
-	// Учёт трафика в passwords.json — syncTrafficFromWGPeers (statsLoop).
+	// Учёт трафика: saveDB → SQLite + passwords.json (syncTrafficFromWGPeers / statsLoop).
 	// Здесь только сброс локальных счётчиков и проверка лимита/деактивации.
 	var sessUpBytes, sessDownBytes int64
 	flushTraffic := func() bool {

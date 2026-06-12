@@ -103,7 +103,7 @@ func ensureXrayFollowsWdtt() {
 	}
 }
 
-// wdttHotReload применяет passwords.json и tc-лимиты без перезапуска wdtt-server.
+// wdttHotReload просит wdtt-server перечитать users/inbound из panel.db (fallback JSON) без перезапуска.
 func wdttHotReload() error {
 	if !serviceActive(wdttServiceUnit) {
 		return fmt.Errorf("WDTT не запущен")

@@ -36,6 +36,9 @@ func main() {
 		log.Fatal(err)
 	}
 	migrateToNormalizedTables()
+	if _, err := loadWdttInbound(); err != nil {
+		log.Printf("panel inbound load: %v", err)
+	}
 	initAssetsVer()
 	if acmeCronInstalled() {
 		_ = ensureAcmeCron()

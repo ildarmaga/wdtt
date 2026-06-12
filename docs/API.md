@@ -247,12 +247,15 @@ JSON:
 
 ## Файлы конфигурации
 
+Primary — `/etc/wdtt/panel.db` (SQLite). JSON-файлы ниже — dual-write backup для совместимости.
+
 | Файл | Назначение |
 |------|------------|
-| `/etc/wdtt/passwords.json` | Пользователи, устройства, трафик |
-| `/etc/wdtt/inbound.json` | Порты, DNS, лимит пользователей |
-| `/etc/wdtt/panel.json` | Настройки панели |
-| `/etc/wdtt-xray/config.json` | Xray routing |
+| `/etc/wdtt/panel.db` | Панель, users, inbound, xray meta/config |
+| `/etc/wdtt/passwords.json` | Backup: пользователи, устройства, трафик |
+| `/etc/wdtt/inbound.json` | Backup: порты, DNS, MTU, лимит пользователей |
+| `/etc/wdtt/panel.json` | Backup: настройки панели |
+| `/etc/wdtt-xray/config.json` | Backup: Xray routing (процесс xray читает с диска) |
 
 ---
 

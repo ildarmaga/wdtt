@@ -38,9 +38,10 @@ WDTT Server — VPN-бэкенд для схемы **VK TURN → WRAP → DTLS �
 
 | Файл | Назначение |
 |------|------------|
-| `passwords.json` | Пароли, устройства, трафик, сроки, лимиты |
+| `panel.db` | **Primary:** SQLite — панель, users, inbound, xray (schema v4) |
+| `passwords.json` | Dual-write backup: пароли, устройства, трафик |
+| `inbound.json` | Dual-write backup: DNS, MTU, `max_users`, таймауты |
 | `wg-keys.dat` | Серверные/legacy WG ключи (4 строки base64) |
-| `inbound.json` | DNS клиентов, `max_users` |
 | `server.log` | JSON-снимок статистики для панели (каждые 10 с) |
 
 ---
@@ -117,8 +118,8 @@ CLI-флаги `main()`:
 
 **Логика:**
 
-- `initDB` — загрузка `passwords.json`, миграция устройств, запись CLI-пароля, `refreshWrapKeysFromDBLocked`.
-- `saveDB` — JSON на диск (права `0600`), вызывается часто под `dbMutex`.
+- `initDB` — загрузка users из `panel.db` (fallback `passwords.json`), миграция устройств, запись CLI-пароля, `refreshWrapKeysFromDBLocked`.
+- `saveDB` — dual-write: SQLite + `passwords.json` (`0600`), вызывается часто под `dbMutex`.
 - `isPasswordExpired` / `isTrafficExceeded` — проверки доступа.
 - `addTrafficLocked` — учёт up/down, при превышении `TotalBytes` возвращает `false` → разрыв сессии.
 
@@ -390,5 +391,5 @@ journalctl -u wdtt -f | grep -E 'DTLS|WRAP|ПОДКЛ|WG|СТАТ'
 
 - iOS клиент: `anton48/vk-turn-proxy-ios` (WRAP-A, cred pool)
 - Референс протокола: `cacggghp/vk-turn-proxy`
-- Панель: `wdtt/panel/` — читает `server.log`, `passwords.json`
+- Панель: `wdtt/panel/` — читает `server.log`, users/inbound из `panel.db` (dual-write JSON)
 - Probe TURN: `wdtt/tools/vk_turn_probe/`
