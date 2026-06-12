@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"golang.zx2c4.com/wireguard/device"
@@ -25,14 +23,11 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 		trafficDirty.Store(false)
 	}
 
-	data, err := os.ReadFile(dbFile)
+	data, err := loadDatabaseFromDiskSource()
 	if err != nil {
 		return err
 	}
-	var incoming Database
-	if err := json.Unmarshal(data, &incoming); err != nil {
-		return err
-	}
+	incoming := *data
 
 	dbMutex.Lock()
 	for id, dev := range db.Devices {
@@ -53,6 +48,8 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 	if incoming.MainPassword != "" {
 		db.MainPassword = incoming.MainPassword
 	}
+	db.AdminID = incoming.AdminID
+	db.BotToken = incoming.BotToken
 	migrateDatabaseDevices()
 	if err := refreshWrapKeysFromDBLocked(); err != nil {
 		dbMutex.Unlock()
@@ -76,7 +73,7 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 
 	loadInboundSettings(filepath.Dir(dbFile))
 	syncAllSpeedLimits()
-	log.Printf("[ADMIN] Конфиг перезагружен из %s", dbFile)
+	log.Printf("[ADMIN] Конфиг перезагружен (sqlite/json: %s)", panelDBPath)
 	return nil
 }
 

@@ -36,12 +36,12 @@ func xrayAPIAddr() string {
 }
 
 func xrayAPIPortFromConfig() int {
-	data, err := os.ReadFile(xrayConfigPath)
+	raw, err := loadXrayConfigRaw()
 	if err != nil {
 		return defaultXrayAPIPort
 	}
 	var cfg map[string]interface{}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		return defaultXrayAPIPort
 	}
 	inbounds, _ := cfg["inbounds"].([]interface{})
@@ -62,12 +62,12 @@ func xrayAPIPortFromConfig() int {
 }
 
 func getAccessLogPath() (string, error) {
-	data, err := os.ReadFile(xrayConfigPath)
+	raw, err := loadXrayConfigRaw()
 	if err != nil {
 		return "", err
 	}
 	var cfg map[string]interface{}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		return "", err
 	}
 	logCfg, _ := cfg["log"].(map[string]interface{})
@@ -79,12 +79,12 @@ func getAccessLogPath() (string, error) {
 }
 
 func getDefaultLogOutboundTags() (freedoms, blackholes []string) {
-	data, err := os.ReadFile(xrayConfigPath)
+	raw, err := loadXrayConfigRaw()
 	if err != nil {
 		return []string{"direct"}, []string{"blocked"}
 	}
 	var cfg map[string]interface{}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		return []string{"direct"}, []string{"blocked"}
 	}
 	outbounds, _ := cfg["outbounds"].([]interface{})

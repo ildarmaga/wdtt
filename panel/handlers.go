@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -422,13 +421,13 @@ func (a *App) handleXrayGeofiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleXrayConfig(w http.ResponseWriter, r *http.Request) {
-	data, err := os.ReadFile(xrayConfigPath)
+	raw, err := loadXrayConfigRaw()
 	if err != nil {
 		jsonError(w, err.Error(), 404)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	w.Write([]byte(raw))
 }
 
 func (a *App) handlePanelPassword(w http.ResponseWriter, r *http.Request) {

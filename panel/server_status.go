@@ -541,12 +541,12 @@ func firstLine(cmd ...string) string {
 }
 
 func getXrayConfigJSON() (interface{}, error) {
-	data, err := os.ReadFile(xrayConfigPath)
+	raw, err := loadXrayConfigRaw()
 	if err != nil {
 		return nil, err
 	}
 	var cfg interface{}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil

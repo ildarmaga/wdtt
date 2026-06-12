@@ -285,12 +285,12 @@ func ensureXrayLogFiles(cfg map[string]interface{}) {
 }
 
 func ensureXrayLogPaths() {
-	data, err := os.ReadFile(xrayConfigPath)
+	raw, err := loadXrayConfigRaw()
 	if err != nil {
 		return
 	}
 	var cfg map[string]interface{}
-	if json.Unmarshal(data, &cfg) != nil {
+	if json.Unmarshal([]byte(raw), &cfg) != nil {
 		return
 	}
 	before, _ := json.Marshal(cfg["log"])
@@ -298,7 +298,7 @@ func ensureXrayLogPaths() {
 	after, _ := json.Marshal(cfg["log"])
 	if string(before) != string(after) {
 		out, _ := json.MarshalIndent(cfg, "", "  ")
-		_ = os.WriteFile(xrayConfigPath, out, 0644)
+		_ = persistXrayConfigRaw(string(out))
 	}
 }
 

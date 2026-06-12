@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -61,22 +60,27 @@ func isProtectedInboundTag(tag string) bool {
 }
 
 func loadPanelXrayInboundMeta() map[string]PanelXrayInboundMeta {
+	if panelDBEnabled() {
+		if out, ok, err := loadXrayInboundMetaNorm(); err != nil {
+			log.Printf("panel db xray_inbound_meta: %v", err)
+		} else if ok {
+			return out
+		}
+	}
 	out := map[string]PanelXrayInboundMeta{}
 	data, err := os.ReadFile(panelXrayInboundMetaPath)
 	if err != nil {
 		return out
 	}
 	_ = json.Unmarshal(data, &out)
+	if panelDBEnabled() {
+		_ = saveXrayInboundMetaNorm(out)
+	}
 	return out
 }
 
 func savePanelXrayInboundMeta(meta map[string]PanelXrayInboundMeta) error {
-	os.MkdirAll(filepath.Dir(panelXrayInboundMetaPath), 0700)
-	data, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(panelXrayInboundMetaPath, data, 0600)
+	return saveJSONDual(dbKeyXrayInboundMeta, panelXrayInboundMetaPath, meta, 0600)
 }
 
 func listPanelXrayInbounds() ([]PanelXrayInboundRow, error) {

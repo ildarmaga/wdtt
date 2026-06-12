@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -254,16 +253,27 @@ func (c WdttInboundConfig) listenAddr() string {
 }
 
 func loadWdttInbound() (WdttInboundConfig, error) {
+	if panelDBEnabled() {
+		if cfg, err := loadInboundNorm(); err == nil {
+			return cfg, nil
+		}
+	}
 	cfg := defaultWdttInbound()
 	data, err := os.ReadFile(wdttInboundPath)
 	if err == nil {
 		if json.Unmarshal(data, &cfg) == nil {
 			cfg.normalize()
+			if panelDBEnabled() {
+				_ = saveInboundNorm(cfg)
+			}
 			return cfg, nil
 		}
 	}
 	if svc, err := parseWdttInboundFromService(); err == nil {
 		svc.normalize()
+		if panelDBEnabled() {
+			_ = saveInboundNorm(svc)
+		}
 		return svc, nil
 	}
 	return cfg, nil
@@ -274,9 +284,7 @@ func saveWdttInbound(cfg WdttInboundConfig) error {
 	if err := cfg.validate(); err != nil {
 		return err
 	}
-	os.MkdirAll(filepath.Dir(wdttInboundPath), 0700)
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	return os.WriteFile(wdttInboundPath, data, 0600)
+	return saveJSONDual(dbKeyInbound, wdttInboundPath, cfg, 0600)
 }
 
 var (

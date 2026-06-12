@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -50,6 +52,14 @@ type PanelConfig struct {
 }
 
 func loadPanelConfig() (*PanelConfig, error) {
+	if panelDBEnabled() {
+		if cfg, err := loadPanelConfigFromDB(); err == nil {
+			return finalizePanelConfig(cfg)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("panel db load: %v, fallback to json", err)
+		}
+	}
+
 	data, err := os.ReadFile(panelConfigPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -61,6 +71,21 @@ func loadPanelConfig() (*PanelConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	out, err := finalizePanelConfig(&cfg)
+	if err != nil {
+		return nil, err
+	}
+	if panelDBEnabled() {
+		if err := savePanelConfigToDB(out); err != nil {
+			log.Printf("panel db sync from json: %v", err)
+		} else {
+			log.Printf("panel db: settings synced from %s", panelConfigPath)
+		}
+	}
+	return out, nil
+}
+
+func finalizePanelConfig(cfg *PanelConfig) (*PanelConfig, error) {
 	if cfg.Port == 0 {
 		cfg.Port = 2860
 	}
@@ -69,16 +94,18 @@ func loadPanelConfig() (*PanelConfig, error) {
 	}
 	if cfg.SessionKey == "" {
 		cfg.SessionKey = randomHex(32)
-		savePanelConfig(&cfg)
-	}
-	normalizePanelConfig(&cfg)
-	if cfg.WebDomain == "" && panelTLSEnabled(&cfg) {
-		if d := domainFromCertPath(cfg.WebCertFile); d != "" {
-			cfg.WebDomain = d
-			_ = savePanelConfig(&cfg)
+		if err := savePanelConfig(cfg); err != nil {
+			return nil, err
 		}
 	}
-	return &cfg, nil
+	normalizePanelConfig(cfg)
+	if cfg.WebDomain == "" && panelTLSEnabled(cfg) {
+		if d := domainFromCertPath(cfg.WebCertFile); d != "" {
+			cfg.WebDomain = d
+			_ = savePanelConfig(cfg)
+		}
+	}
+	return cfg, nil
 }
 
 func normalizePanelConfig(cfg *PanelConfig) {
@@ -146,6 +173,11 @@ func createDefaultPanelConfig() (*PanelConfig, error) {
 }
 
 func savePanelConfig(cfg *PanelConfig) error {
+	if panelDBEnabled() {
+		if err := savePanelConfigToDB(cfg); err != nil {
+			return err
+		}
+	}
 	os.MkdirAll(filepath.Dir(panelConfigPath), 0700)
 	data, _ := json.MarshalIndent(cfg, "", "  ")
 	return os.WriteFile(panelConfigPath, data, 0600)
@@ -180,6 +212,8 @@ func panelSettingsMap(cfg *PanelConfig) map[string]interface{} {
 		"ufwInstalled":     ufwInstalled(),
 		"ufwActive":        ufwActive(),
 		"sshPort":          detectSSHPort(),
+		"dbEnabled":        panelDBEnabled(),
+		"dbPath":           panelDBPath,
 	}
 }
 

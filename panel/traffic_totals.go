@@ -34,14 +34,24 @@ func loadXrayTrafficPersist() {
 		return
 	}
 	xrayTrafficLoaded = true
+	var p xrayTrafficPersist
+	if panelDBEnabled() {
+		if np, ok, err := loadXrayTrafficNorm(); err == nil && ok {
+			xrayPersistedUp = np.Up
+			xrayPersistedDown = np.Down
+			return
+		}
+	}
 	data, err := os.ReadFile(xrayTrafficFile())
 	if err != nil {
 		return
 	}
-	var p xrayTrafficPersist
 	if json.Unmarshal(data, &p) == nil {
 		xrayPersistedUp = p.Up
 		xrayPersistedDown = p.Down
+		if panelDBEnabled() {
+			_ = saveXrayTrafficNorm(p)
+		}
 	}
 }
 
@@ -49,10 +59,11 @@ func saveXrayTrafficPersistLocked() {
 	if !xrayTrafficDirty {
 		return
 	}
-	data, err := json.MarshalIndent(xrayTrafficPersist{
-		Up:   xrayPersistedUp,
-		Down: xrayPersistedDown,
-	}, "", "  ")
+	p := xrayTrafficPersist{Up: xrayPersistedUp, Down: xrayPersistedDown}
+	if panelDBEnabled() {
+		_ = saveXrayTrafficNorm(p)
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return
 	}

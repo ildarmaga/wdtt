@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,13 @@ type panelXrayMeta struct {
 }
 
 func loadPanelXrayMeta() panelXrayMeta {
+	if panelDBEnabled() {
+		if meta, ok, err := loadXrayMetaNorm(); err != nil {
+			log.Printf("panel db xray_meta: %v", err)
+		} else if ok {
+			return meta
+		}
+	}
 	meta := panelXrayMeta{OutboundTestURL: "https://www.google.com/generate_204"}
 	data, err := os.ReadFile(panelXrayMetaPath)
 	if err != nil {
@@ -30,21 +38,45 @@ func loadPanelXrayMeta() panelXrayMeta {
 	if meta.OutboundTestURL == "" {
 		meta.OutboundTestURL = "https://www.google.com/generate_204"
 	}
+	if panelDBEnabled() {
+		_ = saveXrayMetaNorm(meta)
+	}
 	return meta
 }
 
 func savePanelXrayMeta(meta panelXrayMeta) error {
-	os.MkdirAll(filepath.Dir(panelXrayMetaPath), 0700)
-	data, _ := json.MarshalIndent(meta, "", "  ")
-	return os.WriteFile(panelXrayMetaPath, data, 0600)
+	return saveJSONDual(dbKeyXrayMeta, panelXrayMetaPath, meta, 0600)
 }
 
 func loadXrayConfigRaw() (string, error) {
+	if panelDBEnabled() {
+		if raw, ok, err := loadXrayConfigNorm(); err != nil {
+			log.Printf("panel db xray config load: %v, fallback file", err)
+		} else if ok {
+			return raw, nil
+		}
+	}
 	data, err := os.ReadFile(xrayConfigPath)
 	if err != nil {
 		return "", err
 	}
-	return string(data), nil
+	raw := string(data)
+	if panelDBEnabled() {
+		_ = saveXrayConfigNorm(raw)
+	}
+	return raw, nil
+}
+
+func persistXrayConfigRaw(raw string) error {
+	if panelDBEnabled() {
+		if err := saveXrayConfigNorm(raw); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(xrayConfigPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(xrayConfigPath, []byte(raw), 0644)
 }
 
 func unwrapXrayTemplateConfig(raw string) string {
@@ -174,11 +206,7 @@ func writeXrayConfig(raw string) error {
 	if err := validateXrayConfig(merged); err != nil {
 		return err
 	}
-	os.MkdirAll(filepath.Dir(xrayConfigPath), 0755)
-	if err := os.WriteFile(xrayConfigPath, []byte(merged), 0644); err != nil {
-		return err
-	}
-	return nil
+	return persistXrayConfigRaw(merged)
 }
 
 func saveXrayConfig(raw string) error {
@@ -312,7 +340,7 @@ func patchXrayStatsAPIOnDisk() error {
 	if err := validateXrayConfig(string(merged)); err != nil {
 		return err
 	}
-	if err := os.WriteFile(xrayConfigPath, merged, 0644); err != nil {
+	if err := persistXrayConfigRaw(string(merged)); err != nil {
 		return err
 	}
 	return serviceRestart(xrayServiceUnit)

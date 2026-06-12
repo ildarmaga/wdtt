@@ -21,16 +21,21 @@ func main() {
 		os.Exit(0)
 	}
 
-	cfg, err := loadPanelConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
 	if err := initI18n(); err != nil {
 		log.Fatal("i18n: ", err)
 	}
 	if err := initTemplates(); err != nil {
 		log.Fatal("templates: ", err)
 	}
+	if err := initPanelDB(); err != nil {
+		log.Printf("panel db: %v (json fallback)", err)
+	}
+
+	cfg, err := loadPanelConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	migrateToNormalizedTables()
 	initAssetsVer()
 	if acmeCronInstalled() {
 		_ = ensureAcmeCron()

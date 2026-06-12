@@ -3,7 +3,9 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -15,6 +17,8 @@ import (
 
 type PasswordsDB struct {
 	MainPassword string                    `json:"main_password"`
+	AdminID      string                    `json:"admin_id,omitempty"`
+	BotToken     string                    `json:"bot_token,omitempty"`
 	Passwords    map[string]*PasswordEntry `json:"passwords"`
 	Devices      map[string]*DeviceEntry   `json:"devices"`
 }
@@ -104,10 +108,22 @@ type ServerStats struct {
 const passChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
 
 func loadPasswords() (*PasswordsDB, error) {
+	if panelDBEnabled() {
+		if db, err := loadPasswordsNorm(); err == nil {
+			return db, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("panel db passwords load: %v, fallback json", err)
+		}
+	}
+	return loadPasswordsFromJSON()
+}
+
+func loadPasswordsFromJSON() (*PasswordsDB, error) {
 	p := filepath.Join(wdttConfigDir, "passwords.json")
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return &PasswordsDB{Passwords: map[string]*PasswordEntry{}, Devices: map[string]*DeviceEntry{}}, nil
+		db := &PasswordsDB{Passwords: map[string]*PasswordEntry{}, Devices: map[string]*DeviceEntry{}}
+		return db, nil
 	}
 	var db PasswordsDB
 	if err := json.Unmarshal(data, &db); err != nil {
@@ -123,6 +139,9 @@ func loadPasswords() (*PasswordsDB, error) {
 		normalizeEntryDevices(entry)
 	}
 	dedupePasswordDeviceBindings(&db)
+	if panelDBEnabled() {
+		_ = savePasswordsNorm(&db)
+	}
 	return &db, nil
 }
 
@@ -166,9 +185,13 @@ func dedupePasswordDeviceBindings(db *PasswordsDB) {
 }
 
 func savePasswords(db *PasswordsDB) error {
+	if panelDBEnabled() {
+		if err := savePasswordsNorm(db); err != nil {
+			return err
+		}
+	}
 	p := filepath.Join(wdttConfigDir, "passwords.json")
-	data, _ := json.MarshalIndent(db, "", "  ")
-	return os.WriteFile(p, data, 0600)
+	return writeJSONFile(p, db, 0600)
 }
 
 func maskPassword(pass string) string {

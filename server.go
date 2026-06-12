@@ -111,44 +111,6 @@ const (
 	generatedPasswordLen = 16
 )
 
-func loadInboundSettings(configDir string) {
-	clientDNS = defaultClientDNS
-	maxGeneratedPasswords = defaultMaxUsers
-	dtlsHandshakeTimeout = 30 * time.Second
-	maxDTLSPerDevice = 0
-	wgMTU = defaultWgMTU
-	data, err := os.ReadFile(filepath.Join(configDir, "inbound.json"))
-	if err != nil {
-		return
-	}
-	var raw struct {
-		DNS                 string `json:"dns"`
-		MaxUsers            int    `json:"max_users"`
-		HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
-		MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
-		MTU                 int    `json:"mtu"`
-	}
-	if json.Unmarshal(data, &raw) != nil {
-		return
-	}
-	if dns := strings.TrimSpace(raw.DNS); dns != "" {
-		clientDNS = dns
-	}
-	if raw.MaxUsers >= 1 && raw.MaxUsers <= maxUsersSubnetLimit {
-		maxGeneratedPasswords = raw.MaxUsers
-	}
-	if raw.HandshakeTimeoutSec >= 5 && raw.HandshakeTimeoutSec <= 600 {
-		dtlsHandshakeTimeout = time.Duration(raw.HandshakeTimeoutSec) * time.Second
-	}
-	if raw.MaxDtlsPerDevice >= 0 && raw.MaxDtlsPerDevice <= 50 {
-		maxDTLSPerDevice = int32(raw.MaxDtlsPerDevice)
-	}
-	log.Printf("[CFG] inbound: DTLS timeout=%s, max сессий/device=%d (0=без лимита)", dtlsHandshakeTimeout, maxDTLSPerDevice)
-	if raw.MTU >= 576 && raw.MTU <= 1500 {
-		wgMTU = raw.MTU
-	}
-}
-
 func generatePassword() string {
 	b := make([]byte, generatedPasswordLen)
 	randomBytes := make([]byte, len(b))
@@ -355,13 +317,13 @@ func refreshWrapKeysFromDBLocked() error {
 
 func initDB(dir, mainPass, adminID, botToken string) {
 	dbFile = filepath.Join(dir, "passwords.json")
-	db = &Database{
-		Passwords: make(map[string]*PasswordEntry),
-		Devices:   make(map[string]*ClientDevice),
-	}
-	data, err := os.ReadFile(dbFile)
-	if err == nil {
-		json.Unmarshal(data, db)
+	if incoming, err := loadDatabaseFromDiskSource(); err == nil && incoming != nil {
+		db = incoming
+	} else {
+		db = &Database{
+			Passwords: make(map[string]*PasswordEntry),
+			Devices:   make(map[string]*ClientDevice),
+		}
 	}
 	if db.Passwords == nil {
 		db.Passwords = make(map[string]*PasswordEntry)
@@ -380,24 +342,13 @@ func initDB(dir, mainPass, adminID, botToken string) {
 	if err := refreshWrapKeysFromDBLocked(); err != nil {
 		log.Fatalf("[WRAP] init keys: %v", err)
 	}
+	if serverPanelDBReady() {
+		log.Printf("[DB] users loaded from %s (sqlite primary)", panelDBPath)
+	}
 }
 
 func saveDB() error {
-	data, err := json.MarshalIndent(db, "", "  ")
-	if err != nil {
-		log.Printf("[DB] save: marshal: %v", err)
-		return err
-	}
-	tmp := dbFile + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		log.Printf("[DB] save: write: %v", err)
-		return err
-	}
-	if err := os.Rename(tmp, dbFile); err != nil {
-		log.Printf("[DB] save: rename: %v", err)
-		return err
-	}
-	return nil
+	return saveDatabaseDual()
 }
 
 func isPasswordExpired(entry *PasswordEntry) bool {
@@ -1926,7 +1877,6 @@ func main() {
 
 	initDB(*configDir, *mainPass, *adminID, *botToken)
 	loadInboundSettings(*configDir)
-	log.Printf("[CFG] DNS клиентов: %s, MTU: %d, лимит активных: %d", clientDNS, wgMTU, maxGeneratedPasswords)
 	log.Printf("[CFG] Admin HTTP: %s (hot-reload /health)", adminListenAddr)
 
 	keys, err := loadOrGenerateKeys(*configDir)

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -158,7 +160,33 @@ func (a *App) handleXrayLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleImportDB(w http.ResponseWriter, r *http.Request) {
-	jsonMsg(w, "not supported", false)
+	if !panelDBEnabled() {
+		jsonMsg(w, "SQLite не инициализирован", false)
+		return
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		jsonMsg(w, err.Error(), false)
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		jsonMsg(w, "файл не передан", false)
+		return
+	}
+	defer file.Close()
+	if err := importPanelDBFromReader(file); err != nil {
+		jsonMsg(w, err.Error(), false)
+		return
+	}
+	if cfg, err := loadPanelConfig(); err != nil {
+		jsonMsg(w, err.Error(), false)
+		return
+	} else {
+		a.cfg = cfg
+	}
+	jsonOK(w, map[string]interface{}{
+		"message": "База импортирована. Перезапустите панель для полного применения.",
+	})
 }
 
 func (a *App) handleDefaultSettings(w http.ResponseWriter, r *http.Request) {
@@ -170,7 +198,19 @@ func (a *App) handleCustomGeoList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetDb(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not supported", http.StatusNotFound)
+	if !panelDBEnabled() {
+		http.Error(w, "database not available", http.StatusNotFound)
+		return
+	}
+	if _, err := os.Stat(panelDBPath); err != nil {
+		http.Error(w, "database not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="panel.db"`)
+	if err := exportPanelDB(w); err != nil {
+		log.Printf("export db: %v", err)
+	}
 }
 
 func (a *App) handleServerAPI(w http.ResponseWriter, r *http.Request) {
