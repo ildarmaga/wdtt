@@ -139,6 +139,9 @@
       </a-col>
       <a-col :span="24">
         <a-button icon="global" @click="issueIPCert()" :loading="certState.busy">Выпустить SSL для IP</a-button>
+        <span class="cert-muted" :style="{ marginLeft: '8px' }">
+          ACME email: admin@домен из настроек панели или noreply@example.com
+        </span>
       </a-col>
     </a-row>
 

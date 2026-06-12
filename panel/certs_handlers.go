@@ -213,7 +213,7 @@ func (a *App) handleCertsApply(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleCertsInstallAcme(w http.ResponseWriter, r *http.Request) {
-	if err := installAcme(); err != nil {
+	if err := installAcme(a.cfg); err != nil {
 		jsonMsg(w, "Не удалось установить acme.sh: "+err.Error(), false)
 		return
 	}

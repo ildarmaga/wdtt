@@ -58,6 +58,9 @@ type AcmeStatus struct {
 }
 
 var domainRe = regexp.MustCompile(`^(?i:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)$`)
+var acmeEmailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+
+const acmeFallbackEmail = "noreply@example.com"
 
 func acmeShBin() string {
 	return "/root/.acme.sh/acme.sh"
@@ -310,19 +313,51 @@ func runCmdTimeout(timeout time.Duration, name string, args ...string) (string, 
 	return strings.TrimSpace(string(out)), err
 }
 
-func installAcme() error {
+func installAcme(cfg *PanelConfig) error {
 	if acmeInstalled() {
+		ensureAcmeContactEmail(cfg)
 		return ensureAcmeCron()
 	}
-	_, err := runCmdTimeout(120*time.Second, "bash", "-c",
-		"export HOME=/root; cd /root && curl -fsSL https://get.acme.sh | sh -s email=admin@localhost")
+	email := acmeContactEmail(cfg)
+	script := fmt.Sprintf("export HOME=/root; cd /root && curl -fsSL https://get.acme.sh | sh -s email=%s", shellSingleQuote(email))
+	_, err := runCmdTimeout(120*time.Second, "bash", "-c", script)
 	if err != nil {
 		return fmt.Errorf("curl|sh: %w", err)
 	}
 	if !acmeInstalled() {
 		return fmt.Errorf("acme.sh не найден после установки (%s)", acmeShBin())
 	}
+	ensureAcmeContactEmail(cfg)
 	return ensureAcmeCron()
+}
+
+func acmeContactEmail(cfg *PanelConfig) string {
+	if cfg != nil {
+		d := strings.TrimSpace(strings.ToLower(cfg.WebDomain))
+		if d != "" && !isValidIP(d) && isValidDomain(d) {
+			return "admin@" + d
+		}
+	}
+	return acmeFallbackEmail
+}
+
+func ensureAcmeContactEmail(cfg *PanelConfig) {
+	if !acmeInstalled() {
+		return
+	}
+	email := acmeContactEmail(cfg)
+	if !acmeEmailRe.MatchString(email) {
+		return
+	}
+	_, _ = runAcmeSh("--update-account", "--accountemail", email)
+}
+
+func acmeIssueEmailArgs(cfg *PanelConfig) []string {
+	return []string{"--accountemail", acmeContactEmail(cfg)}
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func ensureSocat() {
@@ -361,10 +396,11 @@ func issueAcmeDomain(domain string, httpPort int, applyPanel bool, cfg *PanelCon
 	if httpPort < 1 || httpPort > 65535 {
 		httpPort = 80
 	}
-	if err := installAcme(); err != nil {
+	if err := installAcme(cfg); err != nil {
 		return nil, fmt.Errorf("не удалось установить acme.sh: %w", err)
 	}
 	ensureSocat()
+	ensureAcmeContactEmail(cfg)
 
 	return withAcmeHTTPPort(httpPort, func() (map[string]interface{}, error) {
 		certDir := filepath.Join(acmeCertRoot, domain)
@@ -374,8 +410,8 @@ func issueAcmeDomain(domain string, httpPort int, applyPanel bool, cfg *PanelCon
 		}
 
 		_, _ = runAcmeSh("--set-default-ca", "--server", "letsencrypt", "--force")
-		issueOut, err := runAcmeShTimeout(180*time.Second,
-			"--issue", "-d", domain, acmeListenFlag(), "--standalone", "--httpport", fmt.Sprint(httpPort), "--force")
+		issueArgs := append([]string{"--issue", "-d", domain, acmeListenFlag(), "--standalone", "--httpport", fmt.Sprint(httpPort), "--force"}, acmeIssueEmailArgs(cfg)...)
+		issueOut, err := runAcmeShTimeout(180*time.Second, issueArgs...)
 		if err != nil {
 			_ = os.RemoveAll(filepath.Join("/root", ".acme.sh", domain))
 			_ = os.RemoveAll(filepath.Join("/root", ".acme.sh", domain+"_ecc"))
@@ -429,16 +465,18 @@ func issueAcmeIP(ip, ipv6 string, httpPort int, applyPanel bool, cfg *PanelConfi
 	if httpPort < 1 || httpPort > 65535 {
 		httpPort = 80
 	}
-	if err := installAcme(); err != nil {
+	if err := installAcme(cfg); err != nil {
 		return nil, fmt.Errorf("не удалось установить acme.sh: %w", err)
 	}
 	ensureSocat()
+	ensureAcmeContactEmail(cfg)
 
 	return withAcmeHTTPPort(httpPort, func() (map[string]interface{}, error) {
 		certDir := filepath.Join(acmeCertRoot, "ip")
 		_ = os.MkdirAll(certDir, 0755)
 		args := []string{"--issue", "-d", ip, "--standalone", "--server", "letsencrypt",
 			"--certificate-profile", "shortlived", "--days", "6", "--httpport", fmt.Sprint(httpPort), "--force"}
+		args = append(args, acmeIssueEmailArgs(cfg)...)
 		if strings.TrimSpace(ipv6) != "" && isValidIP(ipv6) {
 			args = append(args, "-d", strings.TrimSpace(ipv6))
 		}
