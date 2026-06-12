@@ -1,20 +1,166 @@
 {{define "settings/panel/certs"}}
 <a-collapse default-active-key="1">
-    <a-collapse-panel key="1" header='{{ i18n "pages.settings.certs" }}'>
-        <a-setting-list-item paddings="small">
-            <template #title>{{ i18n "pages.settings.publicKeyPath"}}</template>
-            <template #description>{{ i18n "pages.settings.publicKeyPathDesc"}}</template>
-            <template #control>
-                <a-input type="text" v-model="allSetting.webCertFile"></a-input>
-            </template>
-        </a-setting-list-item>
-        <a-setting-list-item paddings="small">
-            <template #title>{{ i18n "pages.settings.privateKeyPath"}}</template>
-            <template #description>{{ i18n "pages.settings.privateKeyPathDesc"}}</template>
-            <template #control>
-                <a-input type="text" v-model="allSetting.webKeyFile"></a-input>
-            </template>
-        </a-setting-list-item>
-    </a-collapse-panel>
+  <a-collapse-panel key="1" header='{{ i18n "pages.settings.certs" }}'>
+    <a-alert v-if="certState.panel && certState.panel.tlsActive" type="success" show-icon
+      message="HTTPS панели активен" class="cert-alert" :style="{ marginBottom: '12px' }">
+      <template slot="description">
+        Домен: [[ certState.panel.webDomain || '—' ]]
+      </template>
+    </a-alert>
+    <a-alert v-else type="warning" show-icon class="cert-alert" message="HTTPS не настроен"
+      description="Укажите пути к сертификату или выпустите через ACME ниже."
+      :style="{ marginBottom: '12px' }"></a-alert>
+
+    <a-setting-list-item paddings="small">
+      <template #title>{{ i18n "pages.settings.publicKeyPath"}}</template>
+      <template #description>{{ i18n "pages.settings.publicKeyPathDesc"}}</template>
+      <template #control>
+        <a-input type="text" v-model="allSetting.webCertFile"></a-input>
+      </template>
+    </a-setting-list-item>
+    <a-setting-list-item paddings="small">
+      <template #title>{{ i18n "pages.settings.privateKeyPath"}}</template>
+      <template #description>{{ i18n "pages.settings.privateKeyPathDesc"}}</template>
+      <template #control>
+        <a-input type="text" v-model="allSetting.webKeyFile"></a-input>
+      </template>
+    </a-setting-list-item>
+  </a-collapse-panel>
+
+  <a-collapse-panel key="2" header="Сертификаты на сервере">
+    <div :style="{ marginBottom: '8px' }">
+      <a-button icon="reload" @click="loadCerts()" :loading="certState.loading">Обновить список</a-button>
+    </div>
+    <a-table :columns="certCols" :data-source="certState.certs" :pagination="false" size="small"
+      :row-key="r => r.certFile" :loading="certState.loading" :locale='{ emptyText: "Сертификаты не найдены" }'>
+      <template slot="certDomain" slot-scope="_, row">
+        <div>[[ row.domain ]]</div>
+        <div v-if="row.domains && row.domains.length > 1" class="cert-muted">[[ row.domains.join(', ') ]]</div>
+      </template>
+      <template slot="certSource" slot-scope="_, row">
+        <a-tag :color="certSourceColor(row.source)" style="margin:0">[[ certSourceLabel(row.source) ]]</a-tag>
+        <a-tag v-if="row.panelActive" color="green" style="margin-left:4px">Панель</a-tag>
+        <a-tag v-if="row.acmeManaged" color="blue" style="margin-left:4px">ACME</a-tag>
+      </template>
+      <template slot="certExpiry" slot-scope="_, row">
+        <span :class="row.daysLeft <= 14 ? 'cert-warn' : ''">[[ formatCertDate(row.notAfter) ]]</span>
+        <div class="cert-muted">[[ row.daysLeft ]] дн.</div>
+      </template>
+      <template slot="certActions" slot-scope="_, row">
+        <a-space :size="4" wrap>
+          <a-button size="small" type="primary" @click="applyCert(row, false)">Выбрать</a-button>
+          <a-button size="small" @click="applyCert(row, true)">Выбрать + restart</a-button>
+          <a-button v-if="row.acmeManaged" size="small" icon="sync" @click="renewCert(row)"></a-button>
+          <a-button v-if="row.source === 'wdtt'" size="small" icon="sync" title="Обновить DTLS"
+            @click="renewDtlsCert(row)"></a-button>
+          <a-button v-if="row.acmeManaged" size="small" type="danger" icon="delete" @click="revokeCert(row)"></a-button>
+          <a-button v-if="row.source === 'letsencrypt'" size="small" type="danger" icon="delete"
+            title="Удалить Certbot" @click="deleteCertbotCert(row)"></a-button>
+        </a-space>
+      </template>
+    </a-table>
+  </a-collapse-panel>
+
+  <a-collapse-panel key="3" header="ACME (Let's Encrypt)">
+    <a-alert v-if="!certState.acme.installed" type="info" show-icon class="cert-alert"
+      message="acme.sh не установлен" :style="{ marginBottom: '12px' }">
+      <template slot="description">
+        <a-button type="primary" size="small" @click="installAcme()" :loading="certState.busy">Установить acme.sh</a-button>
+      </template>
+    </a-alert>
+    <template v-else>
+      <div class="cert-muted" :style="{ marginBottom: '8px' }">[[ certState.acme.path ]]</div>
+      <a-divider orientation="left">Автообновление</a-divider>
+      <a-setting-list-item paddings="small">
+        <template #title>Ежедневное обновление</template>
+        <template #description>
+          ufw allow 80 → acme.sh --cron → ufw deny 80; DTLS-сert при ≤7 дн.
+          <span v-if="certState.acme.cronInstalled" class="cert-muted"> · [[ certState.acme.cronSchedule ]] · [[ certState.acme.cronPath ]]</span>
+        </template>
+        <template #control>
+          <a-switch v-model="acmeCronForm.enabled" :disabled="certState.busy"></a-switch>
+        </template>
+      </a-setting-list-item>
+      <a-setting-list-item v-if="acmeCronForm.enabled" paddings="small">
+        <template #title>Время запуска (UTC сервера)</template>
+        <template #description>Формат cron: минуты и часы</template>
+        <template #control>
+          <a-space :size="4">
+            <a-input-number v-model="acmeCronForm.hour" :min="0" :max="23" :disabled="certState.busy"
+              :style="{ width: '72px' }" placeholder="ч"></a-input-number>
+            <span>:</span>
+            <a-input-number v-model="acmeCronForm.minute" :min="0" :max="59" :disabled="certState.busy"
+              :style="{ width: '72px' }" placeholder="мин"></a-input-number>
+          </a-space>
+        </template>
+      </a-setting-list-item>
+      <div :style="{ marginBottom: '12px' }">
+        <a-button type="primary" icon="save" @click="saveAcmeCron()" :loading="certState.busy">
+          Сохранить автообновление
+        </a-button>
+      </div>
+      <a-table v-if="certState.acme.entries && certState.acme.entries.length" :columns="acmeCols"
+        :data-source="certState.acme.entries" :pagination="false" size="small" :row-key="r => r.domain"
+        :style="{ marginBottom: '12px' }">
+      </a-table>
+    </template>
+
+    <a-divider orientation="left">Выпуск для домена</a-divider>
+    <a-row :gutter="[8, 8]">
+      <a-col :xs="24" :sm="10">
+        <a-input v-model="certForm.domain" placeholder="example.com"></a-input>
+      </a-col>
+      <a-col :xs="12" :sm="4">
+        <a-input-number v-model="certForm.httpPort" :min="1" :max="65535" :style="{ width: '100%' }"
+          placeholder="80"></a-input-number>
+      </a-col>
+      <a-col :xs="12" :sm="10">
+        <a-checkbox v-model="certForm.applyToPanel">Применить к панели</a-checkbox>
+        <a-checkbox v-model="certForm.restartPanel">Restart панели</a-checkbox>
+      </a-col>
+      <a-col :span="24">
+        <a-button type="primary" icon="safety-certificate" @click="issueDomainCert()" :loading="certState.busy">
+          Выпустить SSL (HTTP-01)
+        </a-button>
+        <span class="cert-muted" :style="{ marginLeft: '8px' }">Порт 80 должен быть доступен из интернета</span>
+      </a-col>
+    </a-row>
+
+    <a-divider orientation="left">Выпуск для IP (shortlived ~6 дней)</a-divider>
+    <a-row :gutter="[8, 8]">
+      <a-col :xs="24" :sm="8">
+        <a-input v-model="certForm.ip" placeholder="IPv4 (авто)"></a-input>
+      </a-col>
+      <a-col :xs="24" :sm="8">
+        <a-input v-model="certForm.ipv6" placeholder="IPv6 (необязательно)"></a-input>
+      </a-col>
+      <a-col :xs="12" :sm="4">
+        <a-input-number v-model="certForm.httpPort" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
+      </a-col>
+      <a-col :span="24">
+        <a-button icon="global" @click="issueIPCert()" :loading="certState.busy">Выпустить SSL для IP</a-button>
+      </a-col>
+    </a-row>
+
+    <a-modal v-model="certState.logVisible" title="Лог ACME" :footer="null" width="720px"
+      :class="themeSwitcher.currentTheme" :mask-closable="!certState.logRunning" :closable="!certState.logRunning">
+      <a-spin :spinning="certState.logRunning">
+        <pre class="cert-log" ref="certLogPre">[[ certState.logText ]]</pre>
+      </a-spin>
+    </a-modal>
+  </a-collapse-panel>
 </a-collapse>
+<style>
+  .settings-page .cert-muted { opacity: .65; font-size: 12px; }
+  .settings-page .cert-warn { color: #fa8c16; }
+  .settings-page .cert-log {
+    max-height: 360px;
+    min-height: 200px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    margin: 0;
+  }
+</style>
 {{end}}

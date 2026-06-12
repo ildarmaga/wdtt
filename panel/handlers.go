@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -11,8 +16,60 @@ import (
 )
 
 func readJSON(r *http.Request, v interface{}) error {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(v)
+	if len(bytes.TrimSpace(body)) == 0 {
+		return fmt.Errorf("empty body")
+	}
+	if err := json.Unmarshal(body, v); err == nil {
+		return nil
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		return fmt.Errorf("invalid request body")
+	}
+	return decodeForm(form, v)
+}
+
+func decodeForm(form url.Values, v interface{}) error {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("expected struct pointer")
+	}
+	rv = rv.Elem()
+	rt := rv.Type()
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		tag := field.Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		name := strings.Split(tag, ",")[0]
+		val := form.Get(name)
+		if val == "" {
+			continue
+		}
+		fv := rv.Field(i)
+		if !fv.CanSet() {
+			continue
+		}
+		switch fv.Kind() {
+		case reflect.String:
+			fv.SetString(val)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid %s", name)
+			}
+			fv.SetInt(n)
+		case reflect.Bool:
+			fv.SetBool(val == "true" || val == "1")
+		}
+	}
+	return nil
 }
 
 func jsonOK(w http.ResponseWriter, v interface{}) {

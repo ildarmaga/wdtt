@@ -37,7 +37,7 @@ class HttpUtil {
             return msg;
         } catch (error) {
             console.error('GET request failed:', error);
-            const errorMsg = new Msg(false, error.response?.data?.message || error.message || 'Request failed');
+            const errorMsg = new Msg(false, error.response?.data?.msg || error.response?.data?.message || error.message || 'Request failed');
             this._handleMsg(errorMsg);
             return errorMsg;
         }
@@ -51,7 +51,7 @@ class HttpUtil {
             return msg;
         } catch (error) {
             console.error('POST request failed:', error);
-            const errorMsg = new Msg(false, error.response?.data?.message || error.message || 'Request failed');
+            const errorMsg = new Msg(false, error.response?.data?.msg || error.response?.data?.message || error.message || 'Request failed');
             this._handleMsg(errorMsg);
             return errorMsg;
         }

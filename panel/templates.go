@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -20,7 +22,18 @@ var assetsFS embed.FS
 var (
 	htmlTemplates *template.Template
 	startTime     = time.Now()
+	assetsVer     string
 )
+
+func initAssetsVer() {
+	data, err := assetsFS.ReadFile("web/assets/css/custom.min.css")
+	if err != nil {
+		assetsVer = "0"
+		return
+	}
+	sum := sha256.Sum256(data)
+	assetsVer = hex.EncodeToString(sum[:4])
+}
 
 func initTemplates() error {
 	funcMap := template.FuncMap{
@@ -72,6 +85,7 @@ func (a *App) renderHTML(w http.ResponseWriter, r *http.Request, name, title str
 	extra["request_uri"] = r.RequestURI
 	extra["base_path"] = a.cfg.basePath()
 	extra["cur_ver"] = panelVersion
+	extra["assets_ver"] = assetsVer
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := htmlTemplates.ExecuteTemplate(w, name, extra); err != nil {

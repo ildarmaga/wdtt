@@ -163,12 +163,10 @@ func collectServerStatus() *serverStatus {
 	s.Uptime = readOSUptime()
 	s.TCPCount, s.UDPCount = readConnCounts()
 	s.NetIO.Up, s.NetIO.Down = vpnTrafficSpeed()
-	if db, _ := loadPasswords(); db != nil {
-		up, down := passwordsTrafficTotals(db)
-		s.NetTraffic.Sent = uint64(up)
-		s.NetTraffic.Recv = uint64(down)
+	if db, err := loadPasswords(); err == nil && db != nil {
+		s.NetTraffic.Sent, s.NetTraffic.Recv = combinedTrafficTotals(db)
 	} else {
-		s.NetTraffic.Sent, s.NetTraffic.Recv = vpnTrafficTotals()
+		s.NetTraffic.Sent, s.NetTraffic.Recv = combinedTrafficTotals(nil)
 	}
 	s.PublicIP.IPv4 = cachedIPv4
 	s.PublicIP.IPv6 = cachedIPv6
@@ -425,7 +423,8 @@ const vpnTrafficIface = "wdtt0"
 
 func vpnTrafficTotals() (sent, recv uint64) {
 	rx, tx := readIfaceBytes(vpnTrafficIface)
-	return tx, rx
+	// sent = upload клиента (rx на wg-интерфейсе), recv = download клиента (tx)
+	return rx, tx
 }
 
 func vpnTrafficSpeed() (up, down uint64) {
@@ -436,11 +435,11 @@ func vpnTrafficSpeed() (up, down uint64) {
 	if hasVpnSample {
 		dt := now.Sub(lastVpnSampleT).Seconds()
 		if dt > 0 {
-			if tx >= lastVpnTx {
-				up = uint64(float64(tx-lastVpnTx) / dt)
-			}
 			if rx >= lastVpnRx {
-				down = uint64(float64(rx-lastVpnRx) / dt)
+				up = uint64(float64(rx-lastVpnRx) / dt)
+			}
+			if tx >= lastVpnTx {
+				down = uint64(float64(tx-lastVpnTx) / dt)
 			}
 		}
 	}

@@ -46,6 +46,7 @@ type PanelConfig struct {
 	SessionMaxAge int    `json:"sessionMaxAge,omitempty"`
 	PageSize      int    `json:"pageSize,omitempty"`
 	RemarkModel   string `json:"remarkModel,omitempty"`
+	BlockPing     bool   `json:"blockPing,omitempty"`
 }
 
 func loadPanelConfig() (*PanelConfig, error) {
@@ -175,6 +176,10 @@ func panelSettingsMap(cfg *PanelConfig) map[string]interface{} {
 		"webCertFile":      cfg.WebCertFile,
 		"webKeyFile":       cfg.WebKeyFile,
 		"twoFactorEnable":  false,
+		"blockPing":        ufwPingBlocked(),
+		"ufwInstalled":     ufwInstalled(),
+		"ufwActive":        ufwActive(),
+		"sshPort":          detectSSHPort(),
 	}
 }
 

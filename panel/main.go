@@ -31,6 +31,10 @@ func main() {
 	if err := initTemplates(); err != nil {
 		log.Fatal("templates: ", err)
 	}
+	initAssetsVer()
+	if acmeCronInstalled() {
+		_ = ensureAcmeCron()
+	}
 	ensureWdttXrayDirs()
 	patchWdttXrayService()
 	if err := patchXrayStatsAPIOnDisk(); err != nil {
@@ -69,6 +73,7 @@ func main() {
 	mux.HandleFunc(base+"panel/setting/defaultSettings", app.requireAuth(app.handleDefaultSettings))
 	mux.HandleFunc(base+"panel/setting/all", app.requireAuth(app.handleSettingAll))
 	mux.HandleFunc(base+"panel/setting/update", app.requireAuth(app.handleSettingUpdate))
+	mux.HandleFunc(base+"panel/setting/ssh-port", app.requireAuth(app.handleSettingSSHPort))
 	mux.HandleFunc(base+"panel/setting/updateUser", app.requireAuth(app.handleSettingUpdateUser))
 	mux.HandleFunc(base+"panel/setting/restartPanel", app.requireAuth(app.handleSettingRestartPanel))
 	mux.HandleFunc(base+"panel/api/custom-geo/list", app.requireAuth(app.handleCustomGeoList))
@@ -82,6 +87,18 @@ func main() {
 	mux.HandleFunc(api+"firewall/open", app.requireAuth(app.handleFirewallPortOpen))
 	mux.HandleFunc(api+"firewall/update", app.requireAuth(app.handleFirewallPortUpdate))
 	mux.HandleFunc(api+"firewall/close", app.requireAuth(app.handleFirewallPortClose))
+	mux.HandleFunc(api+"firewall/ufw-enable", app.requireAuth(app.handleFirewallUFWEnable))
+	mux.HandleFunc(api+"certs/list", app.requireAuth(app.handleCertsList))
+	mux.HandleFunc(api+"certs/issue", app.requireAuth(app.handleCertsIssue))
+	mux.HandleFunc(api+"certs/issue-ip", app.requireAuth(app.handleCertsIssueIP))
+	mux.HandleFunc(api+"certs/renew", app.requireAuth(app.handleCertsRenew))
+	mux.HandleFunc(api+"certs/acme-log", app.requireAuth(app.handleCertsAcmeLog))
+	mux.HandleFunc(api+"certs/renew-dtls", app.requireAuth(app.handleCertsRenewDtls))
+	mux.HandleFunc(api+"certs/revoke", app.requireAuth(app.handleCertsRevoke))
+	mux.HandleFunc(api+"certs/delete-certbot", app.requireAuth(app.handleCertsDeleteCertbot))
+	mux.HandleFunc(api+"certs/apply", app.requireAuth(app.handleCertsApply))
+	mux.HandleFunc(api+"certs/install-acme", app.requireAuth(app.handleCertsInstallAcme))
+	mux.HandleFunc(api+"certs/acme-cron", app.requireAuth(app.handleCertsAcmeCron))
 	mux.HandleFunc(api+"xray-inbounds", app.requireAuth(app.handleXrayInboundsList))
 	mux.HandleFunc(api+"xray-inbounds/save", app.requireAuth(app.handleXrayInboundSave))
 	mux.HandleFunc(api+"xray-inbounds/delete", app.requireAuth(app.handleXrayInboundDelete))

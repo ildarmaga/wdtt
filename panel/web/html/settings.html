@@ -68,6 +68,27 @@
 </a-layout>
 
 <style>
+  body.dark {
+    background-color: var(--dark-color-background);
+  }
+  #app.dark.settings-page.ant-layout {
+    background-color: var(--dark-color-background);
+  }
+  #app.dark.settings-page .ant-alert-success,
+  body.dark .settings-page .ant-alert-success {
+    background-color: rgb(var(--dark-color-tag-green-bg)) !important;
+    border: 1px solid rgb(var(--dark-color-tag-green-border)) !important;
+  }
+  #app.dark.settings-page .ant-alert-success .ant-alert-message,
+  #app.dark.settings-page .ant-alert-success .ant-alert-description,
+  body.dark .settings-page .ant-alert-success .ant-alert-message,
+  body.dark .settings-page .ant-alert-success .ant-alert-description {
+    color: var(--dark-color-text-primary) !important;
+  }
+  #app.dark.settings-page .ant-alert-success .ant-alert-icon,
+  body.dark .settings-page .ant-alert-success .ant-alert-icon {
+    color: var(--dark-color-tag-green-color) !important;
+  }
   @media (min-width: 769px) {
     .settings-page .ant-layout-content {
       margin: 24px 16px;
@@ -91,6 +112,10 @@
       this.webCertFile = data.webCertFile || "";
       this.webKeyFile = data.webKeyFile || "";
       this.twoFactorEnable = !!data.twoFactorEnable;
+      this.blockPing = !!data.blockPing;
+      this.ufwInstalled = !!data.ufwInstalled;
+      this.ufwActive = !!data.ufwActive;
+      this.sshPort = data.sshPort || 22;
     }
     payload() {
       return {
@@ -103,6 +128,7 @@
         remarkModel: this.remarkModel,
         webCertFile: this.webCertFile,
         webKeyFile: this.webKeyFile,
+        blockPing: this.blockPing,
       };
     }
     equals(other) {
@@ -121,6 +147,33 @@
       allSetting: new PanelSetting(),
       saveBtnDisable: true,
       user: {},
+      certState: {
+        loading: false,
+        busy: false,
+        certs: [],
+        acme: { installed: false, path: '', entries: [] },
+        panel: {},
+        logVisible: false,
+        logRunning: false,
+        logText: '',
+      },
+      certForm: {
+        domain: '',
+        ip: '',
+        ipv6: '',
+        httpPort: 80,
+        applyToPanel: true,
+        restartPanel: true,
+      },
+      acmeCronForm: {
+        enabled: false,
+        hour: 3,
+        minute: 12,
+      },
+      sshForm: {
+        port: null,
+        busy: false,
+      },
       lang: LanguageManager.getLanguage(),
       remarkModels: { i: 'Inbound', e: 'Email', o: 'Other' },
       remarkSeparators: [' ', '-', '_', '@', ':', '~', '|', ',', '.', '/'],
@@ -156,10 +209,264 @@
         if (window.location.protocol !== "https:") alerts.push('{{ i18n "secAlertSsl" }}');
         return alerts;
       },
+      certCols() {
+        return [
+          { title: 'Домен', scopedSlots: { customRender: 'certDomain' } },
+          { title: 'Источник', scopedSlots: { customRender: 'certSource' }, width: 160 },
+          { title: 'Истекает', scopedSlots: { customRender: 'certExpiry' }, width: 120 },
+          { title: '', scopedSlots: { customRender: 'certActions' }, width: 220 },
+        ];
+      },
+      acmeCols() {
+        return [
+          { title: 'Домен', dataIndex: 'domain', key: 'domain' },
+          { title: 'CA', dataIndex: 'ca', key: 'ca', width: 140 },
+          { title: 'Обновление', dataIndex: 'renew', key: 'renew', width: 180 },
+        ];
+      },
     },
     methods: {
       loading(spinning = true) {
         this.loadingStates.spinning = spinning;
+      },
+      formatCertDate(iso) {
+        if (!iso) return '—';
+        try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+      },
+      certSourceLabel(s) {
+        return { acme: 'ACME /root/cert', letsencrypt: 'Certbot', wdtt: 'WDTT DTLS', panel: 'Панель' }[s] || s;
+      },
+      certSourceColor(s) {
+        return { acme: 'purple', letsencrypt: 'cyan', wdtt: 'orange', panel: 'green' }[s] || 'default';
+      },
+      showCertLog(text) {
+        this.certState.logText = text || '';
+        this.certState.logVisible = !!text;
+        this.certState.logRunning = false;
+      },
+      openAcmeLog(title) {
+        this.certState.logText = title + '\n' + '-'.repeat(48) + '\n';
+        this.certState.logVisible = true;
+        this.certState.logRunning = true;
+      },
+      scrollCertLog() {
+        const el = this.$refs.certLogPre;
+        if (el) el.scrollTop = el.scrollHeight;
+      },
+      async waitAcmeJob() {
+        for (;;) {
+          try {
+            const resp = await axios.get('panel/api/certs/acme-log');
+            const data = resp.data;
+            if (data && data.success && data.obj) {
+              this.certState.logText = data.obj.log || '';
+              this.$nextTick(this.scrollCertLog);
+              if (!data.obj.running) {
+                this.certState.logRunning = false;
+                return data.obj;
+              }
+            }
+          } catch (e) { /* poll until done */ }
+          await PromiseUtil.sleep(600);
+        }
+      },
+      async runAcmeAction(title, url, payload, onSuccess) {
+        this.openAcmeLog(title);
+        this.certState.busy = true;
+        const startMsg = await HttpUtil.post(url, payload);
+        if (!startMsg.success) {
+          this.certState.busy = false;
+          this.certState.logRunning = false;
+          this.certState.logText += '\n✗ ' + (startMsg.msg || 'Ошибка запуска') + '\n';
+          return;
+        }
+        const result = await this.waitAcmeJob();
+        this.certState.busy = false;
+        if (result.success) {
+          this.$message.success(result.message || 'Готово');
+          if (onSuccess) await onSuccess(result);
+        } else {
+          this.$message.error(result.error || result.message || 'Ошибка');
+        }
+      },
+      syncCertPanel(obj) {
+        if (!obj) return;
+        if (obj.panel) this.certState.panel = obj.panel;
+        if (obj.certs) this.certState.certs = obj.certs;
+        if (obj.acme) {
+          this.certState.acme = obj.acme;
+          this.acmeCronForm.enabled = !!obj.acme.cronInstalled;
+          this.acmeCronForm.hour = obj.acme.cronHour ?? 3;
+          this.acmeCronForm.minute = obj.acme.cronMinute ?? 12;
+        }
+        if (obj.panel && obj.panel.webCertFile) {
+          this.allSetting.webCertFile = obj.panel.webCertFile;
+          this.allSetting.webKeyFile = obj.panel.webKeyFile;
+          if (obj.panel.webDomain) this.allSetting.webDomain = obj.panel.webDomain;
+        }
+      },
+      async loadCerts() {
+        this.certState.loading = true;
+        const msg = await HttpUtil.get('/panel/api/certs/list').catch(() => null);
+        this.certState.loading = false;
+        if (msg && msg.success && msg.obj) this.syncCertPanel(msg.obj);
+      },
+      async installAcme() {
+        this.certState.busy = true;
+        const msg = await HttpUtil.post('/panel/api/certs/install-acme');
+        this.certState.busy = false;
+        if (msg.success) {
+          this.$message.success(msg.obj && msg.obj.message || 'OK');
+          this.syncCertPanel(msg.obj);
+        } else {
+          this.$message.error(msg.msg || 'Ошибка');
+        }
+      },
+      async saveAcmeCron() {
+        this.certState.busy = true;
+        const msg = await HttpUtil.post('/panel/api/certs/acme-cron', {
+          enabled: this.acmeCronForm.enabled,
+          hour: this.acmeCronForm.hour,
+          minute: this.acmeCronForm.minute,
+        });
+        this.certState.busy = false;
+        if (msg.success) {
+          this.$message.success(msg.obj && msg.obj.message || 'Сохранено');
+          this.syncCertPanel(msg.obj);
+        } else {
+          this.$message.error(msg.msg || 'Ошибка');
+        }
+      },
+      async issueDomainCert() {
+        if (!this.certForm.domain) {
+          this.$message.warning('Укажите домен');
+          return;
+        }
+        await this.runAcmeAction(
+          'Выпуск SSL для ' + this.certForm.domain,
+          '/panel/api/certs/issue',
+          {
+            domain: this.certForm.domain,
+            httpPort: this.certForm.httpPort || 80,
+            applyToPanel: this.certForm.applyToPanel,
+            restartPanel: this.certForm.restartPanel,
+          },
+          async (result) => {
+            this.syncCertPanel(result);
+            await this.getAllSetting();
+          },
+        );
+      },
+      async issueIPCert() {
+        const title = this.certForm.ip
+          ? 'Выпуск SSL для IP ' + this.certForm.ip
+          : 'Выпуск SSL для IP';
+        await this.runAcmeAction(
+          title,
+          '/panel/api/certs/issue-ip',
+          {
+            ip: this.certForm.ip,
+            ipv6: this.certForm.ipv6,
+            httpPort: this.certForm.httpPort || 80,
+            applyToPanel: this.certForm.applyToPanel,
+            restartPanel: this.certForm.restartPanel,
+          },
+          async (result) => {
+            this.syncCertPanel(result);
+            await this.getAllSetting();
+          },
+        );
+      },
+      async applyCert(row, restart) {
+        this.certState.busy = true;
+        const msg = await HttpUtil.post('/panel/api/certs/apply', {
+          certFile: row.certFile,
+          keyFile: row.keyFile,
+          restartPanel: restart,
+        });
+        this.certState.busy = false;
+        if (msg.success) {
+          this.$message.success(msg.obj.message || 'Применено');
+          this.syncCertPanel(msg.obj);
+          this.allSetting.webCertFile = row.certFile;
+          this.allSetting.webKeyFile = row.keyFile;
+          await this.getAllSetting();
+          if (restart) setTimeout(() => window.location.reload(), 3000);
+        } else {
+          this.$message.error(msg.msg || 'Ошибка');
+        }
+      },
+      async renewDtlsCert(row) {
+        this.certState.busy = true;
+        const msg = await HttpUtil.post('/panel/api/certs/renew-dtls', { restart: true });
+        this.certState.busy = false;
+        if (msg.success) {
+          this.$message.success(msg.obj.message || 'DTLS обновлён');
+          this.syncCertPanel(msg.obj);
+        } else {
+          this.$message.error(msg.msg || 'Ошибка');
+        }
+      },
+      async renewCert(row) {
+        const domain = row.domain || (row.domains && row.domains[0]) || '';
+        await this.runAcmeAction(
+          'Обновление сертификата ' + domain,
+          '/panel/api/certs/renew',
+          { domain },
+          async () => { await this.loadCerts(); },
+        );
+      },
+      async revokeCert(row) {
+        const name = row.source === 'acme' ? (row.domain || filepathBase(row)) : row.domain;
+        const ok = await new Promise(resolve => {
+          this.$confirm({
+            title: 'Отозвать сертификат?',
+            content: name,
+            okType: 'danger',
+            class: themeSwitcher.currentTheme,
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!ok) return;
+        this.certState.busy = true;
+        const msg = await HttpUtil.post('/panel/api/certs/revoke', { domain: name });
+        this.certState.busy = false;
+        if (msg.success) {
+          this.$message.success(msg.obj.message || 'Удалено');
+          this.syncCertPanel(msg.obj);
+          await this.getAllSetting();
+        } else {
+          this.$message.error(msg.msg || 'Ошибка');
+        }
+      },
+      async deleteCertbotCert(row) {
+        const name = this.filepathBase(row) || row.domain;
+        const ok = await new Promise(resolve => {
+          this.$confirm({
+            title: 'Удалить сертификат Certbot?',
+            content: name + ' — будут удалены файлы в /etc/letsencrypt',
+            okType: 'danger',
+            class: themeSwitcher.currentTheme,
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!ok) return;
+        this.certState.busy = true;
+        const msg = await HttpUtil.post('/panel/api/certs/delete-certbot', { domain: name });
+        this.certState.busy = false;
+        if (msg.success) {
+          this.$message.success(msg.obj.message || 'Удалено');
+          this.syncCertPanel(msg.obj);
+        } else {
+          this.$message.error(msg.msg || 'Ошибка удаления');
+        }
+      },
+      filepathBase(row) {
+        if (!row.certFile) return '';
+        const p = row.certFile.split('/');
+        return p.length >= 3 ? p[p.length - 2] : row.domain;
       },
       async getAllSetting() {
         const msg = await HttpUtil.post('/panel/setting/all');
@@ -169,6 +476,43 @@
         this.allSetting = new PanelSetting(msg.obj);
         if (!this.allSetting.remarkModel || this.allSetting.remarkModel.length < 2) {
           this.allSetting.remarkModel = '-ieo';
+        }
+        this.sshForm.port = this.allSetting.sshPort;
+      },
+      async changeSSHPort() {
+        const port = Number(this.sshForm.port);
+        if (!port || port < 1 || port > 65535) {
+          this.$message.error('Укажите порт 1–65535');
+          return;
+        }
+        if (port === this.allSetting.sshPort) {
+          this.$message.info('Порт не изменился');
+          return;
+        }
+        const ufwNote = this.allSetting.ufwActive
+          ? ' UFW: новый порт ' + port + '/tcp будет открыт, старый (' + this.allSetting.sshPort + ') закрыт.'
+          : '';
+        const ok = await new Promise(resolve => {
+          this.$confirm({
+            title: 'Сменить SSH порт?',
+            content: this.allSetting.sshPort + ' → ' + port + '.' + ufwNote + ' Подключайтесь по новому порту после применения.',
+            class: themeSwitcher.currentTheme,
+            okText: 'Применить',
+            okType: 'danger',
+            cancelText: '{{ i18n "cancel" }}',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!ok) return;
+        this.sshForm.busy = true;
+        const msg = await HttpUtil.post('/panel/setting/ssh-port', { port });
+        this.sshForm.busy = false;
+        if (msg.success) {
+          this.$message.success((msg.obj && msg.obj.message) || 'SSH порт изменён');
+          await this.getAllSetting();
+        } else {
+          this.$message.error(msg.msg || 'Ошибка смены SSH порта');
         }
       },
       async updateAllSetting() {
@@ -218,6 +562,7 @@
     },
     async mounted() {
       await this.getAllSetting();
+      await this.loadCerts();
       while (true) {
         await PromiseUtil.sleep(500);
         this.saveBtnDisable = this.oldAllSetting.equals(this.allSetting);

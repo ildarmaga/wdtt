@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -9,6 +12,8 @@ import (
 )
 
 const panelIptComment = "WDTT_PANEL"
+const sshUFWComment = "WDTT_SSH"
+const sshConfigPath = "/etc/ssh/sshd_config"
 
 type FirewallPort struct {
 	Protocol string `json:"protocol"`
@@ -33,6 +38,101 @@ func ufwActive() bool {
 	}
 	first := strings.TrimSpace(strings.Split(out, "\n")[0])
 	return strings.EqualFold(first, "Status: active")
+}
+
+func ufwInstalled() bool {
+	_, err := exec.LookPath("ufw")
+	return err == nil
+}
+
+func detectSSHPort() int {
+	port := 22
+	paths := []string{sshConfigPath}
+	if entries, err := os.ReadDir("/etc/ssh/sshd_config.d"); err == nil {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+				continue
+			}
+			names = append(names, e.Name())
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			paths = append(paths, filepath.Join("/etc/ssh/sshd_config.d", name))
+		}
+	}
+	for _, path := range paths {
+		parseSSHPortFile(path, &port)
+	}
+	return port
+}
+
+func parseSSHPortFile(path string, port *int) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.EqualFold(fields[0], "Port") {
+			if p, err := strconv.Atoi(fields[1]); err == nil && p >= 1 && p <= 65535 {
+				*port = p
+			}
+		}
+	}
+}
+
+func enableUFW(cfg *PanelConfig) (map[string]interface{}, error) {
+	if !ufwInstalled() {
+		return nil, fmt.Errorf("ufw не установлен (apt install ufw)")
+	}
+	if ufwActive() {
+		return nil, fmt.Errorf("UFW уже активен")
+	}
+	sshPort := detectSSHPort()
+	rule := fmt.Sprintf("%d/tcp", sshPort)
+	if _, err := runCmd("ufw", "allow", rule, "comment", sshUFWComment); err != nil {
+		return nil, fmt.Errorf("не удалось открыть SSH %s: %w", rule, err)
+	}
+	if cfg != nil && cfg.Port >= 1 && cfg.Port <= 65535 {
+		panelRule := fmt.Sprintf("%d/tcp", cfg.Port)
+		_, _ = runCmd("ufw", "allow", panelRule, "comment", panelIptComment)
+	}
+	if _, err := runCmd("ufw", "--force", "enable"); err != nil {
+		return nil, fmt.Errorf("ufw enable: %w", err)
+	}
+	if cfg != nil && cfg.BlockPing {
+		_ = setUFWBlockPing(true)
+	}
+	ports, _ := listFirewallPorts()
+	if ports == nil {
+		ports = []FirewallPort{}
+	}
+	return map[string]interface{}{
+		"message":    fmt.Sprintf("UFW включён. SSH %d/tcp открыт автоматически.", sshPort),
+		"ssh_port":   sshPort,
+		"ports":      ports,
+		"backend":    firewallBackend(),
+		"ufw_active": ufwActive(),
+	}, nil
+}
+
+func firewallStatusPayload(cfg *PanelConfig) map[string]interface{} {
+	ports, err := listFirewallPorts()
+	if err != nil {
+		ports = []FirewallPort{}
+	}
+	return map[string]interface{}{
+		"ports":         ports,
+		"backend":       firewallBackend(),
+		"ufw_active":    ufwActive(),
+		"ufw_installed": ufwInstalled(),
+		"ssh_port":      detectSSHPort(),
+	}
 }
 
 func listFirewallPorts() ([]FirewallPort, error) {
@@ -163,6 +263,9 @@ func listIptablesPorts() ([]FirewallPort, error) {
 }
 
 func isSensitiveFirewallPort(port int, proto string) bool {
+	if proto == "tcp" && port == detectSSHPort() {
+		return true
+	}
 	switch proto {
 	case "tcp":
 		return port == 22 || port == 4822 || port == 2860 || port == 8443

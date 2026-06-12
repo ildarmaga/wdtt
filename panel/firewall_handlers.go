@@ -23,15 +23,11 @@ func (a *App) handleFirewallPortsList(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-	ports, err := listFirewallPorts()
-	if err != nil {
-		jsonError(w, err.Error(), 500)
-		return
+	payload := firewallStatusPayload(a.cfg)
+	if _, ok := payload["ports"].([]FirewallPort); !ok {
+		payload["ports"] = []FirewallPort{}
 	}
-	if ports == nil {
-		ports = []FirewallPort{}
-	}
-	jsonOK(w, map[string]interface{}{"ports": ports, "backend": firewallBackend(), "ufw_active": ufwActive()})
+	jsonOK(w, payload)
 }
 
 func (a *App) handleFirewallPortOpen(w http.ResponseWriter, r *http.Request) {
@@ -48,11 +44,7 @@ func (a *App) handleFirewallPortOpen(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 400)
 		return
 	}
-	ports, _ := listFirewallPorts()
-	if ports == nil {
-		ports = []FirewallPort{}
-	}
-	jsonOK(w, map[string]interface{}{"ports": ports, "backend": firewallBackend(), "ufw_active": ufwActive()})
+	jsonOK(w, firewallStatusPayload(a.cfg))
 }
 
 func (a *App) handleFirewallPortUpdate(w http.ResponseWriter, r *http.Request) {
@@ -69,11 +61,7 @@ func (a *App) handleFirewallPortUpdate(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 400)
 		return
 	}
-	ports, _ := listFirewallPorts()
-	if ports == nil {
-		ports = []FirewallPort{}
-	}
-	jsonOK(w, map[string]interface{}{"ports": ports, "backend": firewallBackend(), "ufw_active": ufwActive()})
+	jsonOK(w, firewallStatusPayload(a.cfg))
 }
 
 func (a *App) handleFirewallPortClose(w http.ResponseWriter, r *http.Request) {
@@ -90,9 +78,18 @@ func (a *App) handleFirewallPortClose(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 400)
 		return
 	}
-	ports, _ := listFirewallPorts()
-	if ports == nil {
-		ports = []FirewallPort{}
+	jsonOK(w, firewallStatusPayload(a.cfg))
+}
+
+func (a *App) handleFirewallUFWEnable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "POST only", http.StatusMethodNotAllowed)
+		return
 	}
-	jsonOK(w, map[string]interface{}{"ports": ports, "backend": firewallBackend(), "ufw_active": ufwActive()})
+	result, err := enableUFW(a.cfg)
+	if err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	jsonOK(w, result)
 }

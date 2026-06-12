@@ -23,6 +23,7 @@ type panelSettingsReq struct {
 	RemarkModel   string `json:"remarkModel"`
 	WebCertFile   string `json:"webCertFile"`
 	WebKeyFile    string `json:"webKeyFile"`
+	BlockPing     bool   `json:"blockPing"`
 }
 
 type panelUserReq struct {
@@ -65,6 +66,9 @@ func parsePanelSettingsReq(r *http.Request) (panelSettingsReq, error) {
 	}
 	if p := values.Get("pageSize"); p != "" {
 		req.PageSize, _ = strconv.Atoi(p)
+	}
+	if p := values.Get("blockPing"); p != "" {
+		req.BlockPing = p == "true" || p == "1"
 	}
 	return req, nil
 }
@@ -138,7 +142,21 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	a.cfg.WebCertFile = strings.TrimSpace(req.WebCertFile)
 	a.cfg.WebKeyFile = strings.TrimSpace(req.WebKeyFile)
+	a.cfg.BlockPing = req.BlockPing
 	normalizePanelConfig(a.cfg)
+
+	if ufwInstalled() {
+		current := ufwPingBlocked()
+		if req.BlockPing != current {
+			if err := setUFWBlockPing(req.BlockPing); err != nil {
+				jsonError(w, err.Error(), 400)
+				return
+			}
+		}
+	} else if req.BlockPing {
+		jsonError(w, "ufw не установлен — блокировка ping недоступна", 400)
+		return
+	}
 
 	if err := savePanelConfig(a.cfg); err != nil {
 		jsonError(w, err.Error(), 500)
@@ -181,6 +199,28 @@ func (a *App) handleSettingUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, nil)
+}
+
+type panelSSHPortReq struct {
+	Port int `json:"port"`
+}
+
+func (a *App) handleSettingSSHPort(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req panelSSHPortReq
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	result, err := setSSHPort(req.Port)
+	if err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	jsonOK(w, result)
 }
 
 func (a *App) handleSettingRestartPanel(w http.ResponseWriter, r *http.Request) {

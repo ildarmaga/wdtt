@@ -71,5 +71,38 @@
             </template>
         </a-setting-list-item>
     </a-collapse-panel>
+    <a-collapse-panel key="2" header="Брандмауэр (UFW)">
+        <a-alert v-if="!allSetting.ufwInstalled" type="info" show-icon :style="{ marginBottom: '12px' }"
+            message="UFW не установлен" description="Установите ufw для управления ping и портами."></a-alert>
+        <a-setting-list-item paddings="small">
+            <template #title>Блокировать ping (ICMP)</template>
+            <template #description>
+                Меняет правила в <code>/etc/ufw/before.rules</code> — блоки
+                «ok icmp codes for INPUT» и «ok icmp code for FORWARD»: echo-request и другие ICMP → DROP.
+                После сохранения выполняется <code>ufw reload</code>.
+            </template>
+            <template #control>
+                <a-switch v-model="allSetting.blockPing" :disabled="!allSetting.ufwInstalled"></a-switch>
+            </template>
+        </a-setting-list-item>
+    </a-collapse-panel>
+    <a-collapse-panel key="3" header="SSH">
+        <a-setting-list-item paddings="small">
+            <template #title>SSH порт</template>
+            <template #description>
+                Текущий: <strong>[[ allSetting.sshPort ]]/tcp</strong> (из <code>/etc/ssh/sshd_config</code>).
+                При смене: проверка конфига, перезапуск <code>ssh</code>
+                <span v-if="allSetting.ufwActive">, открытие нового порта в UFW</span>.
+            </template>
+            <template #control>
+                <a-input-group compact :style="{ width: '100%', display: 'flex' }">
+                    <a-input-number v-model="sshForm.port" :min="1" :max="65535" placeholder="Новый порт"
+                        :style="{ flex: '1 1 auto', minWidth: '120px' }"></a-input-number>
+                    <a-button type="primary" :loading="sshForm.busy" :disabled="!sshForm.port || sshForm.port === allSetting.sshPort"
+                        @click="changeSSHPort()">Применить</a-button>
+                </a-input-group>
+            </template>
+        </a-setting-list-item>
+    </a-collapse-panel>
 </a-collapse>
 {{end}}

@@ -5,41 +5,58 @@
   <template slot="title">
     Открытые порты
     <a-tag v-if="firewallPortsModal.ufwActive" color="green" style="margin-left:8px">UFW active</a-tag>
-    <a-tag v-else color="orange" style="margin-left:8px">iptables</a-tag>
+    <a-tag v-else-if="firewallPortsModal.ufwInstalled" color="orange" style="margin-left:8px">UFW выключен</a-tag>
+    <a-tag v-else color="default" style="margin-left:8px">iptables</a-tag>
   </template>
 
+  <a-alert v-if="!firewallPortsModal.ufwActive && firewallPortsModal.ufwInstalled" type="warning" show-icon
+    style="margin-bottom:12px">
+    <template slot="message">UFW не активен</template>
+    <template slot="description">
+      Перед включением будет автоматически открыт SSH-порт
+      <strong>[[ firewallPortsModal.sshPort ]]/tcp</strong>
+      (из <code>/etc/ssh/sshd_config</code>).
+      <div style="margin-top:10px">
+        <a-button type="primary" icon="safety" :loading="firewallPortsModal.enabling"
+          @click="firewallPortsModal.enableUFW()">
+          Включить UFW
+        </a-button>
+      </div>
+    </template>
+  </a-alert>
+
   <div class="fw-form-box">
-    <a-row :gutter="[8, 8]" type="flex" align="middle">
-      <a-col :xs="12" :sm="6" :md="5">
+    <a-row :gutter="[8, 8]">
+      <a-col :xs="12" :sm="8" :md="6">
         <a-input-number v-model="firewallPortsModal.form.port" :min="1" :max="65535" placeholder="Порт"
           :style="{ width: '100%' }"></a-input-number>
       </a-col>
-      <a-col :xs="12" :sm="5" :md="4">
+      <a-col :xs="12" :sm="6" :md="4">
         <a-select v-model="firewallPortsModal.form.protocol" :style="{ width: '100%' }"
           :dropdown-class-name="themeSwitcher.currentTheme">
           <a-select-option value="tcp">TCP</a-select-option>
           <a-select-option value="udp">UDP</a-select-option>
         </a-select>
       </a-col>
-      <a-col :xs="24" :sm="13" :md="8">
+      <a-col :xs="24" :sm="10" :md="14">
         <a-input v-model.trim="firewallPortsModal.form.comment" placeholder="Комментарий (необязательно)"
-          allow-clear></a-input>
-      </a-col>
-      <a-col :xs="24" :sm="24" :md="7">
-        <a-space wrap>
-          <a-button v-if="!firewallPortsModal.editing" type="primary" icon="plus"
-            @click="firewallPortsModal.submitForm()" :loading="firewallPortsModal.saving">
-            Открыть порт
-          </a-button>
-          <template v-else>
-            <a-button type="primary" icon="save" @click="firewallPortsModal.submitForm()"
-              :loading="firewallPortsModal.saving">Сохранить</a-button>
-            <a-button @click="firewallPortsModal.cancelEdit()">Отмена</a-button>
-          </template>
-          <a-button icon="sync" @click="firewallPortsModal.load()" :loading="firewallPortsModal.loading"></a-button>
-        </a-space>
+          allow-clear :style="{ width: '100%' }"></a-input>
       </a-col>
     </a-row>
+    <div class="fw-form-actions">
+      <a-space wrap :size="8">
+        <a-button v-if="!firewallPortsModal.editing" type="primary" icon="plus"
+          @click="firewallPortsModal.submitForm()" :loading="firewallPortsModal.saving">
+          Открыть порт
+        </a-button>
+        <template v-else>
+          <a-button type="primary" icon="save" @click="firewallPortsModal.submitForm()"
+            :loading="firewallPortsModal.saving">Сохранить</a-button>
+          <a-button @click="firewallPortsModal.cancelEdit()">Отмена</a-button>
+        </template>
+        <a-button icon="sync" @click="firewallPortsModal.load()" :loading="firewallPortsModal.loading"></a-button>
+      </a-space>
+    </div>
     <div v-if="firewallPortsModal.editing" class="fw-edit-hint">
       Редактирование: [[ firewallPortsModal.editLabel ]]
     </div>
@@ -83,6 +100,26 @@
     padding: 12px;
     border-radius: 8px;
     background: rgba(0, 0, 0, 0.03);
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  .firewall-ports-modal .fw-form-box .ant-row {
+    flex-wrap: wrap;
+  }
+  .firewall-ports-modal .fw-form-actions {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .firewall-ports-modal .fw-form-box .ant-input,
+  .firewall-ports-modal .fw-form-box .ant-input-number,
+  .firewall-ports-modal .fw-form-box .ant-select {
+    max-width: 100%;
+  }
+  .firewall-ports-modal .ant-modal-body {
+    overflow-x: hidden;
   }
   body.dark .firewall-ports-modal .fw-form-box {
     background: var(--dark-color-surface-200, #222d42);
@@ -153,10 +190,13 @@
     visible: false,
     loading: false,
     saving: false,
+    enabling: false,
     editing: false,
     editOld: null,
     editLabel: '',
     ufwActive: true,
+    ufwInstalled: false,
+    sshPort: 22,
     ports: [],
     form: { port: null, protocol: 'tcp', comment: '' },
     cols: [
@@ -183,6 +223,8 @@
       if (!obj) return;
       this.ports = (obj.ports || []).map(p => Object.assign({ closing: false }, p));
       this.ufwActive = !!obj.ufw_active;
+      this.ufwInstalled = !!obj.ufw_installed;
+      if (obj.ssh_port) this.sshPort = Number(obj.ssh_port) || 22;
     },
     resetForm() {
       this.form = { port: null, protocol: 'tcp', comment: '' };
@@ -251,6 +293,40 @@
         this.applyList(res.obj);
         this.resetForm();
         this.toast(wasEdit ? 'Правило обновлено' : 'Порт открыт', true);
+      }
+    },
+    async enableUFW() {
+      const self = this;
+      const confirmFn = (this._vue && this._vue.$confirm) ? this._vue.$confirm.bind(this._vue) : null;
+      const msg = 'Включить UFW? SSH ' + this.sshPort + '/tcp будет открыт автоматически.';
+      if (confirmFn) {
+        try {
+          await new Promise((resolve, reject) => {
+            confirmFn({
+              title: 'Включить UFW',
+              content: msg,
+              class: themeSwitcher.currentTheme,
+              okText: 'Включить',
+              cancelText: '{{ i18n "cancel" }}',
+              onOk: () => resolve(),
+              onCancel: () => reject(new Error('cancel')),
+            });
+          });
+        } catch (e) {
+          return;
+        }
+      } else if (!window.confirm(msg)) {
+        return;
+      }
+      this.enabling = true;
+      const res = await panelApiJson('panel/api/firewall/ufw-enable', { method: 'POST' }).catch(err => {
+        self.toast(err.message || 'не удалось включить UFW', false);
+        return null;
+      });
+      this.enabling = false;
+      if (res && res.obj) {
+        self.applyList(res.obj);
+        self.toast(res.obj.message || 'UFW включён', true);
       }
     },
     async closePort(row) {
