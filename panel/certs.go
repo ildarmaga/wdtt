@@ -520,18 +520,24 @@ func renewAcmeCert(domain string) (map[string]interface{}, error) {
 	})
 }
 
+func acmeCertInstallDir(domain string) string {
+	domain = strings.TrimSpace(domain)
+	if domain == "ip" || isValidIP(domain) {
+		return filepath.Join(acmeCertRoot, "ip")
+	}
+	return filepath.Join(acmeCertRoot, domain)
+}
+
 func revokeAcmeCert(domain string, cfg *PanelConfig) (map[string]interface{}, error) {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
 		return nil, fmt.Errorf("укажите домен")
 	}
-	if !acmeInstalled() {
-		return nil, fmt.Errorf("acme.sh не установлен")
-	}
 
+	certDir := acmeCertInstallDir(domain)
 	acmeIDs := domain
-	if domain == "ip" {
-		listOut, _ := runAcmeSh( "--list")
+	if domain == "ip" && acmeInstalled() {
+		listOut, _ := runAcmeSh("--list")
 		var ips []string
 		for _, line := range strings.Split(listOut, "\n")[1:] {
 			f := strings.Fields(line)
@@ -543,24 +549,37 @@ func revokeAcmeCert(domain string, cfg *PanelConfig) (map[string]interface{}, er
 			}
 		}
 		acmeIDs = strings.Join(ips, " ")
+	} else if isValidIP(domain) {
+		acmeIDs = domain
 	}
 
-	for _, id := range strings.Fields(acmeIDs) {
-		_, _ = runAcmeSh( "--revoke", "-d", id)
-		_, _ = runAcmeSh( "--remove", "-d", id)
-		home, _ := os.UserHomeDir()
-		if home == "" {
-			home = "/root"
+	if acmeInstalled() {
+		for _, id := range strings.Fields(acmeIDs) {
+			if id == "" {
+				continue
+			}
+			_, _ = runAcmeSh("--revoke", "-d", id)
+			_, _ = runAcmeSh("--remove", "-d", id)
+			_ = os.RemoveAll(filepath.Join("/root", ".acme.sh", id))
+			_ = os.RemoveAll(filepath.Join("/root", ".acme.sh", id+"_ecc"))
 		}
-		_ = os.RemoveAll(filepath.Join(home, ".acme.sh", id))
-		_ = os.RemoveAll(filepath.Join(home, ".acme.sh", id+"_ecc"))
 	}
-	_ = os.RemoveAll(filepath.Join(acmeCertRoot, domain))
 
-	if cfg != nil && strings.HasPrefix(strings.TrimSpace(cfg.WebCertFile), filepath.Join(acmeCertRoot, domain)) {
-		cfg.WebCertFile = ""
-		cfg.WebKeyFile = ""
-		_ = savePanelConfig(cfg)
+	_ = os.RemoveAll(certDir)
+	if isValidIP(domain) {
+		_ = os.RemoveAll(filepath.Join(acmeCertRoot, domain))
+	}
+
+	if cfg != nil {
+		certFile := strings.TrimSpace(cfg.WebCertFile)
+		keyFile := strings.TrimSpace(cfg.WebKeyFile)
+		if samePath(certFile, filepath.Join(certDir, "fullchain.pem")) ||
+			samePath(keyFile, filepath.Join(certDir, "privkey.pem")) ||
+			strings.HasPrefix(certFile, certDir+string(os.PathSeparator)) {
+			cfg.WebCertFile = ""
+			cfg.WebKeyFile = ""
+			_ = savePanelConfig(cfg)
+		}
 	}
 
 	certs, _ := listCertificates(cfg)
