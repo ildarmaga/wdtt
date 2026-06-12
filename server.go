@@ -2230,7 +2230,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		return
 	}
 
-	// Учёт трафика: saveDB → SQLite + passwords.json (syncTrafficFromWGPeers / statsLoop).
+	// Учёт трафика: saveDB → SQLite (panel.db).
 	// Здесь только сброс локальных счётчиков и проверка лимита/деактивации.
 	var sessUpBytes, sessDownBytes int64
 	flushTraffic := func() bool {
