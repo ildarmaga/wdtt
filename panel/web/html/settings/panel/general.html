@@ -78,8 +78,10 @@
             <template #title>Блокировать ping (ICMP)</template>
             <template #description>
                 Меняет правила в <code>/etc/ufw/before.rules</code> — блоки
-                «ok icmp codes for INPUT» и «ok icmp code for FORWARD»: echo-request и другие ICMP → DROP.
-                После сохранения выполняется <code>ufw reload</code>.
+                «ok icmp codes for INPUT» и «ok icmp code for FORWARD»
+                (<code>ufw-before-input</code> / <code>ufw-before-forward</code>, echo-request и др. ICMP).
+                Нажмите «Сохранить» вверху страницы — выполнится <code>ufw reload</code>.
+                Смена SSH-порта эти правила не трогает.
             </template>
             <template #control>
                 <a-switch v-model="allSetting.blockPing" :disabled="!allSetting.ufwInstalled"></a-switch>
