@@ -1,0 +1,317 @@
+{{define "modals/firewallPortsModal"}}
+<a-modal id="firewall-ports-modal" v-model="firewallPortsModal.visible"
+  :dialog-style="{ top: '24px' }" :closable="true" :mask-closable="false"
+  :class="themeSwitcher.currentTheme + ' firewall-ports-modal'" width="860px" :footer="null">
+  <template slot="title">
+    Открытые порты
+    <a-tag v-if="firewallPortsModal.ufwActive" color="green" style="margin-left:8px">UFW active</a-tag>
+    <a-tag v-else color="orange" style="margin-left:8px">iptables</a-tag>
+  </template>
+
+  <div class="fw-form-box">
+    <a-row :gutter="[8, 8]" type="flex" align="middle">
+      <a-col :xs="12" :sm="6" :md="5">
+        <a-input-number v-model="firewallPortsModal.form.port" :min="1" :max="65535" placeholder="Порт"
+          :style="{ width: '100%' }"></a-input-number>
+      </a-col>
+      <a-col :xs="12" :sm="5" :md="4">
+        <a-select v-model="firewallPortsModal.form.protocol" :style="{ width: '100%' }"
+          :dropdown-class-name="themeSwitcher.currentTheme">
+          <a-select-option value="tcp">TCP</a-select-option>
+          <a-select-option value="udp">UDP</a-select-option>
+        </a-select>
+      </a-col>
+      <a-col :xs="24" :sm="13" :md="8">
+        <a-input v-model.trim="firewallPortsModal.form.comment" placeholder="Комментарий (необязательно)"
+          allow-clear></a-input>
+      </a-col>
+      <a-col :xs="24" :sm="24" :md="7">
+        <a-space wrap>
+          <a-button v-if="!firewallPortsModal.editing" type="primary" icon="plus"
+            @click="firewallPortsModal.submitForm()" :loading="firewallPortsModal.saving">
+            Открыть порт
+          </a-button>
+          <template v-else>
+            <a-button type="primary" icon="save" @click="firewallPortsModal.submitForm()"
+              :loading="firewallPortsModal.saving">Сохранить</a-button>
+            <a-button @click="firewallPortsModal.cancelEdit()">Отмена</a-button>
+          </template>
+          <a-button icon="sync" @click="firewallPortsModal.load()" :loading="firewallPortsModal.loading"></a-button>
+        </a-space>
+      </a-col>
+    </a-row>
+    <div v-if="firewallPortsModal.editing" class="fw-edit-hint">
+      Редактирование: [[ firewallPortsModal.editLabel ]]
+    </div>
+  </div>
+
+  <div class="fw-table-wrap">
+    <a-table :columns="firewallPortsModal.cols" :data-source="firewallPortsModal.ports" :pagination="false"
+      :row-key="firewallPortsModal.rowKey" bordered size="middle" :loading="firewallPortsModal.loading"
+      :locale='{ emptyText: "Нет открытых портов" }'>
+      <template slot="fwProto" slot-scope="_, row">
+        <a-tag :color="row.protocol === 'tcp' ? 'blue' : 'green'" style="margin:0">[[ row.protocol.toUpperCase() ]]</a-tag>
+      </template>
+      <template slot="fwPort" slot-scope="_, row">
+        <a-tag color="purple" style="margin:0">[[ row.port ]]</a-tag>
+      </template>
+      <template slot="fwActionCol" slot-scope="_, row">
+        <a-tag color="green" style="margin:0">[[ row.action || 'ALLOW' ]]</a-tag>
+      </template>
+      <template slot="fwScope" slot-scope="_, row">
+        <span class="fw-muted">Anywhere</span>
+        <span v-if="row.ipv6" class="fw-muted fw-v6">(+ v6)</span>
+      </template>
+      <template slot="fwComment" slot-scope="_, row">[[ row.comment || '—' ]]</template>
+      <template slot="fwAction" slot-scope="_, row">
+        <a-space :size="4">
+          <a-button size="small" icon="edit" @click="firewallPortsModal.startEdit(row)"></a-button>
+          <a-button type="danger" size="small" icon="delete" @click="firewallPortsModal.closePort(row)"
+            :loading="row.closing"></a-button>
+        </a-space>
+      </template>
+    </a-table>
+  </div>
+
+  <div class="fw-modal-footer">
+    <a-button @click="firewallPortsModal.visible = false">Закрыть</a-button>
+  </div>
+</a-modal>
+<style>
+  .firewall-ports-modal .fw-form-box {
+    margin-bottom: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.03);
+  }
+  body.dark .firewall-ports-modal .fw-form-box {
+    background: var(--dark-color-surface-200, #222d42);
+    border: 1px solid var(--dark-color-stroke, #2c3950);
+  }
+  .firewall-ports-modal .fw-edit-hint {
+    margin-top: 8px;
+    font-size: 12px;
+    opacity: 0.75;
+  }
+  .firewall-ports-modal .fw-table-wrap {
+    max-height: 420px;
+    overflow: auto;
+    border-radius: 8px;
+  }
+  .firewall-ports-modal .fw-table-wrap .ant-table-wrapper,
+  .firewall-ports-modal .fw-table-wrap .ant-spin-nested-loading,
+  .firewall-ports-modal .fw-table-wrap .ant-spin-container,
+  .firewall-ports-modal .fw-table-wrap .ant-table,
+  .firewall-ports-modal .fw-table-wrap .ant-table-content,
+  .firewall-ports-modal .fw-table-wrap .ant-table-body,
+  .firewall-ports-modal .fw-table-wrap .ant-table-placeholder {
+    background: transparent !important;
+  }
+  body.dark .firewall-ports-modal .fw-table-wrap .ant-table-thead > tr > th {
+    background: var(--dark-color-surface-200, #222d42) !important;
+    border-color: var(--dark-color-stroke, #2c3950) !important;
+    color: var(--dark-color-text-primary, rgba(255,255,255,.75)) !important;
+  }
+  body.dark .firewall-ports-modal .fw-table-wrap .ant-table-tbody > tr > td {
+    background: var(--dark-color-surface-100, #151f31) !important;
+    border-color: var(--dark-color-stroke, #2c3950) !important;
+    color: var(--dark-color-text-primary, rgba(255,255,255,.75)) !important;
+  }
+  body.dark .firewall-ports-modal .fw-table-wrap .ant-table-tbody > tr:hover > td {
+    background: var(--dark-color-table-hover, rgba(44,57,80,.2)) !important;
+  }
+  body.dark .firewall-ports-modal .fw-table-wrap .ant-table-placeholder {
+    background: var(--dark-color-surface-100, #151f31) !important;
+    color: rgba(255,255,255,.45) !important;
+  }
+  body.dark .firewall-ports-modal .ant-modal-content,
+  body.dark .firewall-ports-modal .ant-modal-header {
+    background: var(--dark-color-surface-100, #151f31) !important;
+    border-color: var(--dark-color-stroke, #2c3950) !important;
+  }
+  body.dark .firewall-ports-modal .ant-modal-body {
+    background: var(--dark-color-surface-100, #151f31) !important;
+  }
+  body.dark .firewall-ports-modal .ant-input,
+  body.dark .firewall-ports-modal .ant-input-number,
+  body.dark .firewall-ports-modal .ant-input-number-input,
+  body.dark .firewall-ports-modal .ant-select-selection {
+    background: var(--dark-color-surface-200, #222d42) !important;
+    border-color: var(--dark-color-stroke, #2c3950) !important;
+    color: var(--dark-color-text-primary, rgba(255,255,255,.75)) !important;
+  }
+  .firewall-ports-modal .fw-muted { color: rgba(0,0,0,.45); }
+  body.dark .firewall-ports-modal .fw-muted { color: rgba(255,255,255,.45); }
+  .firewall-ports-modal .fw-v6 { font-size: 11px; margin-left: 4px; }
+  .firewall-ports-modal .fw-modal-footer {
+    margin-top: 16px;
+    text-align: right;
+  }
+</style>
+<script>
+  const firewallPortsModal = {
+    visible: false,
+    loading: false,
+    saving: false,
+    editing: false,
+    editOld: null,
+    editLabel: '',
+    ufwActive: true,
+    ports: [],
+    form: { port: null, protocol: 'tcp', comment: '' },
+    cols: [
+      { title: 'Порт', scopedSlots: { customRender: 'fwPort' }, width: 72, align: 'center' },
+      { title: 'Протокол', scopedSlots: { customRender: 'fwProto' }, width: 88, align: 'center' },
+      { title: 'Действие', scopedSlots: { customRender: 'fwActionCol' }, width: 88, align: 'center' },
+      { title: 'Откуда', scopedSlots: { customRender: 'fwScope' }, width: 108, align: 'center' },
+      { title: 'Комментарий', scopedSlots: { customRender: 'fwComment' }, ellipsis: true },
+      { title: '', scopedSlots: { customRender: 'fwAction' }, width: 88, align: 'center' },
+    ],
+    rowKey(row) {
+      return (row.protocol || '') + '/' + row.port;
+    },
+    toast(msg, ok) {
+      if (typeof firewallPortsModal._toast === 'function') {
+        firewallPortsModal._toast(msg, ok);
+      } else if (ok) {
+        Vue.prototype.$message.success(msg);
+      } else {
+        Vue.prototype.$message.error(msg);
+      }
+    },
+    applyList(obj) {
+      if (!obj) return;
+      this.ports = (obj.ports || []).map(p => Object.assign({ closing: false }, p));
+      this.ufwActive = !!obj.ufw_active;
+    },
+    resetForm() {
+      this.form = { port: null, protocol: 'tcp', comment: '' };
+      this.editing = false;
+      this.editOld = null;
+      this.editLabel = '';
+    },
+    startEdit(row) {
+      this.editing = true;
+      this.editOld = { port: row.port, protocol: row.protocol };
+      this.editLabel = row.port + '/' + row.protocol.toUpperCase();
+      this.form = {
+        port: row.port,
+        protocol: row.protocol || 'tcp',
+        comment: row.comment && row.comment !== '—' ? row.comment : '',
+      };
+    },
+    cancelEdit() {
+      this.resetForm();
+    },
+    async load() {
+      this.loading = true;
+      const res = await panelApiJson('panel/api/firewall/ports', { method: 'GET' }).catch(err => {
+        this.toast(err.message || 'ошибка загрузки', false);
+        return null;
+      });
+      this.loading = false;
+      if (res && res.obj) this.applyList(res.obj);
+    },
+    async submitForm() {
+      const port = Number(this.form.port);
+      if (!port || port < 1 || port > 65535) {
+        this.toast('Укажите порт 1–65535', false);
+        return;
+      }
+      const protocol = this.form.protocol || 'tcp';
+      const comment = (this.form.comment || '').trim();
+      this.saving = true;
+      const wasEdit = this.editing;
+      let res = null;
+      if (this.editing && this.editOld) {
+        res = await panelApiJson('panel/api/firewall/update', {
+          method: 'POST',
+          body: JSON.stringify({
+            old_port: this.editOld.port,
+            old_protocol: this.editOld.protocol,
+            port,
+            protocol,
+            comment,
+          }),
+        }).catch(err => {
+          this.toast(err.message || 'не удалось сохранить', false);
+          return null;
+        });
+      } else {
+        res = await panelApiJson('panel/api/firewall/open', {
+          method: 'POST',
+          body: JSON.stringify({ port, protocol, comment }),
+        }).catch(err => {
+          this.toast(err.message || 'не удалось открыть', false);
+          return null;
+        });
+      }
+      this.saving = false;
+      if (res && res.obj) {
+        this.applyList(res.obj);
+        this.resetForm();
+        this.toast(wasEdit ? 'Правило обновлено' : 'Порт открыт', true);
+      }
+    },
+    async closePort(row) {
+      const warn = row.managed
+        ? 'Порт ' + row.port + '/' + row.protocol.toUpperCase() + ' критичен (SSH, панель, WDTT). Закрытие может отрезать доступ.'
+        : 'Закрыть UFW правило ' + row.port + '/' + row.protocol.toUpperCase() + '?';
+      const self = this;
+      const confirmFn = (this._vue && this._vue.$confirm) ? this._vue.$confirm.bind(this._vue) : null;
+      if (confirmFn) {
+        try {
+          await new Promise((resolve, reject) => {
+            confirmFn({
+              title: 'Закрыть порт',
+              content: warn,
+              class: themeSwitcher.currentTheme,
+              okText: 'Закрыть',
+              okType: 'danger',
+              cancelText: '{{ i18n "cancel" }}',
+              onOk: () => resolve(),
+              onCancel: () => reject(new Error('cancel')),
+            });
+          });
+        } catch (e) {
+          return;
+        }
+      } else if (!window.confirm(warn)) {
+        return;
+      }
+      row.closing = true;
+      const res = await panelApiJson('panel/api/firewall/close', {
+        method: 'POST',
+        body: JSON.stringify({ port: row.port, protocol: row.protocol }),
+      }).catch(err => {
+        self.toast(err.message || 'не удалось закрыть', false);
+        return null;
+      });
+      row.closing = false;
+      if (res && res.obj) {
+        self.applyList(res.obj);
+        if (self.editing && self.editOld &&
+            self.editOld.port === row.port && self.editOld.protocol === row.protocol) {
+          self.resetForm();
+        }
+        self.toast('Порт закрыт', true);
+      }
+    },
+    async show(vueApp) {
+      this._vue = vueApp || null;
+      if (vueApp && vueApp.toast) {
+        this._toast = vueApp.toast.bind(vueApp);
+      }
+      this.resetForm();
+      this.visible = true;
+      await this.load();
+    },
+  };
+
+  new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#firewall-ports-modal',
+    data: { firewallPortsModal, themeSwitcher },
+  });
+</script>
+{{end}}

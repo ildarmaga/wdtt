@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 
 	"golang.zx2c4.com/wireguard/device"
 )
@@ -17,47 +15,7 @@ import (
 var (
 	adminListenAddr  = "127.0.0.1:2861"
 	maxDTLSPerDevice int32 = 0
-
-	dtlsPerDeviceMutex  sync.Mutex
-	dtlsPerDeviceCounts = map[string]*int32{}
 )
-
-func dtlsSlotAcquire(deviceID string) bool {
-	if deviceID == "" || deviceID == "unknown" {
-		return true
-	}
-	dtlsPerDeviceMutex.Lock()
-	defer dtlsPerDeviceMutex.Unlock()
-	counter, ok := dtlsPerDeviceCounts[deviceID]
-	if !ok {
-		counter = new(int32)
-		dtlsPerDeviceCounts[deviceID] = counter
-	}
-	if atomic.LoadInt32(counter) >= maxDTLSPerDevice {
-		return false
-	}
-	atomic.AddInt32(counter, 1)
-	return true
-}
-
-func dtlsSlotRelease(deviceID string) {
-	if deviceID == "" || deviceID == "unknown" {
-		return
-	}
-	dtlsPerDeviceMutex.Lock()
-	counter, ok := dtlsPerDeviceCounts[deviceID]
-	dtlsPerDeviceMutex.Unlock()
-	if !ok {
-		return
-	}
-	if atomic.AddInt32(counter, -1) <= 0 {
-		dtlsPerDeviceMutex.Lock()
-		if atomic.LoadInt32(counter) <= 0 {
-			delete(dtlsPerDeviceCounts, deviceID)
-		}
-		dtlsPerDeviceMutex.Unlock()
-	}
-}
 
 func reloadDBFromDisk(wgDev *device.Device) error {
 	if trafficDirty.Load() {

@@ -220,6 +220,9 @@ func fillWdttStatus(s *serverStatus) {
 	}
 	if stats != nil {
 		s.Wdtt.ActiveUsers = stats.ActiveUsers
+		if n := len(stats.Online); n > 0 || stats.ActiveUsers > 0 {
+			s.Wdtt.ActiveUsers = n
+		}
 		s.Wdtt.Sessions = stats.Sessions
 	}
 	if db != nil {

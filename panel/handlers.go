@@ -102,6 +102,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		}
 		users = append(users, u)
 	}
+	sortUsersList(users)
 	devices := []map[string]interface{}{}
 	for id, dev := range db.Devices {
 		devices = append(devices, map[string]interface{}{

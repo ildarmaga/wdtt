@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -121,7 +122,47 @@ func loadPasswords() (*PasswordsDB, error) {
 	for _, entry := range db.Passwords {
 		normalizeEntryDevices(entry)
 	}
+	dedupePasswordDeviceBindings(&db)
 	return &db, nil
+}
+
+func dedupePasswordDeviceBindings(db *PasswordsDB) {
+	type pick struct {
+		pass   string
+		isMain bool
+	}
+	chosen := map[string]pick{}
+	for pass, entry := range db.Passwords {
+		if entry == nil {
+			continue
+		}
+		normalizeEntryDevices(entry)
+		isMain := pass == db.MainPassword
+		for _, did := range allEntryDeviceIDsPanel(entry) {
+			if cur, ok := chosen[did]; !ok {
+				chosen[did] = pick{pass: pass, isMain: isMain}
+			} else if cur.isMain && !isMain {
+				chosen[did] = pick{pass: pass, isMain: isMain}
+			}
+		}
+	}
+	for pass, entry := range db.Passwords {
+		if entry == nil {
+			continue
+		}
+		keep := make([]string, 0, len(entry.DeviceIDs))
+		for _, did := range allEntryDeviceIDsPanel(entry) {
+			if c, ok := chosen[did]; ok && c.pass == pass {
+				keep = append(keep, did)
+			}
+		}
+		entry.DeviceIDs = keep
+		if len(keep) > 0 {
+			entry.DeviceID = keep[0]
+		} else {
+			entry.DeviceID = ""
+		}
+	}
 }
 
 func savePasswords(db *PasswordsDB) error {
@@ -145,22 +186,30 @@ func userOnlineFromStats(pass, deviceID string, isMain bool, stats *ServerStats)
 	for _, o := range stats.Online {
 		onlineDevice, _ := o["device_id"].(string)
 		onlineUser, _ := o["user"].(string)
-		if onlineDevice != "" {
-			if deviceID != "" {
-				for _, did := range deviceIDs {
-					if did != "" && did == onlineDevice {
-						return true
-					}
+		onlinePass, _ := o["password"].(string)
+
+		if onlinePass != "" && onlinePass == pass {
+			return true
+		}
+		if onlineDevice != "" && deviceID != "" {
+			for _, did := range deviceIDs {
+				if did != "" && did == onlineDevice {
+					return true
 				}
-			}
-			if isMain && onlineUser == "main" && deviceID == "" {
-				return true
 			}
 		}
 		if isMain && onlineUser == "main" {
-			return true
+			if deviceID == "" {
+				return true
+			}
+			for _, did := range deviceIDs {
+				if did != "" && did == onlineDevice {
+					return true
+				}
+			}
+			continue
 		}
-		if !isMain && onlineUser == maskPassword(pass) {
+		if !isMain && onlinePass == "" && onlineUser == maskPassword(pass) {
 			return true
 		}
 	}
@@ -234,6 +283,22 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 		"client_port":      clientPort,
 		"link":             buildWdttLink(serverIP, db.MainPassword, "", &PasswordEntry{Comment: "Владелец"}, inbound),
 	}
+}
+
+func sortUsersList(users []map[string]interface{}) {
+	sort.Slice(users, func(i, j int) bool {
+		mi, _ := users[i]["is_main"].(bool)
+		mj, _ := users[j]["is_main"].(bool)
+		if mi != mj {
+			return mi
+		}
+		ci := strings.ToLower(strings.TrimSpace(fmt.Sprint(users[i]["comment"])))
+		cj := strings.ToLower(strings.TrimSpace(fmt.Sprint(users[j]["comment"])))
+		if ci != cj {
+			return ci < cj
+		}
+		return fmt.Sprint(users[i]["password"]) < fmt.Sprint(users[j]["password"])
+	})
 }
 
 func loadServerStats() *ServerStats {

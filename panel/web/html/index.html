@@ -26,21 +26,38 @@
     height: auto !important;
     min-height: 0;
   }
+  .index-page .action-card > .ant-card-body {
+    display: none;
+    padding: 0;
+  }
   .wdtt-card .ant-card-head-title {
     white-space: normal;
     overflow: visible;
     padding: 8px 0 4px;
   }
-  .wdtt-card .wdtt-metrics {
+  .wdtt-card .wdtt-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+  }
+  .wdtt-card .wdtt-brand {
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-right: 2px;
+  }
+  .wdtt-card .wdtt-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    line-height: 1.4;
+    align-items: center;
+    min-width: 0;
+  }
+  .wdtt-card .wdtt-tags .ant-tag {
     margin: 0;
-  }
-  .wdtt-card .wdtt-metrics .ant-col {
-    text-align: center;
-  }
-  .wdtt-card .wdtt-metrics .metric-label {
-    font-size: 12px;
-    opacity: 0.75;
-    margin-bottom: 4px;
+    flex-shrink: 0;
   }
 </style>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' index-page'">
@@ -56,11 +73,10 @@
           </a-alert>
         </transition>
         <transition name="list" appear>
-          <template>
-            <a-row v-if="!loadingStates.fetched">
+            <a-row v-if="!loadingStates.fetched" key="loading">
               <div :style="{ minHeight: 'calc(100vh - 120px)' }"></div>
             </a-row>
-            <a-row class="dashboard-grid" :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-else>
+            <a-row class="dashboard-grid" :gutter="isMobile ? 8 : 16" v-else key="grid">
               <a-col :span="24">
                 <a-card hoverable>
                   <a-row :gutter="[0, isMobile ? 16 : 0]">
@@ -119,7 +135,7 @@
                   </a-row>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card hoverable>
                   <template #title>
                     <a-space direction="horizontal">
@@ -178,7 +194,7 @@
                   </template>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='{{ i18n "menu.link" }}' hoverable>
                   <template #actions>
                     <a-space direction="horizontal" @click="openLogs()" class="jc-center">
@@ -196,42 +212,22 @@
                   </template>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
-                <a-card hoverable class="wdtt-card">
+              <a-col :xs="24" :sm="24" :lg="12">
+                <a-card hoverable class="wdtt-card action-card">
                   <template #title>
-                    <a-space direction="horizontal">
-                      <span>WDTT</span>
-                      <a-tag v-if="isMobile" :color="status.wdtt.color">[[ status.wdtt.stateMsg ]]</a-tag>
-                    </a-space>
+                    <div class="wdtt-head">
+                      <span class="wdtt-brand">WDTT</span>
+                      <div class="wdtt-tags">
+                        <a-tag color="blue">Онлайн: [[ status.wdtt.activeUsers ]]</a-tag>
+                        <a-tag color="cyan">Сессий: [[ status.wdtt.sessions ]]</a-tag>
+                        <a-tag color="purple">[[ status.wdtt.ifaceShort ]]</a-tag>
+                      </div>
+                    </div>
                   </template>
                   <template #extra>
                     <a-badge :status="status.wdtt.color === 'green' ? 'processing' : 'default'"
                       :text="status.wdtt.stateMsg" :color="status.wdtt.color" />
                   </template>
-                  <a-row class="wdtt-metrics" :gutter="[8, 12]">
-                    <a-col :span="8">
-                      <div class="metric-label">Онлайн</div>
-                      <a-tag color="blue">[[ status.wdtt.activeUsers ]]</a-tag>
-                    </a-col>
-                    <a-col :span="8">
-                      <div class="metric-label">Сессий</div>
-                      <a-tag color="cyan">[[ status.wdtt.sessions ]]</a-tag>
-                    </a-col>
-                    <a-col :span="8">
-                      <div class="metric-label">Интерфейс</div>
-                      <a-tag color="purple">[[ status.wdtt.ifaceShort ]]</a-tag>
-                    </a-col>
-                    <a-col :span="12">
-                      <a-custom-statistic :value="SizeFormatter.sizeFormat(status.wdtt.downBytes)">
-                        <template #prefix><a-icon type="cloud-download" /></template>
-                      </a-custom-statistic>
-                    </a-col>
-                    <a-col :span="12">
-                      <a-custom-statistic :value="SizeFormatter.sizeFormat(status.wdtt.upBytes)">
-                        <template #prefix><a-icon type="cloud-upload" /></template>
-                      </a-custom-statistic>
-                    </a-col>
-                  </a-row>
                   <template #actions>
                     <a-space direction="horizontal" @click="openWdttJournal()" class="jc-center">
                       <a-icon type="bars"></a-icon>
@@ -248,7 +244,7 @@
                   </template>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='WDTT Panel' hoverable :body-style="{ padding: '12px 24px' }">
                   <a rel="noopener" href="https://github.com/ildarmaga/wdtt/releases" target="_blank">
                     <a-tag color="green"><span>v{{ .cur_ver }}</span></a-tag>
@@ -261,21 +257,21 @@
                   </a-tag>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='{{ i18n "pages.index.operationHours" }}' hoverable>
                   <a-tag :color="status.xray.color">Xray: [[ TimeFormatter.formatSecond(status.xray.uptime) ]]</a-tag>
                   <a-tag :color="status.wdtt.color">WDTT: [[ TimeFormatter.formatSecond(status.wdtt.uptime) ]]</a-tag>
                   <a-tag color="green">OS: [[ TimeFormatter.formatSecond(status.uptime) ]]</a-tag>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='{{ i18n "usage"}}' hoverable>
                   <a-tag color="green">Panel: [[ SizeFormatter.sizeFormat(status.appStats.panel.mem) ]]</a-tag>
                   <a-tag color="green">Xray: [[ SizeFormatter.sizeFormat(status.appStats.xray.mem) ]]</a-tag>
                   <a-tag color="green">WDTT: [[ SizeFormatter.sizeFormat(status.appStats.wdtt.mem) ]]</a-tag>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='{{ i18n "pages.index.overallSpeed" }}' hoverable>
                   <a-row :gutter="isMobile ? [8,8] : 0">
                     <a-col :span="12">
@@ -303,7 +299,7 @@
                   </a-row>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='{{ i18n "pages.index.totalData" }}' hoverable>
                   <a-row :gutter="isMobile ? [8,8] : 0">
                     <a-col :span="12">
@@ -325,7 +321,7 @@
                   </a-row>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='{{ i18n "pages.index.ipAddresses" }}' hoverable>
                   <template #extra>
                     <a-tooltip :placement="isMobile ? 'topRight' : 'top'">
@@ -354,7 +350,7 @@
                   </a-row>
                 </a-card>
               </a-col>
-              <a-col :sm="24" :lg="12">
+              <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='{{ i18n "pages.index.connectionCount" }}' hoverable>
                   <a-row :gutter="isMobile ? [8,8] : 0">
                     <a-col :span="12">
@@ -375,7 +371,6 @@
                 </a-card>
               </a-col>
             </a-row>
-          </template>
         </transition>
       </a-spin>
     </a-layout-content>

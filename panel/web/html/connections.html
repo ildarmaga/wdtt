@@ -107,6 +107,9 @@
                       <a-button type="primary" icon="plus" @click="openXrayCreate">
                         {{ i18n "pages.inbounds.addInbound" }}
                       </a-button>
+                      <a-button icon="eye" @click="openFirewallPorts">
+                        Посмотреть порты
+                      </a-button>
                     </a-space>
                   </a-col>
                   <a-col :xs="24" :sm="12" :style="{ textAlign: isMobile ? 'left' : 'right' }">
@@ -179,6 +182,8 @@
     white-space: nowrap;
     max-width: 100%;
   }
+  .connections-page .text-muted { color: rgba(0,0,0,.45); }
+  body.dark .connections-page .text-muted { color: rgba(255,255,255,.45); }
 </style>
 {{ template "page/body_scripts" . }}
 <script src="{{ .base_path }}assets/js/wdtt-share.js?{{ .cur_ver }}"></script>
@@ -291,6 +296,7 @@
 </script>
 {{ template "modals/wdttInboundModal" . }}
 {{ template "modals/xrayInboundModal" . }}
+{{ template "modals/firewallPortsModal" . }}
 <script>
   const app = new Vue({
     delimiters: ['[[', ']]'],
@@ -343,6 +349,9 @@
     methods: {
       toast(msg, ok) {
         if (ok) this.$message.success(msg); else this.$message.error(msg);
+      },
+      openFirewallPorts() {
+        firewallPortsModal.show(this);
       },
       goUsers() { location.href = basePath + 'panel/users'; },
       openWdttCreate() {

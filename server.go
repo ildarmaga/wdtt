@@ -115,7 +115,7 @@ func loadInboundSettings(configDir string) {
 	clientDNS = defaultClientDNS
 	maxGeneratedPasswords = defaultMaxUsers
 	dtlsHandshakeTimeout = 30 * time.Second
-	maxDTLSPerDevice = 3
+	maxDTLSPerDevice = 0
 	wgMTU = defaultWgMTU
 	data, err := os.ReadFile(filepath.Join(configDir, "inbound.json"))
 	if err != nil {
@@ -143,6 +143,7 @@ func loadInboundSettings(configDir string) {
 	if raw.MaxDtlsPerDevice >= 0 && raw.MaxDtlsPerDevice <= 50 {
 		maxDTLSPerDevice = int32(raw.MaxDtlsPerDevice)
 	}
+	log.Printf("[CFG] inbound: DTLS timeout=%s, max сессий/device=%d (0=без лимита)", dtlsHandshakeTimeout, maxDTLSPerDevice)
 	if raw.MTU >= 576 && raw.MTU <= 1500 {
 		wgMTU = raw.MTU
 	}
@@ -420,12 +421,104 @@ func passwordForDeviceLocked(deviceID string) string {
 	if deviceID == "" {
 		return ""
 	}
+	var fallback string
 	for pass, entry := range db.Passwords {
-		if entry != nil && entryHasDevice(entry, deviceID) {
-			return pass
+		if entry == nil || !entryHasDevice(entry, deviceID) {
+			continue
+		}
+		if pass == db.MainPassword {
+			if fallback == "" {
+				fallback = pass
+			}
+			continue
+		}
+		return pass
+	}
+	return fallback
+}
+
+func deviceForWGIPLocked(ip string) (deviceID, password string, isMain bool) {
+	if ip == "" {
+		return "", "", false
+	}
+	for id, dev := range db.Devices {
+		if dev == nil || dev.IP != ip {
+			continue
+		}
+		pass := passwordForDeviceLocked(id)
+		if pass == "" {
+			continue
+		}
+		return id, pass, pass == db.MainPassword
+	}
+	return "", "", false
+}
+
+// resolveConnByWGLocalPort определяет устройство, когда клиент шлёт WG-пакеты без GETCONF
+// (повторное подключение с сохранённым конфигом). wg show endpoint = 127.0.0.1:<localPort>.
+func resolveConnByWGLocalPort(localPort int) (deviceID, userIP, password string, isMain bool) {
+	if localPort <= 0 {
+		return "", "", "", false
+	}
+	out, err := exec.Command("wg", "show", "wdtt0", "dump").Output()
+	if err != nil {
+		return "", "", "", false
+	}
+	needle := fmt.Sprintf(":%d", localPort)
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 4 || !strings.Contains(fields[2], needle) {
+			continue
+		}
+		allowed := strings.Split(fields[3], ",")[0]
+		if allowed == "off" || !strings.Contains(allowed, ".") {
+			continue
+		}
+		userIP = strings.TrimSuffix(allowed, "/32")
+		pubKey := fields[0]
+		for id, dev := range db.Devices {
+			if dev == nil {
+				continue
+			}
+			if dev.PubKey == pubKey || dev.IP == userIP {
+				pass := passwordForDeviceLocked(id)
+				if pass == "" {
+					continue
+				}
+				if dev.IP != "" {
+					userIP = dev.IP
+				}
+				return id, userIP, pass, pass == db.MainPassword
+			}
+		}
+		if id, pass, main := deviceForWGIPLocked(userIP); id != "" {
+			return id, userIP, pass, main
 		}
 	}
-	return ""
+	return "", "", "", false
+}
+
+func tryResolveConnFromWG(wgConn net.Conn) (deviceID, userIP, password string, isMain bool) {
+	localPort := 0
+	if ua, ok := wgConn.LocalAddr().(*net.UDPAddr); ok && ua != nil {
+		localPort = ua.Port
+	}
+	for i := 0; i < 20; i++ {
+		if i > 0 {
+			time.Sleep(25 * time.Millisecond)
+		}
+		if id, ip, pass, main := resolveConnByWGLocalPort(localPort); id != "" {
+			log.Printf("[WG] Без GETCONF: device=%s ip=%s pass=%s", id, ip, maskPassword(pass))
+			return id, ip, pass, main
+		}
+	}
+	return "", "", "", false
 }
 
 func removeWGDeviceLocked(wgDev *device.Device, deviceID string) {
@@ -1155,13 +1248,21 @@ var (
 	serverStartTime      time.Time
 )
 
-const userIdleTimeout = 90 * time.Second
+type wgPeerCounters struct {
+	rx int64
+	tx int64
+}
+
+// wgPeerTrafficLast — последние rx/tx с wg show dump (учёт по пирам, не по DTLS-сессии).
+var wgPeerTrafficLast sync.Map
+
+const userIdleTimeout = 60 * time.Second
 
 type onlineUserInfo struct {
 	Label        string
+	Password     string
 	IP           string
 	Sessions     int
-	Present      bool
 	LastActivity time.Time
 }
 
@@ -1180,35 +1281,32 @@ func userLabel(password string, isMain bool) string {
 	return maskPassword(password)
 }
 
-func userMarkOnlineLocked(info *onlineUserInfo, deviceID string) {
-	if info.Present {
-		return
+func countOnlineUsersLocked() int32 {
+	var n int32
+	for _, info := range onlineUsers {
+		if info.Sessions > 0 {
+			n++
+		}
 	}
-	info.Present = true
-	atomic.AddInt32(&activeUsers, 1)
-	log.Printf("[ПОДКЛ] %s | %s | WG %s", info.Label, deviceID, info.IP)
+	return n
 }
 
-func userMarkOffline(deviceID string) {
-	onlineUsersMutex.Lock()
-	info, exists := onlineUsers[deviceID]
-	if !exists || !info.Present {
-		onlineUsersMutex.Unlock()
-		return
-	}
-	info.Present = false
-	label, ip := info.Label, info.IP
-	if info.Sessions <= 0 {
-		delete(onlineUsers, deviceID)
-	}
-	atomic.AddInt32(&activeUsers, -1)
-	onlineUsersMutex.Unlock()
-	log.Printf("[ОТКЛ] %s | %s | WG %s", label, deviceID, ip)
-}
-
-func userSessionEnter(deviceID, ip, label string) {
+func deviceSessionCount(deviceID string) int {
 	if deviceID == "" {
-		return
+		return 0
+	}
+	onlineUsersMutex.Lock()
+	defer onlineUsersMutex.Unlock()
+	if info, ok := onlineUsers[deviceID]; ok && info != nil {
+		return info.Sessions
+	}
+	return 0
+}
+
+// userSessionEnter регистрирует активную DTLS-прокси сессию. false = лимит maxDTLSPerDevice.
+func userSessionEnter(deviceID, ip, label, password string) bool {
+	if deviceID == "" {
+		return false
 	}
 	now := time.Now()
 	onlineUsersMutex.Lock()
@@ -1216,17 +1314,29 @@ func userSessionEnter(deviceID, ip, label string) {
 
 	info, exists := onlineUsers[deviceID]
 	if !exists {
-		info = &onlineUserInfo{Label: label, IP: ip, Sessions: 1, LastActivity: now}
+		info = &onlineUserInfo{Label: label, Password: password, IP: ip, LastActivity: now}
 		onlineUsers[deviceID] = info
-		userMarkOnlineLocked(info, deviceID)
-		return
 	}
+	if maxDTLSPerDevice > 0 && info.Sessions >= int(maxDTLSPerDevice) {
+		return false
+	}
+	wasOnline := info.Sessions > 0
 	info.Sessions++
 	info.LastActivity = now
 	if ip != "" {
 		info.IP = ip
 	}
-	userMarkOnlineLocked(info, deviceID)
+	if label != "" {
+		info.Label = label
+	}
+	if password != "" {
+		info.Password = password
+	}
+	if !wasOnline {
+		atomic.AddInt32(&activeUsers, 1)
+		log.Printf("[ПОДКЛ] %s | %s | WG %s", info.Label, deviceID, info.IP)
+	}
+	return true
 }
 
 func userSessionLeave(deviceID string) {
@@ -1234,19 +1344,21 @@ func userSessionLeave(deviceID string) {
 		return
 	}
 	onlineUsersMutex.Lock()
-	defer onlineUsersMutex.Unlock()
-
 	info, exists := onlineUsers[deviceID]
 	if !exists {
+		onlineUsersMutex.Unlock()
 		return
 	}
 	info.Sessions--
-	if info.Sessions <= 0 {
-		info.Sessions = 0
-		if !info.Present {
-			delete(onlineUsers, deviceID)
-		}
+	if info.Sessions > 0 {
+		onlineUsersMutex.Unlock()
+		return
 	}
+	label, ip := info.Label, info.IP
+	delete(onlineUsers, deviceID)
+	onlineUsersMutex.Unlock()
+	atomic.AddInt32(&activeUsers, -1)
+	log.Printf("[ОТКЛ] %s | %s | WG %s", label, deviceID, ip)
 }
 
 func userTouchActivity(deviceID string) {
@@ -1262,31 +1374,37 @@ func userTouchActivity(deviceID string) {
 		return
 	}
 	info.LastActivity = now
-	userMarkOnlineLocked(info, deviceID)
 }
 
 func userPresenceSweep() {
 	now := time.Now()
-	var offline []string
+	var stale []string
 
 	onlineUsersMutex.Lock()
 	for deviceID, info := range onlineUsers {
-		if !info.Present {
-			continue
-		}
-		if info.Sessions == 0 || now.Sub(info.LastActivity) >= userIdleTimeout {
-			offline = append(offline, deviceID)
+		if info.Sessions > 0 && now.Sub(info.LastActivity) >= userIdleTimeout {
+			stale = append(stale, deviceID)
 		}
 	}
 	onlineUsersMutex.Unlock()
 
-	for _, deviceID := range offline {
-		userMarkOffline(deviceID)
+	for _, deviceID := range stale {
+		onlineUsersMutex.Lock()
+		info, exists := onlineUsers[deviceID]
+		if !exists || info.Sessions <= 0 || now.Sub(info.LastActivity) < userIdleTimeout {
+			onlineUsersMutex.Unlock()
+			continue
+		}
+		label, ip, sessions := info.Label, info.IP, info.Sessions
+		delete(onlineUsers, deviceID)
+		onlineUsersMutex.Unlock()
+		atomic.AddInt32(&activeUsers, -1)
+		log.Printf("[ОТКЛ] stale %s | %s | WG %s (sessions=%d)", label, deviceID, ip, sessions)
 	}
 }
 
 func userPresenceLoop(ctx context.Context) {
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -1303,12 +1421,13 @@ func snapshotOnlineUsers() []map[string]string {
 	defer onlineUsersMutex.Unlock()
 	out := make([]map[string]string, 0, len(onlineUsers))
 	for deviceID, info := range onlineUsers {
-		if !info.Present {
+		if info.Sessions <= 0 {
 			continue
 		}
 		out = append(out, map[string]string{
 			"device_id": deviceID,
 			"user":      info.Label,
+			"password":  info.Password,
 			"ip":        info.IP,
 			"sessions":  strconv.Itoa(info.Sessions),
 		})
@@ -1316,10 +1435,121 @@ func snapshotOnlineUsers() []map[string]string {
 	return out
 }
 
+func mergeOnlineWithWGPeers(sessionOnline []map[string]string) []map[string]string {
+	byDevice := make(map[string]map[string]string, len(sessionOnline)+2)
+	for _, o := range sessionOnline {
+		if id := o["device_id"]; id != "" {
+			byDevice[id] = o
+		}
+	}
+	wgOut, err := exec.Command("wg", "show", "wdtt0", "dump").Output()
+	if err != nil {
+		result := make([]map[string]string, 0, len(byDevice))
+		for _, o := range byDevice {
+			result = append(result, o)
+		}
+		return result
+	}
+	now := time.Now().Unix()
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	for _, line := range strings.Split(string(wgOut), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 5 {
+			continue
+		}
+		handshake, _ := strconv.ParseInt(strings.TrimSpace(fields[4]), 10, 64)
+		if handshake <= 0 || now-handshake > 180 {
+			continue
+		}
+		allowed := strings.Split(fields[3], ",")[0]
+		ip := strings.TrimSuffix(allowed, "/32")
+		id, pass, isMain := deviceForWGIPLocked(ip)
+		if id == "" || byDevice[id] != nil {
+			continue
+		}
+		byDevice[id] = map[string]string{
+			"device_id": id,
+			"user":      userLabel(pass, isMain),
+			"password":  pass,
+			"ip":        ip,
+			"sessions":  "1",
+		}
+	}
+	result := make([]map[string]string, 0, len(byDevice))
+	for _, o := range byDevice {
+		result = append(result, o)
+	}
+	return result
+}
+
+// syncTrafficFromWGPeers начисляет трафик по дельте rx/tx из wg show dump.
+// Надёжнее per-session flush: один peer может иметь несколько DTLS-прокси без GETCONF.
+func syncTrafficFromWGPeers() {
+	out, err := exec.Command("wg", "show", "wdtt0", "dump").Output()
+	if err != nil {
+		return
+	}
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 7 {
+			continue
+		}
+		pubKey := fields[0]
+		rx, errRx := strconv.ParseInt(strings.TrimSpace(fields[5]), 10, 64)
+		tx, errTx := strconv.ParseInt(strings.TrimSpace(fields[6]), 10, 64)
+		if errRx != nil || errTx != nil {
+			continue
+		}
+		var deviceID string
+		for id, dev := range db.Devices {
+			if dev != nil && dev.PubKey == pubKey {
+				deviceID = id
+				break
+			}
+		}
+		if deviceID == "" {
+			continue
+		}
+		pass := passwordForDeviceLocked(deviceID)
+		if pass == "" {
+			continue
+		}
+		cur := wgPeerCounters{rx: rx, tx: tx}
+		prevVal, hadPrev := wgPeerTrafficLast.Load(deviceID)
+		wgPeerTrafficLast.Store(deviceID, cur)
+		if !hadPrev {
+			continue
+		}
+		prev := prevVal.(wgPeerCounters)
+		if rx < prev.rx || tx < prev.tx {
+			continue
+		}
+		dRx := rx - prev.rx
+		dTx := tx - prev.tx
+		if dRx > 0 {
+			addTrafficLocked(pass, dRx, false)
+		}
+		if dTx > 0 {
+			addTrafficLocked(pass, dTx, true)
+		}
+	}
+}
+
 func statsLoop(ctx context.Context, configDir string) {
 	serverStartTime = time.Now()
 	statsFile := filepath.Join(configDir, "server.log")
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -1329,7 +1559,9 @@ func statsLoop(ctx context.Context, configDir string) {
 			fromC := atomic.LoadInt64(&totalBytesFromClient)
 			toC := atomic.LoadInt64(&totalBytesToClient)
 			sessions := atomic.LoadInt32(&activeConns)
-			users := atomic.LoadInt32(&activeUsers)
+			online := mergeOnlineWithWGPeers(snapshotOnlineUsers())
+			users := int32(len(online))
+			atomic.StoreInt32(&activeUsers, users)
 			total := atomic.LoadInt64(&totalConns)
 			uptime := time.Since(serverStartTime)
 
@@ -1360,10 +1592,12 @@ func statsLoop(ctx context.Context, configDir string) {
 				"up_gb":        fmt.Sprintf("%.2f", upGB),
 				"passwords":    numPasswords,
 				"devices":      numDevices,
-				"online":       snapshotOnlineUsers(),
+				"online":       online,
 				"timestamp":    time.Now().Unix(),
 			})
 			os.WriteFile(statsFile, statsJSON, 0644)
+
+			syncTrafficFromWGPeers()
 
 			if trafficDirty.Load() {
 				dbMutex.Lock()
@@ -1693,6 +1927,7 @@ func main() {
 	initDB(*configDir, *mainPass, *adminID, *botToken)
 	loadInboundSettings(*configDir)
 	log.Printf("[CFG] DNS клиентов: %s, MTU: %d, лимит активных: %d", clientDNS, wgMTU, maxGeneratedPasswords)
+	log.Printf("[CFG] Admin HTTP: %s (hot-reload /health)", adminListenAddr)
 
 	keys, err := loadOrGenerateKeys(*configDir)
 	if err != nil {
@@ -1857,7 +2092,6 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		isMainPass := password != "" && password == db.MainPassword
 		entry, isGenPass := db.Passwords[password]
 		valid := isMainPass || (isGenPass && !isPasswordExpired(entry) && !isTrafficExceeded(entry))
-		getconfSlot := false
 
 		if valid && isGenPass && entry.IsDeactivated {
 			clientConn.Write([]byte("DENIED:deactivated"))
@@ -1869,14 +2103,11 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				maskPassword(password), len(allEntryDeviceIDs(entry)), entryMaxDevices(entry), deviceID)
 			dbMutex.Unlock()
 		} else if valid {
-			if maxDTLSPerDevice > 0 {
-				if !dtlsSlotAcquire(deviceID) {
-					clientConn.Write([]byte("DENIED:too_many_sessions"))
-					log.Printf("[WG] Отказ: слишком много параллельных GETCONF для %s (лимит %d)", deviceID, maxDTLSPerDevice)
-					dbMutex.Unlock()
-					return
-				}
-				getconfSlot = true
+			if maxDTLSPerDevice > 0 && deviceSessionCount(deviceID) >= int(maxDTLSPerDevice) {
+				clientConn.Write([]byte("DENIED:too_many_sessions"))
+				log.Printf("[WG] Отказ: лимит %d DTLS-сессий для %s", maxDTLSPerDevice, deviceID)
+				dbMutex.Unlock()
+				return
 			}
 
 			connPassword = password
@@ -1945,9 +2176,6 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			}
 			dbMutex.Unlock()
 		}
-		if getconfSlot {
-			dtlsSlotRelease(deviceID)
-		}
 		if connDeviceID != "" {
 			relaySessionEvictIdle(connDeviceID, relayStaleEvictIdle)
 		}
@@ -1974,11 +2202,6 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	}
 
 	// WG прокси
-	if connDeviceID != "" {
-		userSessionEnter(connDeviceID, connUserIP, userLabel(connPassword, connIsMainPass))
-		defer userSessionLeave(connDeviceID)
-	}
-
 	wgConn, err := net.Dial("udp", wgEndpoint)
 	if err != nil {
 		return
@@ -1994,39 +2217,88 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		return
 	}
 	atomic.AddInt64(&totalBytesFromClient, int64(len(firstPacket)))
-	userTouchActivity(connDeviceID)
 
-
+	// Клиент с сохранённым конфигом часто шлёт WG-пакеты сразу, без GETCONF.
+	if connDeviceID == "" {
+		id, ip, pass, main := tryResolveConnFromWG(wgConn)
+		if id != "" {
+			connDeviceID, connUserIP, connPassword, connIsMainPass = id, ip, pass, main
+		}
+	}
 
 	pctx, pcancel := context.WithCancel(ctx)
 	defer pcancel()
 
 	var relaySess *relaySession
-	if connDeviceID != "" {
+	var sessionEntered bool
+	var sessionMu sync.Mutex
+
+	enterSession := func() (ok, done bool) {
+		sessionMu.Lock()
+		defer sessionMu.Unlock()
+		if sessionEntered {
+			return true, true
+		}
+		if connDeviceID == "" {
+			localPort := 0
+			if ua, ok := wgConn.LocalAddr().(*net.UDPAddr); ok && ua != nil {
+				localPort = ua.Port
+			}
+			if id, ip, pass, main := resolveConnByWGLocalPort(localPort); id != "" {
+				connDeviceID, connUserIP, connPassword, connIsMainPass = id, ip, pass, main
+				log.Printf("[WG] Без GETCONF: device=%s ip=%s pass=%s", id, ip, maskPassword(pass))
+			}
+		}
+		if connDeviceID == "" {
+			return false, false
+		}
+		if !userSessionEnter(connDeviceID, connUserIP, userLabel(connPassword, connIsMainPass), connPassword) {
+			return false, true
+		}
+		sessionEntered = true
 		relaySess = relaySessionRegister(connDeviceID, pcancel)
-		defer relaySessionUnregister(connDeviceID, relaySess)
+		return true, true
 	}
 
-	// Учёт трафика без per-packet mutex: копим в локальные atomic-счётчики,
-	// сбрасываем в БД раз в секунду и тогда же проверяем лимит/деактивацию.
+	defer func() {
+		sessionMu.Lock()
+		id := connDeviceID
+		entered := sessionEntered
+		rs := relaySess
+		sessionMu.Unlock()
+		if entered && id != "" {
+			userSessionLeave(id)
+			if rs != nil {
+				relaySessionUnregister(id, rs)
+			}
+		}
+	}()
+
+	if ok, done := enterSession(); done && !ok {
+		log.Printf("[WG] Отказ: лимит %d DTLS-сессий для device=%s", maxDTLSPerDevice, connDeviceID)
+		return
+	}
+
+	// Учёт трафика в passwords.json — syncTrafficFromWGPeers (statsLoop).
+	// Здесь только сброс локальных счётчиков и проверка лимита/деактивации.
 	var sessUpBytes, sessDownBytes int64
 	flushTraffic := func() bool {
-		up := atomic.SwapInt64(&sessUpBytes, 0)
-		down := atomic.SwapInt64(&sessDownBytes, 0)
-		if up == 0 && down == 0 {
-			return true
+		atomic.SwapInt64(&sessUpBytes, 0)
+		atomic.SwapInt64(&sessDownBytes, 0)
+		if ok, done := enterSession(); done && !ok {
+			return false
 		}
 		dbMutex.Lock()
+		defer dbMutex.Unlock()
 		pass := resolveTrafficPassword(connPassword, connIsMainPass, connDeviceID)
-		ok := true
-		if up > 0 {
-			ok = addTrafficLocked(pass, up, false) && ok
+		if pass == "" {
+			return true
 		}
-		if down > 0 {
-			ok = addTrafficLocked(pass, down, true) && ok
+		e, ok := db.Passwords[pass]
+		if !ok || e == nil {
+			return true
 		}
-		dbMutex.Unlock()
-		return ok
+		return !isTrafficExceeded(e) && !e.IsDeactivated
 	}
 	go func() {
 		t := time.NewTicker(time.Second)
@@ -2078,6 +2350,9 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				continue
 			}
 			atomic.AddInt64(&totalBytesFromClient, int64(nn))
+			if ok, done := enterSession(); done && !ok {
+				return
+			}
 			userTouchActivity(connDeviceID)
 			if relaySess != nil {
 				relaySess.touch()
@@ -2113,6 +2388,9 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				return
 			}
 			atomic.AddInt64(&totalBytesToClient, int64(nn))
+			if ok, done := enterSession(); done && !ok {
+				return
+			}
 			userTouchActivity(connDeviceID)
 			if relaySess != nil {
 				relaySess.touch()

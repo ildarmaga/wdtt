@@ -81,7 +81,7 @@
     <a-divider>Расширенные</a-divider>
     <a-form-item>
       <template slot="label">
-        <a-tooltip title="Сколько ждать DTLS handshake от клиента (сек). На нестабильном Wi‑Fi можно 45–60">
+        <a-tooltip title="Сколько ждать DTLS handshake (сек). Применяется без перезапуска. На нестабильном Wi‑Fi можно 45–60">
           DTLS timeout, сек <a-icon type="question-circle"></a-icon>
         </a-tooltip>
       </template>
@@ -89,7 +89,7 @@
     </a-form-item>
     <a-form-item>
       <template slot="label">
-        <a-tooltip title="Макс. параллельных DTLS-сессий на одно устройство (iOS открывает несколько). 0 = без лимита">
+        <a-tooltip title="Макс. одновременных DTLS-прокси на одно устройство (GETCONF и без GETCONF). 0 = без лимита. Применяется сразу после «Сохранить» (hot-reload)">
           DTLS на device <a-icon type="question-circle"></a-icon>
         </a-tooltip>
       </template>
@@ -97,7 +97,7 @@
     </a-form-item>
     <a-form-item>
       <template slot="label">
-        <a-tooltip title="HTTP для hot-reload из панели (только localhost). Менять только если порт 2861 занят">
+        <a-tooltip title="HTTP на localhost: POST /admin/reload (пользователи, лимиты) и /health. Смена порта — только после перезапуска WDTT">
           Admin HTTP <a-icon type="question-circle"></a-icon>
         </a-tooltip>
       </template>
@@ -145,18 +145,6 @@
         this.inboundForm = new InboundSetting(data);
       },
       async saveInbound() {
-        const self = this;
-        await new Promise((resolve, reject) => {
-          self.$confirm({
-            title: self.inboundModal.isCreate ? 'Создать WDTT' : 'Сохранить WDTT',
-            content: 'WDTT будет перезапущен с новыми настройками. Продолжить?',
-            class: themeSwitcher.currentTheme,
-            okText: self.inboundModal.isCreate ? 'Создать' : 'Сохранить',
-            cancelText: 'Отмена',
-            onOk: () => resolve(),
-            onCancel: () => reject(),
-          });
-        });
         this.inboundModal.saving = true;
         try {
           const res = await fetch(basePath + 'panel/api/inbound/save', {

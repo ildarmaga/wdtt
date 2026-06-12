@@ -17,8 +17,9 @@
     inbound: new Inbound(),
     dbInbound: new DBInbound(),
     ok() {
-      if (typeof this.confirm === 'function') {
-        return this.confirm(this.inbound, this.dbInbound);
+      const fn = xrayInModal.confirm;
+      if (typeof fn === 'function') {
+        return fn(xrayInModal.inbound, xrayInModal.dbInbound);
       }
     },
     show({ title = '', okText = '{{ i18n "sure" }}', inbound = null, dbInbound = null, confirm = () => {}, isEdit = false }) {

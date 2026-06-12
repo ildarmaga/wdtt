@@ -51,6 +51,46 @@ func migrateDatabaseDevices() {
 	for _, entry := range db.Passwords {
 		normalizeEntryDevices(entry)
 	}
+	dedupeDeviceBindings()
+}
+
+func dedupeDeviceBindings() {
+	type pick struct {
+		pass   string
+		isMain bool
+	}
+	chosen := map[string]pick{}
+	for pass, entry := range db.Passwords {
+		if entry == nil {
+			continue
+		}
+		normalizeEntryDevices(entry)
+		isMain := pass == db.MainPassword
+		for _, did := range append([]string(nil), entry.DeviceIDs...) {
+			if cur, ok := chosen[did]; !ok {
+				chosen[did] = pick{pass: pass, isMain: isMain}
+			} else if cur.isMain && !isMain {
+				chosen[did] = pick{pass: pass, isMain: isMain}
+			}
+		}
+	}
+	for pass, entry := range db.Passwords {
+		if entry == nil {
+			continue
+		}
+		keep := entry.DeviceIDs[:0]
+		for _, did := range entry.DeviceIDs {
+			if c, ok := chosen[did]; ok && c.pass == pass {
+				keep = append(keep, did)
+			}
+		}
+		entry.DeviceIDs = keep
+		if len(keep) > 0 {
+			entry.DeviceID = keep[0]
+		} else {
+			entry.DeviceID = ""
+		}
+	}
 }
 
 func entryMaxDevices(entry *PasswordEntry) int {
@@ -103,9 +143,24 @@ func bindDeviceToEntry(entry *PasswordEntry, deviceID string) bool {
 	if entryDeviceSlotsLeft(entry) <= 0 {
 		return false
 	}
+	unbindDeviceFromOtherEntries(deviceID, entry)
 	entry.DeviceIDs = append(entry.DeviceIDs, deviceID)
 	entry.DeviceID = entry.DeviceIDs[0]
 	return true
+}
+
+func unbindDeviceFromOtherEntries(deviceID string, keep *PasswordEntry) {
+	for _, entry := range db.Passwords {
+		if entry == nil || entry == keep {
+			continue
+		}
+		removeDeviceFromEntry(entry, deviceID)
+	}
+	if db.MainPassword != "" {
+		if mainEntry, ok := db.Passwords[db.MainPassword]; ok && mainEntry != nil && mainEntry != keep {
+			removeDeviceFromEntry(mainEntry, deviceID)
+		}
+	}
 }
 
 func removeDeviceFromEntry(entry *PasswordEntry, deviceID string) bool {
