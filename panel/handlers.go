@@ -110,6 +110,14 @@ func (a *App) serverIP() string {
 	return strings.Fields(out)[0]
 }
 
+func (a *App) enrichUserSub(u map[string]interface{}, entry *PasswordEntry) {
+	if u == nil || entry == nil {
+		return
+	}
+	u["sub_id"] = entry.SubID
+	u["sub_url"] = a.buildSubURL(entry.SubID)
+}
+
 func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 	db, err := loadPasswords()
 	if err != nil {
@@ -120,6 +128,9 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 	linkHost := a.resolveLinkHost(inbound)
 	stats := loadServerStats()
 	users := []map[string]interface{}{mainUserRow(db, stats, inbound, linkHost)}
+	if mainEntry, ok := db.Passwords[db.MainPassword]; ok {
+		a.enrichUserSub(users[0], mainEntry)
+	}
 	for pass, entry := range db.Passwords {
 		if pass == db.MainPassword {
 			continue
@@ -156,6 +167,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			"link":               buildWdttLink(linkHost, pass, entry.VkHash, entry, inbound),
 			"vk_hash":            entry.VkHash,
 		}
+		a.enrichUserSub(u, entry)
 		users = append(users, u)
 	}
 	sortUsersList(users)

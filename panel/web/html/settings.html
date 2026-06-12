@@ -58,6 +58,13 @@
                   </template>
                   {{ template "settings/panel/account" . }}
                 </a-tab-pane>
+                <a-tab-pane key="3" :style="{ paddingTop: '20px' }">
+                  <template #tab>
+                    <a-icon type="link"></a-icon>
+                    <span>{{ i18n "pages.settings.subSettings" }}</span>
+                  </template>
+                  {{ template "settings/panel/subscription" . }}
+                </a-tab-pane>
               </a-tabs>
             </a-col>
           </a-row>
@@ -116,6 +123,21 @@
       this.ufwInstalled = !!data.ufwInstalled;
       this.ufwActive = !!data.ufwActive;
       this.sshPort = data.sshPort || 22;
+      this.subEnable = data.subEnable !== false;
+      this.subListen = data.subListen || "";
+      this.subPort = data.subPort || 2096;
+      this.subPath = data.subPath || "/sub/";
+      this.subDomain = data.subDomain || "";
+      this.subCertFile = data.subCertFile || "";
+      this.subKeyFile = data.subKeyFile || "";
+      this.subEncrypt = data.subEncrypt !== false;
+      this.subUpdates = data.subUpdates || 12;
+      this.subTitle = data.subTitle || "";
+      this.subSupportUrl = data.subSupportUrl || "";
+      this.subProfileUrl = data.subProfileUrl || "";
+      this.subAnnounce = data.subAnnounce || "";
+      this.subURI = data.subURI || "";
+      this.subShowInfo = data.subShowInfo !== false;
     }
     payload() {
       return {
@@ -129,6 +151,21 @@
         webCertFile: String(this.webCertFile || ''),
         webKeyFile: String(this.webKeyFile || ''),
         blockPing: !!this.blockPing,
+        subEnable: !!this.subEnable,
+        subListen: String(this.subListen || ''),
+        subPort: Number(this.subPort) || 2096,
+        subPath: String(this.subPath || '/sub/'),
+        subDomain: String(this.subDomain || ''),
+        subCertFile: String(this.subCertFile || ''),
+        subKeyFile: String(this.subKeyFile || ''),
+        subEncrypt: !!this.subEncrypt,
+        subUpdates: Number(this.subUpdates) || 12,
+        subTitle: String(this.subTitle || ''),
+        subSupportUrl: String(this.subSupportUrl || ''),
+        subProfileUrl: String(this.subProfileUrl || ''),
+        subAnnounce: String(this.subAnnounce || ''),
+        subURI: String(this.subURI || ''),
+        subShowInfo: !!this.subShowInfo,
       };
     }
     equals(other) {
@@ -208,7 +245,15 @@
       confAlerts() {
         const alerts = [];
         if (window.location.protocol !== "https:") alerts.push('{{ i18n "secAlertSsl" }}');
+        const sp = (this.allSetting.subPath || '/sub/').replace(/\/+$/, '');
+        if (sp === '/sub' || sp === '/sub/') alerts.push('{{ i18n "secAlertSubURI" }}');
         return alerts;
+      },
+      normalizeSubPath(p) {
+        p = String(p || '/sub/').replace(/[:*]/g, '');
+        if (!p.startsWith('/')) p = '/' + p;
+        if (!p.endsWith('/')) p += '/';
+        return p.replace(/\/+/g, '/');
       },
       certCols() {
         return [

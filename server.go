@@ -85,6 +85,7 @@ type PasswordEntry struct {
 	VkHash        string  `json:"vk_hash,omitempty"`
 	Ports         string  `json:"ports,omitempty"` // "dtls,wg,tun"
 	IsDeactivated bool    `json:"is_deactivated,omitempty"`
+	SubID         string  `json:"sub_id,omitempty"`
 }
 
 

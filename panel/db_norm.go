@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const dbSchemaVersion = 5
+const dbSchemaVersion = 6
 
 const schemaV2DDL = `
 CREATE TABLE IF NOT EXISTS panel_config (
@@ -141,7 +141,62 @@ func migratePanelDBV4() error {
 }
 
 func migratePanelDBV5() error {
+	return nil
+}
+
+func migratePanelDBV6() error {
+	for _, stmt := range []string{
+		`ALTER TABLE panel_config ADD COLUMN sub_enable INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE panel_config ADD COLUMN sub_listen TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_port INTEGER NOT NULL DEFAULT 2096`,
+		`ALTER TABLE panel_config ADD COLUMN sub_path TEXT NOT NULL DEFAULT '/sub/'`,
+		`ALTER TABLE panel_config ADD COLUMN sub_domain TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_cert_file TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_key_file TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_encrypt INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE panel_config ADD COLUMN sub_updates INTEGER NOT NULL DEFAULT 12`,
+		`ALTER TABLE panel_config ADD COLUMN sub_title TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_support_url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_profile_url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_announce TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_uri TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE panel_config ADD COLUMN sub_show_info INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE wdtt_users ADD COLUMN sub_id TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := panelDB.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	if _, err := panelDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_wdtt_users_sub_id ON wdtt_users(sub_id) WHERE sub_id != ''`); err != nil {
+		return err
+	}
 	migrateLegacyJSONFiles()
+	return migrateEnsureUserSubIDs()
+}
+
+func migrateEnsureUserSubIDs() error {
+	rows, err := panelDB.Query(`SELECT password, sub_id FROM wdtt_users`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pass, subID string
+		if err := rows.Scan(&pass, &subID); err != nil {
+			return err
+		}
+		if strings.TrimSpace(subID) != "" {
+			continue
+		}
+		newID, err := genSubID()
+		if err != nil {
+			return err
+		}
+		if _, err := panelDB.Exec(`UPDATE wdtt_users SET sub_id = ? WHERE password = ?`, newID, pass); err != nil {
+			return err
+		}
+		log.Printf("panel db: assigned sub_id for user %s", maskPassword(pass))
+	}
 	return nil
 }
 
@@ -228,13 +283,17 @@ func loadPanelConfigNorm() (*PanelConfig, error) {
 		return nil, os.ErrNotExist
 	}
 	var cfg PanelConfig
-	var blockPing int
+	var blockPing, subEnable, subEncrypt, subShowInfo int
 	err := panelDB.QueryRow(`SELECT username, password_hash, port, web_base_path, session_key,
-		web_listen, web_domain, web_cert_file, web_key_file, session_max_age, page_size, remark_model, block_ping
+		web_listen, web_domain, web_cert_file, web_key_file, session_max_age, page_size, remark_model, block_ping,
+		sub_enable, sub_listen, sub_port, sub_path, sub_domain, sub_cert_file, sub_key_file,
+		sub_encrypt, sub_updates, sub_title, sub_support_url, sub_profile_url, sub_announce, sub_uri, sub_show_info
 		FROM panel_config WHERE id = 1`).Scan(
 		&cfg.Username, &cfg.PasswordHash, &cfg.Port, &cfg.WebBasePath, &cfg.SessionKey,
 		&cfg.WebListen, &cfg.WebDomain, &cfg.WebCertFile, &cfg.WebKeyFile,
 		&cfg.SessionMaxAge, &cfg.PageSize, &cfg.RemarkModel, &blockPing,
+		&subEnable, &cfg.SubListen, &cfg.SubPort, &cfg.SubPath, &cfg.SubDomain, &cfg.SubCertFile, &cfg.SubKeyFile,
+		&subEncrypt, &cfg.SubUpdates, &cfg.SubTitle, &cfg.SubSupportURL, &cfg.SubProfileURL, &cfg.SubAnnounce, &cfg.SubURI, &subShowInfo,
 	)
 	if err == sql.ErrNoRows {
 		return nil, os.ErrNotExist
@@ -243,6 +302,10 @@ func loadPanelConfigNorm() (*PanelConfig, error) {
 		return nil, err
 	}
 	cfg.BlockPing = blockPing != 0
+	cfg.SubEnable = subEnable != 0
+	cfg.SubEncrypt = subEncrypt != 0
+	cfg.SubShowInfo = subShowInfo != 0
+	normalizeSubConfig(&cfg)
 	return &cfg, nil
 }
 
@@ -254,21 +317,45 @@ func savePanelConfigNorm(cfg *PanelConfig) error {
 	if cfg.BlockPing {
 		bp = 1
 	}
+	se := 0
+	if cfg.SubEnable {
+		se = 1
+	}
+	senc := 0
+	if cfg.SubEncrypt {
+		senc = 1
+	}
+	sshow := 0
+	if cfg.SubShowInfo {
+		sshow = 1
+	}
+	normalizeSubConfig(cfg)
 	_, err := panelDB.Exec(`INSERT INTO panel_config (
 		id, username, password_hash, port, web_base_path, session_key,
 		web_listen, web_domain, web_cert_file, web_key_file,
-		session_max_age, page_size, remark_model, block_ping
-	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		session_max_age, page_size, remark_model, block_ping,
+		sub_enable, sub_listen, sub_port, sub_path, sub_domain, sub_cert_file, sub_key_file,
+		sub_encrypt, sub_updates, sub_title, sub_support_url, sub_profile_url, sub_announce, sub_uri, sub_show_info
+	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	ON CONFLICT(id) DO UPDATE SET
 		username=excluded.username, password_hash=excluded.password_hash, port=excluded.port,
 		web_base_path=excluded.web_base_path, session_key=excluded.session_key,
 		web_listen=excluded.web_listen, web_domain=excluded.web_domain,
 		web_cert_file=excluded.web_cert_file, web_key_file=excluded.web_key_file,
 		session_max_age=excluded.session_max_age, page_size=excluded.page_size,
-		remark_model=excluded.remark_model, block_ping=excluded.block_ping`,
+		remark_model=excluded.remark_model, block_ping=excluded.block_ping,
+		sub_enable=excluded.sub_enable, sub_listen=excluded.sub_listen, sub_port=excluded.sub_port,
+		sub_path=excluded.sub_path, sub_domain=excluded.sub_domain,
+		sub_cert_file=excluded.sub_cert_file, sub_key_file=excluded.sub_key_file,
+		sub_encrypt=excluded.sub_encrypt, sub_updates=excluded.sub_updates,
+		sub_title=excluded.sub_title, sub_support_url=excluded.sub_support_url,
+		sub_profile_url=excluded.sub_profile_url, sub_announce=excluded.sub_announce,
+		sub_uri=excluded.sub_uri, sub_show_info=excluded.sub_show_info`,
 		cfg.Username, cfg.PasswordHash, cfg.Port, cfg.WebBasePath, cfg.SessionKey,
 		cfg.WebListen, cfg.WebDomain, cfg.WebCertFile, cfg.WebKeyFile,
 		cfg.SessionMaxAge, cfg.PageSize, cfg.RemarkModel, bp,
+		se, cfg.SubListen, cfg.SubPort, cfg.SubPath, cfg.SubDomain, cfg.SubCertFile, cfg.SubKeyFile,
+		senc, cfg.SubUpdates, cfg.SubTitle, cfg.SubSupportURL, cfg.SubProfileURL, cfg.SubAnnounce, cfg.SubURI, sshow,
 	)
 	return err
 }
@@ -285,7 +372,7 @@ func loadPasswordsNorm() (*PasswordsDB, error) {
 		&db.MainPassword, &db.AdminID, &db.BotToken,
 	)
 	rows, err := panelDB.Query(`SELECT password, device_id, max_devices, expires_at, down_bytes, up_bytes,
-		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash FROM wdtt_users`)
+		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id FROM wdtt_users`)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +382,7 @@ func loadPasswordsNorm() (*PasswordsDB, error) {
 		var pass string
 		var deactivated int
 		if err := rows.Scan(&pass, &e.DeviceID, &e.MaxDevices, &e.ExpiresAt, &e.DownBytes, &e.UpBytes,
-			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash); err != nil {
+			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.SubID); err != nil {
 			return nil, err
 		}
 		e.IsDeactivated = deactivated != 0
@@ -373,10 +460,10 @@ func savePasswordsNorm(db *PasswordsDB) error {
 		}
 		if _, err := tx.Exec(`INSERT INTO wdtt_users (
 			password, device_id, max_devices, expires_at, down_bytes, up_bytes, total_bytes,
-			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			pass, entry.DeviceID, entry.MaxDevices, entry.ExpiresAt, entry.DownBytes, entry.UpBytes,
-			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash,
+			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash, entry.SubID,
 		); err != nil {
 			return err
 		}

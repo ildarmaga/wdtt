@@ -24,6 +24,21 @@ type panelSettingsReq struct {
 	WebCertFile   string `json:"webCertFile"`
 	WebKeyFile    string `json:"webKeyFile"`
 	BlockPing     bool   `json:"blockPing"`
+	SubEnable     bool   `json:"subEnable"`
+	SubListen     string `json:"subListen"`
+	SubPort       int    `json:"subPort"`
+	SubPath       string `json:"subPath"`
+	SubDomain     string `json:"subDomain"`
+	SubCertFile   string `json:"subCertFile"`
+	SubKeyFile    string `json:"subKeyFile"`
+	SubEncrypt    bool   `json:"subEncrypt"`
+	SubUpdates    int    `json:"subUpdates"`
+	SubTitle      string `json:"subTitle"`
+	SubSupportURL string `json:"subSupportUrl"`
+	SubProfileURL string `json:"subProfileUrl"`
+	SubAnnounce   string `json:"subAnnounce"`
+	SubURI        string `json:"subURI"`
+	SubShowInfo   bool   `json:"subShowInfo"`
 }
 
 type panelUserReq struct {
@@ -73,6 +88,25 @@ func parsePanelSettingsReq(r *http.Request) (panelSettingsReq, error) {
 	if p := values.Get("blockPing"); p != "" {
 		req.BlockPing = p == "true" || p == "1"
 	}
+	req.SubEnable = values.Get("subEnable") == "true" || values.Get("subEnable") == "1"
+	req.SubListen = values.Get("subListen")
+	req.SubPath = values.Get("subPath")
+	req.SubDomain = values.Get("subDomain")
+	req.SubCertFile = values.Get("subCertFile")
+	req.SubKeyFile = values.Get("subKeyFile")
+	req.SubTitle = values.Get("subTitle")
+	req.SubSupportURL = values.Get("subSupportUrl")
+	req.SubProfileURL = values.Get("subProfileUrl")
+	req.SubAnnounce = values.Get("subAnnounce")
+	req.SubURI = values.Get("subURI")
+	if p := values.Get("subPort"); p != "" {
+		req.SubPort, _ = strconv.Atoi(p)
+	}
+	if p := values.Get("subUpdates"); p != "" {
+		req.SubUpdates, _ = strconv.Atoi(p)
+	}
+	req.SubEncrypt = values.Get("subEncrypt") == "true" || values.Get("subEncrypt") == "1"
+	req.SubShowInfo = values.Get("subShowInfo") == "true" || values.Get("subShowInfo") == "1"
 	return req, nil
 }
 
@@ -142,8 +176,32 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	a.cfg.WebCertFile = strings.TrimSpace(req.WebCertFile)
 	a.cfg.WebKeyFile = strings.TrimSpace(req.WebKeyFile)
 	a.cfg.BlockPing = req.BlockPing
+	a.cfg.SubEnable = req.SubEnable
+	a.cfg.SubListen = strings.TrimSpace(req.SubListen)
+	a.cfg.SubPort = req.SubPort
+	a.cfg.SubPath = normalizeSubPath(req.SubPath)
+	a.cfg.SubDomain = strings.TrimSpace(req.SubDomain)
+	a.cfg.SubCertFile = strings.TrimSpace(req.SubCertFile)
+	a.cfg.SubKeyFile = strings.TrimSpace(req.SubKeyFile)
+	a.cfg.SubEncrypt = req.SubEncrypt
+	a.cfg.SubUpdates = req.SubUpdates
+	a.cfg.SubTitle = strings.TrimSpace(req.SubTitle)
+	a.cfg.SubSupportURL = strings.TrimSpace(req.SubSupportURL)
+	a.cfg.SubProfileURL = strings.TrimSpace(req.SubProfileURL)
+	a.cfg.SubAnnounce = strings.TrimSpace(req.SubAnnounce)
+	a.cfg.SubURI = strings.TrimSpace(req.SubURI)
+	a.cfg.SubShowInfo = req.SubShowInfo
 	normalizePanelConfig(a.cfg)
 	sanitizePanelCertPaths(a.cfg)
+
+	if a.cfg.SubPort < 1 || a.cfg.SubPort > 65535 {
+		jsonError(w, "неверный порт подписки", 400)
+		return
+	}
+	if err := validatePanelTLS(a.cfg.SubCertFile, a.cfg.SubKeyFile); err != nil {
+		jsonError(w, "подписка TLS: "+err.Error(), 400)
+		return
+	}
 
 	if err := validatePanelTLS(a.cfg.WebCertFile, a.cfg.WebKeyFile); err != nil {
 		jsonError(w, err.Error(), 400)

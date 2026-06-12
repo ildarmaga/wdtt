@@ -49,6 +49,21 @@ type PanelConfig struct {
 	PageSize      int    `json:"pageSize,omitempty"`
 	RemarkModel   string `json:"remarkModel,omitempty"`
 	BlockPing     bool   `json:"blockPing,omitempty"`
+	SubEnable     bool   `json:"subEnable,omitempty"`
+	SubListen     string `json:"subListen,omitempty"`
+	SubPort       int    `json:"subPort,omitempty"`
+	SubPath       string `json:"subPath,omitempty"`
+	SubDomain     string `json:"subDomain,omitempty"`
+	SubCertFile   string `json:"subCertFile,omitempty"`
+	SubKeyFile    string `json:"subKeyFile,omitempty"`
+	SubEncrypt    bool   `json:"subEncrypt,omitempty"`
+	SubUpdates    int    `json:"subUpdates,omitempty"`
+	SubTitle      string `json:"subTitle,omitempty"`
+	SubSupportURL string `json:"subSupportUrl,omitempty"`
+	SubProfileURL string `json:"subProfileUrl,omitempty"`
+	SubAnnounce   string `json:"subAnnounce,omitempty"`
+	SubURI        string `json:"subURI,omitempty"`
+	SubShowInfo   bool   `json:"subShowInfo,omitempty"`
 }
 
 func loadPanelConfig() (*PanelConfig, error) {
@@ -105,6 +120,20 @@ func normalizePanelConfig(cfg *PanelConfig) {
 		cfg.RemarkModel = "-ieo"
 	}
 	cfg.RemarkModel = normalizeRemarkModel(cfg.RemarkModel)
+	normalizeSubConfig(cfg)
+}
+
+func normalizeSubConfig(cfg *PanelConfig) {
+	if cfg == nil {
+		return
+	}
+	cfg.SubPath = normalizeSubPath(cfg.SubPath)
+	if cfg.SubPort <= 0 {
+		cfg.SubPort = 2096
+	}
+	if cfg.SubUpdates <= 0 {
+		cfg.SubUpdates = 12
+	}
 }
 
 // sanitizePanelCertPaths сбрасывает пути, если файлы удалены (иначе save settings падает на validatePanelTLS).
@@ -184,6 +213,12 @@ func createDefaultPanelConfig() (*PanelConfig, error) {
 		SessionMaxAge: 60,
 		PageSize:      50,
 		RemarkModel:   "-ieo",
+		SubEnable:     true,
+		SubPort:       2096,
+		SubPath:       "/sub/",
+		SubEncrypt:    true,
+		SubShowInfo:   true,
+		SubUpdates:    12,
 	}
 	if err := savePanelConfig(cfg); err != nil {
 		return nil, err
@@ -229,6 +264,21 @@ func panelSettingsMap(cfg *PanelConfig) map[string]interface{} {
 		"sshPort":          detectSSHPort(),
 		"dbEnabled":        panelDBEnabled(),
 		"dbPath":           panelDBPath,
+		"subEnable":        cfg.SubEnable,
+		"subListen":        cfg.SubListen,
+		"subPort":          cfg.SubPort,
+		"subPath":          cfg.SubPath,
+		"subDomain":        cfg.SubDomain,
+		"subCertFile":      cfg.SubCertFile,
+		"subKeyFile":       cfg.SubKeyFile,
+		"subEncrypt":       cfg.SubEncrypt,
+		"subUpdates":       cfg.SubUpdates,
+		"subTitle":         cfg.SubTitle,
+		"subSupportUrl":    cfg.SubSupportURL,
+		"subProfileUrl":    cfg.SubProfileURL,
+		"subAnnounce":      cfg.SubAnnounce,
+		"subURI":           cfg.SubURI,
+		"subShowInfo":      cfg.SubShowInfo,
 	}
 }
 

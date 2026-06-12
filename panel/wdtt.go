@@ -36,6 +36,7 @@ type PasswordEntry struct {
 	Comment       string  `json:"comment,omitempty"`
 	Ports         string  `json:"ports,omitempty"`
 	VkHash        string  `json:"vk_hash,omitempty"`
+	SubID         string  `json:"sub_id,omitempty"`
 }
 
 const oneGB = 1024 * 1024 * 1024
@@ -390,6 +391,13 @@ func createUser(password string, entry *PasswordEntry) (string, error) {
 	if _, exists := db.Passwords[password]; exists {
 		return "", fmt.Errorf("пароль уже существует")
 	}
+	if strings.TrimSpace(entry.SubID) == "" {
+		subID, err := genSubID()
+		if err != nil {
+			return "", err
+		}
+		entry.SubID = subID
+	}
 	db.Passwords[password] = entry
 	if err := savePasswords(db); err != nil {
 		return "", err
@@ -437,12 +445,21 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
 		}
 		entry.DownBytes = cur.DownBytes
 		entry.UpBytes = cur.UpBytes
+		entry.SubID = cur.SubID
 		delete(db.Passwords, oldPassword)
 		db.Passwords[newPassword] = entry
 	} else {
 		entry.DownBytes = cur.DownBytes
 		entry.UpBytes = cur.UpBytes
+		entry.SubID = cur.SubID
 		db.Passwords[oldPassword] = entry
+	}
+	if strings.TrimSpace(entry.SubID) == "" {
+		subID, err := genSubID()
+		if err != nil {
+			return err
+		}
+		entry.SubID = subID
 	}
 	wasExpired := isPasswordExpired(cur)
 	nowValid := !isPasswordExpired(entry)

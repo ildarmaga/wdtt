@@ -59,6 +59,7 @@ func ensureServerDBSchema(db *sql.DB) error {
 	for _, stmt := range []string{
 		`ALTER TABLE wdtt_global ADD COLUMN admin_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE wdtt_global ADD COLUMN bot_token TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE wdtt_users ADD COLUMN sub_id TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			return err
@@ -91,7 +92,7 @@ func loadDatabaseFromSQLite() (*Database, bool, error) {
 		&out.MainPassword, &out.AdminID, &out.BotToken,
 	)
 	rows, err := db.Query(`SELECT password, device_id, max_devices, expires_at, down_bytes, up_bytes,
-		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash FROM wdtt_users`)
+		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id FROM wdtt_users`)
 	if err != nil {
 		return nil, false, err
 	}
@@ -101,7 +102,7 @@ func loadDatabaseFromSQLite() (*Database, bool, error) {
 		var pass string
 		var deactivated int
 		if err := rows.Scan(&pass, &e.DeviceID, &e.MaxDevices, &e.ExpiresAt, &e.DownBytes, &e.UpBytes,
-			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash); err != nil {
+			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.SubID); err != nil {
 			return nil, false, err
 		}
 		e.IsDeactivated = deactivated != 0
@@ -181,10 +182,10 @@ func saveDatabaseToSQLite(src *Database) error {
 		}
 		if _, err := tx.Exec(`INSERT INTO wdtt_users (
 			password, device_id, max_devices, expires_at, down_bytes, up_bytes, total_bytes,
-			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			pass, entry.DeviceID, entry.MaxDevices, entry.ExpiresAt, entry.DownBytes, entry.UpBytes,
-			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash,
+			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash, entry.SubID,
 		); err != nil {
 			return err
 		}

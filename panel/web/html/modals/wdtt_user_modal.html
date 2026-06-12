@@ -118,8 +118,11 @@
             <tr><td>Устройства</td><td>[[ userForm.device_ids.length ]]/[[ userForm.max_devices ]] · [[ devicesLabel ]]</td></tr>
             <tr><td>Пароль в ссылке</td><td><code>[[ userForm.password || '—' ]]</code></td></tr>
             <tr><td>Ссылка</td><td><code style="word-break:break-all">[[ connLink ]]</code></td></tr>
+            <tr v-if="userForm.sub_url"><td>Подписка</td><td><code style="word-break:break-all">[[ userForm.sub_url ]]</code></td></tr>
+            <tr v-if="userForm.sub_id"><td>Sub ID</td><td><code>[[ userForm.sub_id ]]</code></td></tr>
           </table>
           <a-button size="small" icon="copy" style="margin-top:12px" @click="copyConnLink">Копировать ссылку</a-button>
+          <a-button v-if="userForm.sub_url" size="small" icon="copy" style="margin-top:12px;margin-left:8px" @click="copySubUrl">Копировать подписку</a-button>
         </a-col>
         <a-col :xs="24" :sm="10" style="text-align:center">
           <canvas id="wdtt-user-share-qr" style="max-width:220px"></canvas>
@@ -373,7 +376,13 @@
           dtls_port: Number(row.dtls_port) || this.userModal.inbound.dtls_port || 56000,
           wg_port: Number(row.wg_port) || this.userModal.inbound.wg_port || 56001,
           client_port: Number(row.client_port) || this.userModal.inbound.client_port || 9000,
+          sub_id: row.sub_id || '',
+          sub_url: row.sub_url || '',
         };
+      },
+      copySubUrl() {
+        const url = this.userForm.sub_url || '';
+        wdttCopyLink(url, () => this.$message.success('Подписка скопирована'), () => this.$message.error('Не удалось скопировать'));
       },
       copyConnLink() {
         const self = this;

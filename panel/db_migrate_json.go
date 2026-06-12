@@ -27,6 +27,7 @@ func migrateLegacyPanelJSON() {
 	if _, err := os.Stat(panelConfigPath); err != nil {
 		return
 	}
+	defer removeLegacyJSONFile(panelConfigPath)
 	if !tableHasRows(`SELECT COUNT(*) FROM panel_config`) {
 		data, err := os.ReadFile(panelConfigPath)
 		if err == nil {
@@ -35,13 +36,12 @@ func migrateLegacyPanelJSON() {
 				normalizePanelConfig(&cfg)
 				if err := savePanelConfigNorm(&cfg); err != nil {
 					log.Printf("panel db: migrate panel.json: %v", err)
-					return
+				} else {
+					log.Printf("panel db: migrated %s → panel_config", panelConfigPath)
 				}
-				log.Printf("panel db: migrated %s → panel_config", panelConfigPath)
 			}
 		}
 	}
-	removeLegacyJSONFile(panelConfigPath)
 }
 
 func migrateLegacyPasswordsJSON() {

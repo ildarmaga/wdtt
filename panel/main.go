@@ -52,6 +52,7 @@ func main() {
 	startStatusCollector()
 
 	app := &App{cfg: cfg}
+	startSubscriptionServer(app)
 	base := cfg.basePath()
 	mux := http.NewServeMux()
 
