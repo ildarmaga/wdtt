@@ -294,7 +294,7 @@
         if (obj.panel) this.certState.panel = obj.panel;
         if (obj.certs) this.certState.certs = obj.certs;
         if (obj.acme) {
-          this.certState.acme = obj.acme;
+          Object.assign(this.certState.acme, obj.acme);
           this.acmeCronForm.enabled = !!obj.acme.cronInstalled;
           this.acmeCronForm.hour = obj.acme.cronHour ?? 3;
           this.acmeCronForm.minute = obj.acme.cronMinute ?? 12;

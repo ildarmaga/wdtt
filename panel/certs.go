@@ -87,7 +87,7 @@ func runAcmeShTimeout(timeout time.Duration, args ...string) (string, error) {
 
 func acmeInstalled() bool {
 	st, err := os.Stat(acmeShBin())
-	return err == nil && !st.IsDir()
+	return err == nil && st.Mode().IsRegular() && st.Mode()&0111 != 0
 }
 
 func panelReloadCmd() string {
@@ -314,13 +314,13 @@ func installAcme() error {
 	if acmeInstalled() {
 		return ensureAcmeCron()
 	}
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		home = "/root"
-	}
-	_, err := runCmdTimeout(120*time.Second, "bash", "-c", "cd "+home+" && curl -fsSL https://get.acme.sh | sh")
+	_, err := runCmdTimeout(120*time.Second, "bash", "-c",
+		"export HOME=/root; cd /root && curl -fsSL https://get.acme.sh | sh -s email=admin@localhost")
 	if err != nil {
-		return err
+		return fmt.Errorf("curl|sh: %w", err)
+	}
+	if !acmeInstalled() {
+		return fmt.Errorf("acme.sh не найден после установки (%s)", acmeShBin())
 	}
 	return ensureAcmeCron()
 }

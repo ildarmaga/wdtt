@@ -82,6 +82,27 @@ func wdttInboundFileExists() bool {
 	return err == nil
 }
 
+func wdttServiceConfigured() bool {
+	data, err := os.ReadFile(wdttServicePath)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "wdtt-server")
+}
+
+// isWdttInboundConfigured — inbound.json, SQLite или уже работающий wdtt.service (после install.sh).
+func isWdttInboundConfigured() bool {
+	if wdttInboundFileExists() {
+		return true
+	}
+	if panelDBEnabled() {
+		if _, err := loadInboundNorm(); err == nil {
+			return true
+		}
+	}
+	return wdttServiceConfigured()
+}
+
 func (c *WdttInboundConfig) normalize() {
 	def := defaultWdttInbound()
 	if c.Tag == "" {
@@ -457,7 +478,7 @@ func inboundRequiresRestart(old, cfg WdttInboundConfig) bool {
 }
 
 func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
-	if cfg.Create && wdttInboundFileExists() {
+	if cfg.Create && isWdttInboundConfigured() {
 		return false, fmt.Errorf("на панели допускается только одно WDTT-подключение")
 	}
 	old, _ := loadWdttInbound()

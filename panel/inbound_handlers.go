@@ -16,7 +16,7 @@ func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
 	trafficUsed := upBytes + downBytes
 	serviceActive := st.ServiceActive
 	return map[string]interface{}{
-		"configured":        wdttInboundFileExists(),
+		"configured":        isWdttInboundConfigured(),
 		"tag":               cfg.Tag,
 		"enable":            cfg.Enable,
 		"listen_host":      cfg.ListenHost,
