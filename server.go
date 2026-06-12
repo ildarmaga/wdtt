@@ -86,6 +86,7 @@ type PasswordEntry struct {
 	Ports         string  `json:"ports,omitempty"` // "dtls,wg,tun"
 	IsDeactivated bool    `json:"is_deactivated,omitempty"`
 	SubID         string  `json:"sub_id,omitempty"`
+	LastSeenAt    int64   `json:"last_seen_at,omitempty"`
 }
 
 
@@ -514,6 +515,30 @@ func ensureMainPasswordEntryLocked() {
 		return
 	}
 	db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец"}
+}
+
+func touchUserLastSeen(password string) {
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return
+	}
+	now := time.Now().Unix()
+	dbMutex.Lock()
+	if password == db.MainPassword {
+		ensureMainPasswordEntryLocked()
+	}
+	e, ok := db.Passwords[password]
+	if !ok || e == nil {
+		dbMutex.Unlock()
+		return
+	}
+	if now <= e.LastSeenAt {
+		dbMutex.Unlock()
+		return
+	}
+	e.LastSeenAt = now
+	dbMutex.Unlock()
+	_ = updateLastSeenInSQLite(password, now)
 }
 
 func addTrafficLocked(password string, bytes int64, isDownload bool) bool {
@@ -1289,6 +1314,9 @@ func userSessionEnter(deviceID, ip, label, password string) bool {
 		atomic.AddInt32(&activeUsers, 1)
 		log.Printf("[ПОДКЛ] %s | %s | WG %s", info.Label, deviceID, info.IP)
 	}
+	if password != "" {
+		touchUserLastSeen(password)
+	}
 	return true
 }
 
@@ -1308,10 +1336,14 @@ func userSessionLeave(deviceID string) {
 		return
 	}
 	label, ip := info.Label, info.IP
+	password := info.Password
 	delete(onlineUsers, deviceID)
 	onlineUsersMutex.Unlock()
 	atomic.AddInt32(&activeUsers, -1)
 	log.Printf("[ОТКЛ] %s | %s | WG %s", label, deviceID, ip)
+	if password != "" {
+		touchUserLastSeen(password)
+	}
 }
 
 func userTouchActivity(deviceID string) {
@@ -1349,10 +1381,14 @@ func userPresenceSweep() {
 			continue
 		}
 		label, ip, sessions := info.Label, info.IP, info.Sessions
+		password := info.Password
 		delete(onlineUsers, deviceID)
 		onlineUsersMutex.Unlock()
 		atomic.AddInt32(&activeUsers, -1)
 		log.Printf("[ОТКЛ] stale %s | %s | WG %s (sessions=%d)", label, deviceID, ip, sessions)
+		if password != "" {
+			touchUserLastSeen(password)
+		}
 	}
 }
 
@@ -1515,6 +1551,11 @@ func statsLoop(ctx context.Context, configDir string) {
 			online := mergeOnlineWithWGPeers(snapshotOnlineUsers())
 			users := int32(len(online))
 			atomic.StoreInt32(&activeUsers, users)
+			for _, o := range online {
+				if pass := strings.TrimSpace(o["password"]); pass != "" {
+					touchUserLastSeen(pass)
+				}
+			}
 			total := atomic.LoadInt64(&totalConns)
 			uptime := time.Since(serverStartTime)
 

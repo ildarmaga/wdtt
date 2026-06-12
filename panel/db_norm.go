@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const dbSchemaVersion = 6
+const dbSchemaVersion = 7
 
 const schemaV2DDL = `
 CREATE TABLE IF NOT EXISTS panel_config (
@@ -174,20 +174,33 @@ func migratePanelDBV6() error {
 	return migrateEnsureUserSubIDs()
 }
 
+func migratePanelDBV7() error {
+	if _, err := panelDB.Exec(`ALTER TABLE wdtt_users ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		return err
+	}
+	return nil
+}
+
 func migrateEnsureUserSubIDs() error {
 	rows, err := panelDB.Query(`SELECT password, sub_id FROM wdtt_users`)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	var needSubID []string
 	for rows.Next() {
 		var pass, subID string
 		if err := rows.Scan(&pass, &subID); err != nil {
+			rows.Close()
 			return err
 		}
-		if strings.TrimSpace(subID) != "" {
-			continue
+		if strings.TrimSpace(subID) == "" {
+			needSubID = append(needSubID, pass)
 		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, pass := range needSubID {
 		newID, err := genSubID()
 		if err != nil {
 			return err
@@ -372,7 +385,7 @@ func loadPasswordsNorm() (*PasswordsDB, error) {
 		&db.MainPassword, &db.AdminID, &db.BotToken,
 	)
 	rows, err := panelDB.Query(`SELECT password, device_id, max_devices, expires_at, down_bytes, up_bytes,
-		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id FROM wdtt_users`)
+		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id, last_seen_at FROM wdtt_users`)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +395,7 @@ func loadPasswordsNorm() (*PasswordsDB, error) {
 		var pass string
 		var deactivated int
 		if err := rows.Scan(&pass, &e.DeviceID, &e.MaxDevices, &e.ExpiresAt, &e.DownBytes, &e.UpBytes,
-			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.SubID); err != nil {
+			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.SubID, &e.LastSeenAt); err != nil {
 			return nil, err
 		}
 		e.IsDeactivated = deactivated != 0
@@ -460,10 +473,10 @@ func savePasswordsNorm(db *PasswordsDB) error {
 		}
 		if _, err := tx.Exec(`INSERT INTO wdtt_users (
 			password, device_id, max_devices, expires_at, down_bytes, up_bytes, total_bytes,
-			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id, last_seen_at
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			pass, entry.DeviceID, entry.MaxDevices, entry.ExpiresAt, entry.DownBytes, entry.UpBytes,
-			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash, entry.SubID,
+			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash, entry.SubID, entry.LastSeenAt,
 		); err != nil {
 			return err
 		}

@@ -37,6 +37,7 @@ type PasswordEntry struct {
 	Ports         string  `json:"ports,omitempty"`
 	VkHash        string  `json:"vk_hash,omitempty"`
 	SubID         string  `json:"sub_id,omitempty"`
+	LastSeenAt    int64   `json:"last_seen_at,omitempty"`
 }
 
 const oneGB = 1024 * 1024 * 1024
@@ -446,12 +447,14 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
 		entry.DownBytes = cur.DownBytes
 		entry.UpBytes = cur.UpBytes
 		entry.SubID = cur.SubID
+		entry.LastSeenAt = cur.LastSeenAt
 		delete(db.Passwords, oldPassword)
 		db.Passwords[newPassword] = entry
 	} else {
 		entry.DownBytes = cur.DownBytes
 		entry.UpBytes = cur.UpBytes
 		entry.SubID = cur.SubID
+		entry.LastSeenAt = cur.LastSeenAt
 		db.Passwords[oldPassword] = entry
 	}
 	if strings.TrimSpace(entry.SubID) == "" {

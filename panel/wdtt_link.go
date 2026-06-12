@@ -7,35 +7,25 @@ import (
 	"strings"
 )
 
-// WdttSharePayload — формат как vmess:// в 3x-ui: JSON внутри base64.
+// WdttSharePayload — JSON внутри base64 для wdtt:// ссылок.
 type WdttSharePayload struct {
-	V    string `json:"v"`
 	Ps   string `json:"ps,omitempty"`
-	Tag  string `json:"tag,omitempty"`
-	Add  string `json:"add"`
+	IP   string `json:"ip"`
 	Dtls int    `json:"dtls"`
-	Wg   int    `json:"wg"`
-	Lp   int    `json:"lp,omitempty"`
-	Id   string `json:"id"`
+	Pass string `json:"pass"`
 	Did  string `json:"did,omitempty"`
 	Hash string `json:"hash,omitempty"`
 }
 
 func encodeWdttShareLink(p WdttSharePayload) (string, error) {
-	if p.V == "" {
-		p.V = "1"
-	}
-	if p.Add == "" {
+	if strings.TrimSpace(p.IP) == "" {
 		return "", fmt.Errorf("не указан адрес сервера")
 	}
-	if p.Id == "" {
+	if strings.TrimSpace(p.Pass) == "" {
 		return "", fmt.Errorf("не указан пароль")
 	}
-	if p.Dtls <= 0 || p.Wg <= 0 {
-		return "", fmt.Errorf("неверные порты")
-	}
-	if p.Lp <= 0 {
-		p.Lp = defaultClientPort
+	if p.Dtls <= 0 {
+		return "", fmt.Errorf("неверный порт DTLS")
 	}
 	data, err := json.Marshal(p)
 	if err != nil {
@@ -61,9 +51,31 @@ func decodeWdttShareLink(link string) (WdttSharePayload, error) {
 			return p, fmt.Errorf("не удалось декодировать ссылку: %w", err)
 		}
 	}
-	if err := json.Unmarshal(data, &p); err != nil {
+	var legacy struct {
+		Ps   string `json:"ps"`
+		IP   string `json:"ip"`
+		Add  string `json:"add"`
+		Dtls int    `json:"dtls"`
+		Pass string `json:"pass"`
+		Id   string `json:"id"`
+		Did  string `json:"did"`
+		Hash string `json:"hash"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
 		return p, fmt.Errorf("неверный JSON в ссылке: %w", err)
 	}
+	p.Ps = legacy.Ps
+	p.IP = strings.TrimSpace(legacy.IP)
+	if p.IP == "" {
+		p.IP = strings.TrimSpace(legacy.Add)
+	}
+	p.Dtls = legacy.Dtls
+	p.Pass = strings.TrimSpace(legacy.Pass)
+	if p.Pass == "" {
+		p.Pass = strings.TrimSpace(legacy.Id)
+	}
+	p.Did = legacy.Did
+	p.Hash = legacy.Hash
 	return p, nil
 }
 
@@ -73,7 +85,7 @@ func buildWdttShareLink(serverIP, password, remark, tag, deviceID, vkHash string
 	if host == "" {
 		host = serverIP
 	}
-	dtls, wg, client := resolveUserPorts(entry, inbound)
+	dtls, _, _ := resolveUserPorts(entry, inbound)
 	ps := strings.TrimSpace(remark)
 	if ps == "" && entry != nil {
 		ps = strings.TrimSpace(entry.Comment)
@@ -81,22 +93,15 @@ func buildWdttShareLink(serverIP, password, remark, tag, deviceID, vkHash string
 	if ps == "" {
 		ps = inbound.Remark
 	}
-	if tag == "" {
-		tag = inbound.Tag
-	}
 	if entry != nil && vkHash == "" {
 		vkHash = entry.VkHash
 	}
 	return encodeWdttShareLink(WdttSharePayload{
-		V:    "1",
 		Ps:   ps,
-		Tag:  tag,
-		Add:  host,
+		IP:   host,
 		Dtls: dtls,
-		Wg:   wg,
-		Lp:   client,
-		Id:   password,
-		Did:  "",
+		Pass: password,
+		Did:  strings.TrimSpace(deviceID),
 		Hash: vkHash,
 	})
 }

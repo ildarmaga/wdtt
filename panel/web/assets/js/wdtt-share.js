@@ -3,14 +3,10 @@ function wdttBuildShareLink(opts) {
   const password = String(opts.password || '').trim();
   if (!host || !password) return '';
   const obj = {
-    v: '1',
     ps: opts.remark || 'WDTT',
-    tag: opts.tag || 'wdtt-in',
-    add: host,
+    ip: host,
     dtls: Number(opts.dtls) || 56000,
-    wg: Number(opts.wg) || 56001,
-    lp: Number(opts.clientPort) || 9000,
-    id: password,
+    pass: password,
   };
   if (opts.deviceId) obj.did = opts.deviceId;
   if (opts.vkHash) obj.hash = opts.vkHash;

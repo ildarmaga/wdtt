@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
-	"html/template"
 	"log"
 	"net"
 	"net/http"
@@ -60,10 +59,10 @@ func lookupUserBySubID(subID string) (*subUserInfo, error) {
 	var e PasswordEntry
 	var deactivated int
 	err := panelDB.QueryRow(`SELECT password, sub_id, device_id, max_devices, expires_at, down_bytes, up_bytes,
-		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash
+		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, last_seen_at
 		FROM wdtt_users WHERE sub_id = ?`, subID).Scan(
 		&pass, &subCol, &e.DeviceID, &e.MaxDevices, &e.ExpiresAt, &e.DownBytes, &e.UpBytes,
-		&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash,
+		&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.LastSeenAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("subscription not found")
@@ -134,6 +133,32 @@ func subListenAddr(cfg *PanelConfig) string {
 	return net.JoinHostPort(listen, fmt.Sprintf("%d", port))
 }
 
+func subscriptionWantsHTML(r *http.Request) bool {
+	q := r.URL.Query()
+	if f := strings.ToLower(strings.TrimSpace(q.Get("format"))); f == "raw" || f == "sub" || f == "base64" {
+		return false
+	}
+	if q.Get("html") == "1" || strings.EqualFold(q.Get("view"), "html") {
+		return true
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	if strings.Contains(accept, "text/html") {
+		return true
+	}
+	ua := strings.ToLower(r.Header.Get("User-Agent"))
+	if ua == "" {
+		return false
+	}
+	if strings.Contains(ua, "okhttp") || strings.Contains(ua, "dart/") ||
+		strings.Contains(ua, "clash") || strings.Contains(ua, "sing-box") ||
+		strings.Contains(ua, "hiddify") || strings.Contains(ua, "v2ray") ||
+		strings.Contains(ua, "streisand") || strings.Contains(ua, "shadowrocket") {
+		return false
+	}
+	return strings.Contains(ua, "mozilla") || strings.Contains(ua, "safari") ||
+		strings.Contains(ua, "chrome") || strings.Contains(ua, "edg/")
+}
+
 func startSubscriptionServer(app *App) {
 	cfg := app.cfg
 	if cfg == nil || !cfg.SubEnable {
@@ -141,6 +166,7 @@ func startSubscriptionServer(app *App) {
 	}
 	go func() {
 		mux := http.NewServeMux()
+		mux.Handle("/assets/", http.StripPrefix("/assets/", withCacheControl(assetsHandler(), "max-age=31536000, public")))
 		path := normalizeSubPath(cfg.SubPath)
 		mux.HandleFunc(path, app.handleSubscription)
 		mux.HandleFunc(strings.TrimSuffix(path, "/"), func(w http.ResponseWriter, r *http.Request) {
@@ -211,17 +237,13 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	header := fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d",
 		info.Entry.UpBytes, info.Entry.DownBytes, info.Entry.TotalBytes, expireSec)
-	profileURL := strings.TrimSpace(a.cfg.SubProfileURL)
-	if profileURL == "" {
-		profileURL = a.buildSubURL(subID)
-	}
-	a.applySubHeaders(w, header)
 
-	accept := strings.ToLower(r.Header.Get("Accept"))
-	if strings.Contains(accept, "text/html") || r.URL.Query().Get("html") == "1" || strings.EqualFold(r.URL.Query().Get("view"), "html") {
-		a.serveSubInfoPage(w, subID, info, links)
+	if subscriptionWantsHTML(r) {
+		a.serveSubInfoPage(w, r, subID, info, links)
 		return
 	}
+
+	a.applySubHeaders(w, header)
 
 	body := strings.Join(links, "\n")
 	if a.cfg.SubEncrypt {
@@ -232,7 +254,6 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write([]byte(body))
-	_ = profileURL
 }
 
 func (a *App) applySubHeaders(w http.ResponseWriter, userInfoHeader string) {
@@ -254,78 +275,64 @@ func (a *App) applySubHeaders(w http.ResponseWriter, userInfoHeader string) {
 	w.Header().Set("Content-Disposition", "attachment; filename=wdtt")
 }
 
-type subPageData struct {
-	SubID    string
-	SubURL   string
-	Email    string
-	Upload   string
-	Download string
-	Total    string
-	Used     string
-	Expire   string
-	Links    []string
-	Title    string
-}
-
-func (a *App) serveSubInfoPage(w http.ResponseWriter, subID string, info *subUserInfo, links []string) {
-	used := trafficUsed(info.Entry)
-	page := subPageData{
-		SubID:    subID,
-		SubURL:   a.buildSubURL(subID),
-		Email:    info.Email,
-		Upload:   formatBytes(info.Entry.UpBytes),
-		Download: formatBytes(info.Entry.DownBytes),
-		Total:    formatBytes(info.Entry.TotalBytes),
-		Used:     formatBytes(used),
-		Expire:   passwordExpiry(info.Entry),
-		Links:    links,
-		Title:    strings.TrimSpace(a.cfg.SubTitle),
+func (a *App) serveSubInfoPage(w http.ResponseWriter, r *http.Request, subID string, info *subUserInfo, links []string) {
+	if htmlTemplates == nil {
+		http.Error(w, "templates not loaded", http.StatusInternalServerError)
+		return
 	}
-	if page.Title == "" {
-		page.Title = "WDTT Subscription"
+	used := trafficUsed(info.Entry)
+	total := info.Entry.TotalBytes
+	remained := ""
+	totalStr := "∞"
+	if total > 0 {
+		totalStr = formatBytes(total)
+		left := total - used
+		if left < 0 {
+			left = 0
+		}
+		remained = formatBytes(left)
+	}
+	expireSec := int64(0)
+	if info.Entry.ExpiresAt > 0 {
+		expireSec = info.Entry.ExpiresAt
+	}
+	lastOnline := info.Entry.LastSeenAt
+	if stats := loadServerStats(); stats != nil && stats.Timestamp > 0 {
+		db, err := loadPasswords()
+		isMain := err == nil && db != nil && info.Password == db.MainPassword
+		if userOnlineFromStats(info.Password, deviceIDsDisplay(info.Entry), isMain, stats) && stats.Timestamp > lastOnline {
+			lastOnline = stats.Timestamp
+		}
+	}
+	host := r.Host
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		host = h
+	}
+	data := pageData{
+		"title":        "subscription.title",
+		"host":         host,
+		"base_path":    "/",
+		"cur_ver":      panelVersion,
+		"assets_ver":   assetsVer,
+		"sId":          subID,
+		"subUrl":       a.buildSubURL(subID),
+		"subJsonUrl":   "",
+		"subClashUrl":  "",
+		"download":     formatBytes(info.Entry.DownBytes),
+		"upload":       formatBytes(info.Entry.UpBytes),
+		"used":         formatBytes(used),
+		"total":        totalStr,
+		"remained":     remained,
+		"expire":       expireSec,
+		"lastOnline":   lastOnline,
+		"downloadByte": info.Entry.DownBytes,
+		"uploadByte":   info.Entry.UpBytes,
+		"totalByte":    total,
+		"datepicker":   "gregorian",
+		"result":       links,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := subPageTemplate.Execute(w, page); err != nil {
+	if err := htmlTemplates.ExecuteTemplate(w, "subscription.html", data); err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
 	}
 }
-
-var subPageTemplate = template.Must(template.New("sub").Parse(`<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}}</title>
-<style>
-body{font-family:system-ui,sans-serif;background:#0a1222;color:rgba(255,255,255,.85);margin:0;padding:24px}
-.card{max-width:720px;margin:0 auto;background:#151f31;border-radius:12px;padding:24px}
-h1{font-size:1.25rem;margin:0 0 16px}
-.row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #2c3950}
-label{opacity:.7;flex:0 0 auto}
-span,code{flex:1;text-align:right}
-code{word-break:break-all;font-size:12px}
-.btn{display:inline-block;margin-top:12px;padding:8px 14px;background:#008771;color:#fff;border-radius:8px;text-decoration:none}
-.qr{margin-top:16px;text-align:center}
-</style>
-</head>
-<body>
-<div class="card">
-<h1>{{.Title}}</h1>
-<div class="row"><label>ID подписки</label><span>{{.SubID}}</span></div>
-<div class="row"><label>Email / имя</label><span>{{.Email}}</span></div>
-<div class="row"><label>↑ Upload</label><span>{{.Upload}}</span></div>
-<div class="row"><label>↓ Download</label><span>{{.Download}}</span></div>
-<div class="row"><label>Использовано</label><span>{{.Used}}</span></div>
-<div class="row"><label>Лимит</label><span>{{.Total}}</span></div>
-<div class="row"><label>Срок</label><span>{{.Expire}}</span></div>
-<div class="row"><label>URL подписки</label><code>{{.SubURL}}</code></div>
-{{if .Links}}<div class="row"><label>Конфиг</label><code>{{index .Links 0}}</code></div>{{end}}
-<a class="btn" href="{{.SubURL}}">Обновить подписку</a>
-<div class="qr"><canvas id="qr"></canvas></div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
-<script>
-try{new QRious({element:document.getElementById('qr'),value:{{printf "%q" .SubURL}},size:220});}catch(e){}
-</script>
-</body>
-</html>`))

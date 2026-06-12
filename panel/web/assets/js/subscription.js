@@ -28,26 +28,11 @@
     data.lastOnlineMs *= 1000;
   }
 
-  function renderLink(item) {
-    return (
-      Vue.h('a-list-item', {}, [
-        Vue.h('a-space', { props: { size: 'small' } }, [
-          Vue.h('a-button', { props: { size: 'small' }, on: { click: () => copy(item) } }, [Vue.h('a-icon', { props: { type: 'copy' } })]),
-          Vue.h('span', { class: 'break-all' }, item)
-        ])
-      ])
-    );
-  }
-
   function copy(text) {
     ClipboardManager.copyText(text).then(ok => {
       const messageType = ok ? 'success' : 'error';
       Vue.prototype.$message[messageType](ok ? 'Copied' : 'Copy failed');
     });
-  }
-
-  function open(url) {
-    window.location.href = url;
   }
 
   function drawQR(value) {
@@ -80,6 +65,15 @@
       } else if (link.startsWith('ss://')) {
         const hashIdx = link.indexOf('#');
         if (hashIdx !== -1) return decodeURIComponent(link.substring(hashIdx + 1));
+      } else if (link.startsWith('wdtt://')) {
+        try {
+          const json = JSON.parse(atob(link.replace('wdtt://', '')));
+          if (json.ps) return json.ps;
+          if (json.remark) return json.remark;
+          if (json.email) return json.email;
+          if (json.ip) return json.ip;
+          if (json.add) return json.add;
+        } catch (e) { /* ignore */ }
       }
     } catch (e) { /* ignore and fallback */ }
     return 'Link ' + (idx + 1);
@@ -93,7 +87,6 @@
       app: data,
       links: rawLinks,
       lang: '',
-      viewportWidth: (typeof window !== 'undefined' ? window.innerWidth : 1024),
     },
     async mounted() {
       this.lang = LanguageManager.getLanguage();
@@ -104,6 +97,10 @@
       if (sc) this.app.subClashUrl = sc;
       drawQR(this.app.subUrl);
       try {
+        const elWdtt = document.getElementById('qrcode-wdtt');
+        if (elWdtt && rawLinks[0]) {
+          new QRious({ element: elWdtt, value: rawLinks[0], size: 220 });
+        }
         const elJson = document.getElementById('qrcode-subjson');
         if (elJson && this.app.subJsonUrl) {
           new QRious({ element: elJson, value: this.app.subJsonUrl, size: 220 });
@@ -113,16 +110,8 @@
           new QRious({ element: elClash, value: this.app.subClashUrl, size: 220 });
         }
       } catch (e) { /* ignore */ }
-      this._onResize = () => { this.viewportWidth = window.innerWidth; };
-      window.addEventListener('resize', this._onResize);
-    },
-    beforeDestroy() {
-      if (this._onResize) window.removeEventListener('resize', this._onResize);
     },
     computed: {
-      isMobile() {
-        return this.viewportWidth < 576;
-      },
       isUnlimited() {
         return !this.app.totalByte;
       },
@@ -132,32 +121,9 @@
         const trafficOk = !this.app.totalByte || (this.app.uploadByte + this.app.downloadByte) <= this.app.totalByte;
         return expiryOk && trafficOk;
       },
-      shadowrocketUrl() {
-        const rawUrl = this.app.subUrl + '?flag=shadowrocket';
-        const base64Url = btoa(rawUrl);
-        const remark = encodeURIComponent(this.app.sId || 'Subscription');
-        return `shadowrocket://add/sub/${base64Url}?remark=${remark}`;
-      },
-      v2boxUrl() {
-        return `v2box://install-sub?url=${encodeURIComponent(this.app.subUrl)}&name=${encodeURIComponent(this.app.sId)}`;
-      },
-      streisandUrl() {
-        return `streisand://import/${encodeURIComponent(this.app.subUrl)}`;
-      },
-      v2raytunUrl() {
-        return this.app.subUrl;
-      },
-      npvtunUrl() {
-        return this.app.subUrl;
-      },
-      happUrl() {
-        return `happ://add/${this.app.subUrl}`;
-      }
     },
     methods: {
-      renderLink,
       copy,
-      open,
       linkName,
       i18nLabel(key) {
         return '{{ i18n "' + key + '" }}';

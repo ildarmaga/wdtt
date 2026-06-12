@@ -108,6 +108,10 @@
   body.dark .text-muted { color: rgba(255,255,255,.45); }
   .user-conn-table td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
   .user-conn-table tr:nth-child(odd) td { background: rgba(255,255,255,.03); }
+  .user-conn-block .user-conn-label { font-size: 12px; opacity: .65; margin-bottom: 6px; }
+  .user-conn-code { display: block; word-break: break-all; font-size: 12px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); }
+  #user-modal .qr-box { width: 220px; margin: 0 auto 8px; }
+  #user-modal .qr-cv { width: 100%; height: 100%; }
 </style>
 {{ template "page/body_scripts" . }}
 <script src="{{ .base_path }}assets/qrcode/qrious2.min.js?{{ .cur_ver }}"></script>

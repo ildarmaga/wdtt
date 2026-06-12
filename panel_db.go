@@ -60,6 +60,7 @@ func ensureServerDBSchema(db *sql.DB) error {
 		`ALTER TABLE wdtt_global ADD COLUMN admin_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE wdtt_global ADD COLUMN bot_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE wdtt_users ADD COLUMN sub_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE wdtt_users ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			return err
@@ -92,7 +93,7 @@ func loadDatabaseFromSQLite() (*Database, bool, error) {
 		&out.MainPassword, &out.AdminID, &out.BotToken,
 	)
 	rows, err := db.Query(`SELECT password, device_id, max_devices, expires_at, down_bytes, up_bytes,
-		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id FROM wdtt_users`)
+		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id, last_seen_at FROM wdtt_users`)
 	if err != nil {
 		return nil, false, err
 	}
@@ -102,7 +103,7 @@ func loadDatabaseFromSQLite() (*Database, bool, error) {
 		var pass string
 		var deactivated int
 		if err := rows.Scan(&pass, &e.DeviceID, &e.MaxDevices, &e.ExpiresAt, &e.DownBytes, &e.UpBytes,
-			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.SubID); err != nil {
+			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.SubID, &e.LastSeenAt); err != nil {
 			return nil, false, err
 		}
 		e.IsDeactivated = deactivated != 0
@@ -165,6 +166,22 @@ func saveDatabaseToSQLite(src *Database) error {
 	if _, err := tx.Exec(`DELETE FROM wdtt_user_devices`); err != nil {
 		return err
 	}
+	existingSubIDs := map[string]string{}
+	subRows, err := tx.Query(`SELECT password, sub_id FROM wdtt_users WHERE sub_id != ''`)
+	if err != nil {
+		return err
+	}
+	for subRows.Next() {
+		var pass, sid string
+		if err := subRows.Scan(&pass, &sid); err != nil {
+			subRows.Close()
+			return err
+		}
+		existingSubIDs[pass] = sid
+	}
+	if err := subRows.Close(); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM wdtt_users`); err != nil {
 		return err
 	}
@@ -180,12 +197,16 @@ func saveDatabaseToSQLite(src *Database) error {
 		if entry.IsDeactivated {
 			deact = 1
 		}
+		subID := strings.TrimSpace(entry.SubID)
+		if subID == "" {
+			subID = existingSubIDs[pass]
+		}
 		if _, err := tx.Exec(`INSERT INTO wdtt_users (
 			password, device_id, max_devices, expires_at, down_bytes, up_bytes, total_bytes,
-			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id, last_seen_at
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			pass, entry.DeviceID, entry.MaxDevices, entry.ExpiresAt, entry.DownBytes, entry.UpBytes,
-			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash, entry.SubID,
+			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash, subID, entry.LastSeenAt,
 		); err != nil {
 			return err
 		}
@@ -206,6 +227,18 @@ func saveDatabaseToSQLite(src *Database) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func updateLastSeenInSQLite(password string, ts int64) error {
+	if password == "" || ts <= 0 {
+		return nil
+	}
+	db, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`UPDATE wdtt_users SET last_seen_at = ? WHERE password = ? AND last_seen_at < ?`, ts, password, ts)
+	return err
 }
 
 func loadDatabaseFromDiskSource() (*Database, error) {

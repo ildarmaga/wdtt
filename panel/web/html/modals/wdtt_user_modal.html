@@ -94,39 +94,42 @@
         </a-form-item>
       </a-form>
     </a-tab-pane>
-    <a-tab-pane key="conn" tab="Подключение">
-      <a-alert type="info" show-icon style="margin-bottom:12px"
-        message="Как в 3x-ui: wdtt:// + base64(JSON). Внутри — сервер, порты, пароль и прочие параметры."></a-alert>
-      <a-form-item v-if="!userModal.isMain" label="Свои порты">
-        <a-checkbox v-model="userForm.use_custom_ports">Свои DTLS / WG порты</a-checkbox>
-      </a-form-item>
-      <template v-if="userForm.use_custom_ports && !userModal.isMain">
-        <a-form-item label="DTLS порт">
-          <a-input-number v-model="userForm.dtls_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
-        </a-form-item>
-        <a-form-item label="WireGuard порт">
-          <a-input-number v-model="userForm.wg_port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
-        </a-form-item>
-      </template>
-      <a-row :gutter="16">
-        <a-col :xs="24" :sm="14">
-          <table class="user-conn-table" :style="{ width: '100%' }">
-            <tr><td>Формат</td><td>wdtt://base64(JSON)</td></tr>
-            <tr><td>Сервер</td><td>[[ connHost || '—' ]]</td></tr>
-            <tr><td>Порты</td><td>DTLS [[ connPorts.dtls ]] · WG [[ connPorts.wg ]] · клиент [[ connPorts.client ]]</td></tr>
-            <tr><td>DNS</td><td>[[ userModal.inbound.dns || '1.1.1.1' ]]</td></tr>
-            <tr><td>Устройства</td><td>[[ userForm.device_ids.length ]]/[[ userForm.max_devices ]] · [[ devicesLabel ]]</td></tr>
-            <tr><td>Пароль в ссылке</td><td><code>[[ userForm.password || '—' ]]</code></td></tr>
-            <tr><td>Ссылка</td><td><code style="word-break:break-all">[[ connLink ]]</code></td></tr>
-            <tr v-if="userForm.sub_url"><td>Подписка</td><td><code style="word-break:break-all">[[ userForm.sub_url ]]</code></td></tr>
-            <tr v-if="userForm.sub_id"><td>Sub ID</td><td><code>[[ userForm.sub_id ]]</code></td></tr>
-          </table>
-          <a-button size="small" icon="copy" style="margin-top:12px" @click="copyConnLink">Копировать ссылку</a-button>
-          <a-button v-if="userForm.sub_url" size="small" icon="copy" style="margin-top:12px;margin-left:8px" @click="copySubUrl">Копировать подписку</a-button>
+    <a-tab-pane key="conn" tab="Подключение" :forceRender="true">
+      <a-row :gutter="[16, 16]">
+        <a-col :xs="24" :md="14">
+          <div class="user-conn-block">
+            <div class="user-conn-label">Ссылка</div>
+            <code class="user-conn-code">[[ connLink ]]</code>
+            <a-button size="small" icon="copy" style="margin-top:10px" @click="copyConnLink">Копировать ссылку</a-button>
+          </div>
+          <div v-if="userForm.sub_url" class="user-conn-block" style="margin-top:16px">
+            <div class="user-conn-label">Подписка</div>
+            <code class="user-conn-code">[[ userForm.sub_url ]]</code>
+            <a-button size="small" icon="copy" style="margin-top:10px;margin-right:8px" @click="copySubUrl">Копировать подписку</a-button>
+            <a-button size="small" icon="link" @click="openSubUrl">Открыть</a-button>
+          </div>
+          <div v-if="userForm.sub_id" class="user-conn-block" style="margin-top:12px">
+            <div class="user-conn-label">Sub ID</div>
+            <code class="user-conn-code">[[ userForm.sub_id ]]</code>
+          </div>
         </a-col>
-        <a-col :xs="24" :sm="10" style="text-align:center">
-          <canvas id="wdtt-user-share-qr" style="max-width:220px"></canvas>
-          <div style="margin-top:8px;opacity:.7;font-size:12px">QR для мобильного клиента</div>
+        <a-col :xs="24" :md="10">
+          <div class="qr-modal" style="justify-content:center">
+            <div v-if="userForm.sub_url" class="qr-box">
+              <a class="qr-bg-sub cursor-pointer" @click.prevent="openSubUrl" :title="userForm.sub_url">
+                <div class="qr-bg-sub-inner">
+                  <canvas id="wdtt-user-sub-qr" class="qr-cv"></canvas>
+                </div>
+              </a>
+              <a-tag class="qr-tag" color="green">Подписка</a-tag>
+            </div>
+            <div class="qr-box">
+              <a class="qr-bg cursor-pointer" @click.prevent="copyConnLink" :title="connLink">
+                <canvas id="wdtt-user-share-qr" class="qr-cv"></canvas>
+              </a>
+              <a-tag class="qr-tag" color="blue">Конфиг wdtt://</a-tag>
+            </div>
+          </div>
         </a-col>
       </a-row>
     </a-tab-pane>
@@ -169,11 +172,12 @@
     showLink(row, serverIp, inbound) {
       this.showEdit(row, serverIp, inbound);
       this.activeTab = 'conn';
-      userModalApp.$nextTick(() => userModalApp.renderQR());
+      userModalApp.scheduleRenderQR();
     },
     close() {
       this.visible = false;
       this.saving = false;
+      userModalApp.resetQR();
     },
     async save() {
       await userModalApp.saveUser();
@@ -188,6 +192,7 @@
       apiLink: '',
       linkSnapshot: null,
       qrInstance: null,
+      subQrInstance: null,
       userForm: {
         password: '',
         device_ids: [],
@@ -228,7 +233,7 @@
         return this.userForm.device_ids.join(', ');
       },
       connLink() {
-        if (this.apiLink && !this.linkFieldsChanged()) {
+        if (this.apiLink && !this.linkFieldsChanged() && this.apiLink !== '—') {
           return this.apiLink;
         }
         const p = this.connPorts;
@@ -259,13 +264,26 @@
     },
     watch: {
       connLink() {
-        if (this.userModal.activeTab === 'conn') {
-          this.$nextTick(() => this.renderQR());
+        if (this.userModal.activeTab === 'conn' && this.userModal.visible) {
+          this.scheduleRenderQR();
+        }
+      },
+      'userForm.sub_url'() {
+        if (this.userModal.activeTab === 'conn' && this.userModal.visible) {
+          this.scheduleRenderQR();
         }
       },
       'userModal.activeTab'(tab) {
-        if (tab === 'conn') {
-          this.$nextTick(() => this.renderQR());
+        if (tab === 'conn' && this.userModal.visible) {
+          this.scheduleRenderQR();
+        }
+      },
+      'userModal.visible'(v) {
+        if (v && this.userModal.activeTab === 'conn') {
+          this.scheduleRenderQR();
+        }
+        if (!v) {
+          this.resetQR();
         }
       },
       'userForm.unlimited'(v) {
@@ -280,15 +298,31 @@
       },
     },
     methods: {
-      renderQR() {
-        const el = document.getElementById('wdtt-user-share-qr');
-        const link = this.connLink;
-        if (!el || !link || link === '—' || typeof QRious === 'undefined') return;
-        if (!this.qrInstance) {
-          this.qrInstance = new QRious({ element: el, value: link, size: 220 });
-        } else {
-          this.qrInstance.value = link;
+      resetQR() {
+        this.qrInstance = null;
+        this.subQrInstance = null;
+      },
+      scheduleRenderQR() {
+        this.$nextTick(() => {
+          setTimeout(() => this.renderQR(), 80);
+        });
+      },
+      drawQrCanvas(canvasId, value, instKey, size) {
+        const el = document.getElementById(canvasId);
+        if (!el || typeof QRious === 'undefined') return;
+        const v = (value || '').trim();
+        if (!v || v === '—') {
+          const ctx = el.getContext && el.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, el.width || size, el.height || size);
+          this[instKey] = null;
+          return;
         }
+        this[instKey] = new QRious({ element: el, value: v, size: size || 188 });
+      },
+      renderQR() {
+        if (typeof QRious === 'undefined') return;
+        this.drawQrCanvas('wdtt-user-share-qr', this.connLink, 'qrInstance', 188);
+        this.drawQrCanvas('wdtt-user-sub-qr', this.userForm.sub_url, 'subQrInstance', 188);
       },
       genPassword() {
         const arr = new Uint32Array(16);
@@ -383,6 +417,11 @@
       copySubUrl() {
         const url = this.userForm.sub_url || '';
         wdttCopyLink(url, () => this.$message.success('Подписка скопирована'), () => this.$message.error('Не удалось скопировать'));
+      },
+      openSubUrl() {
+        const url = (this.userForm.sub_url || '').trim();
+        if (!url) return;
+        window.open(url, '_blank', 'noopener');
       },
       copyConnLink() {
         const self = this;
