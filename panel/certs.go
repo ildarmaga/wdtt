@@ -587,6 +587,7 @@ func revokeAcmeCert(domain string, cfg *PanelConfig) (map[string]interface{}, er
 		"message": "Сертификат отозван и удалён",
 		"certs":   certs,
 		"acme":    acmeStatus(),
+		"panel":   panelCertPanelMap(cfg),
 	}, nil
 }
 

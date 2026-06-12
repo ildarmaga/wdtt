@@ -119,16 +119,16 @@
     }
     payload() {
       return {
-        webListen: this.webListen,
-        webDomain: this.webDomain,
-        webPort: this.webPort,
-        webBasePath: this.webBasePath,
-        sessionMaxAge: this.sessionMaxAge,
-        pageSize: this.pageSize,
-        remarkModel: this.remarkModel,
-        webCertFile: this.webCertFile,
-        webKeyFile: this.webKeyFile,
-        blockPing: this.blockPing,
+        webListen: String(this.webListen || ''),
+        webDomain: String(this.webDomain || ''),
+        webPort: Number(this.webPort) || 2860,
+        webBasePath: String(this.webBasePath || '/wdtt/'),
+        sessionMaxAge: Number(this.sessionMaxAge) || 60,
+        pageSize: Number(this.pageSize) || 0,
+        remarkModel: String(this.remarkModel || '-ieo'),
+        webCertFile: String(this.webCertFile || ''),
+        webKeyFile: String(this.webKeyFile || ''),
+        blockPing: !!this.blockPing,
       };
     }
     equals(other) {
@@ -300,10 +300,13 @@
           this.acmeCronForm.hour = obj.acme.cronHour ?? 3;
           this.acmeCronForm.minute = obj.acme.cronMinute ?? 12;
         }
-        if (obj.panel && obj.panel.webCertFile) {
-          this.allSetting.webCertFile = obj.panel.webCertFile;
-          this.allSetting.webKeyFile = obj.panel.webKeyFile;
+        if (obj.panel) {
+          this.allSetting.webCertFile = obj.panel.webCertFile || '';
+          this.allSetting.webKeyFile = obj.panel.webKeyFile || '';
           if (obj.panel.webDomain) this.allSetting.webDomain = obj.panel.webDomain;
+          this.oldAllSetting.webCertFile = this.allSetting.webCertFile;
+          this.oldAllSetting.webKeyFile = this.allSetting.webKeyFile;
+          if (obj.panel.webDomain) this.oldAllSetting.webDomain = obj.panel.webDomain;
         }
       },
       async loadCerts() {
@@ -477,8 +480,10 @@
         if (!this.loadingStates.fetched) this.loadingStates.fetched = true;
         this.oldAllSetting = new PanelSetting(msg.obj);
         this.allSetting = new PanelSetting(msg.obj);
-        if (!this.allSetting.remarkModel || this.allSetting.remarkModel.length < 2) {
+        const rm = this.allSetting.remarkModel;
+        if (!rm || rm.length < 2) {
           this.allSetting.remarkModel = '-ieo';
+          this.oldAllSetting.remarkModel = '-ieo';
         }
         this.sshForm.port = this.allSetting.sshPort;
       },

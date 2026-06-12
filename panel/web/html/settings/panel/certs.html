@@ -108,7 +108,10 @@
     <a-divider orientation="left">Выпуск для домена</a-divider>
     <a-row :gutter="[8, 8]" :style="{ marginBottom: '8px' }">
       <a-col :span="24">
-        <a-input v-model="certForm.acmeEmail" placeholder="ACME email (если не указан — admin@домен панели)"></a-input>
+        <a-input v-model="certForm.acmeEmail" placeholder="ACME email (you@gmail.com — обязательно для IP, для домена опционально)"></a-input>
+        <div class="cert-muted" :style="{ marginTop: '4px' }">
+          Let's Encrypt: реальный email, не localhost / example.com. Перед выпуском выполняется <code>--register-account</code>.
+        </div>
       </a-col>
     </a-row>
     <a-row :gutter="[8, 8]">

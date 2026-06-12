@@ -34,6 +34,9 @@ type panelUserReq struct {
 }
 
 func (a *App) handleSettingAll(w http.ResponseWriter, r *http.Request) {
+	if sanitizePanelCertPaths(a.cfg) {
+		_ = savePanelConfig(a.cfg)
+	}
 	jsonOK(w, panelSettingsMap(a.cfg))
 }
 
@@ -119,10 +122,6 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.PageSize < 0 {
 		req.PageSize = 0
 	}
-	if err := validatePanelTLS(req.WebCertFile, req.WebKeyFile); err != nil {
-		jsonError(w, err.Error(), 400)
-		return
-	}
 
 	a.cfg.WebListen = strings.TrimSpace(req.WebListen)
 	a.cfg.WebDomain = strings.TrimSpace(req.WebDomain)
@@ -144,6 +143,12 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	a.cfg.WebKeyFile = strings.TrimSpace(req.WebKeyFile)
 	a.cfg.BlockPing = req.BlockPing
 	normalizePanelConfig(a.cfg)
+	sanitizePanelCertPaths(a.cfg)
+
+	if err := validatePanelTLS(a.cfg.WebCertFile, a.cfg.WebKeyFile); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
 
 	if ufwInstalled() {
 		current := ufwPingBlocked()

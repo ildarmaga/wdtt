@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -125,6 +126,45 @@ func normalizePanelConfig(cfg *PanelConfig) {
 		cfg.RemarkModel = "-ieo"
 	}
 	cfg.RemarkModel = normalizeRemarkModel(cfg.RemarkModel)
+}
+
+// sanitizePanelCertPaths сбрасывает пути, если файлы удалены (иначе save settings падает на validatePanelTLS).
+func sanitizePanelCertPaths(cfg *PanelConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	certFile := strings.TrimSpace(cfg.WebCertFile)
+	keyFile := strings.TrimSpace(cfg.WebKeyFile)
+	if certFile == "" && keyFile == "" {
+		return false
+	}
+	if certFile != "" {
+		if _, err := os.Stat(certFile); err != nil {
+			cfg.WebCertFile = ""
+			cfg.WebKeyFile = ""
+			return true
+		}
+	}
+	if keyFile != "" {
+		if _, err := os.Stat(keyFile); err != nil {
+			cfg.WebCertFile = ""
+			cfg.WebKeyFile = ""
+			return true
+		}
+	}
+	return false
+}
+
+func panelCertPanelMap(cfg *PanelConfig) map[string]interface{} {
+	if cfg == nil {
+		return map[string]interface{}{}
+	}
+	return map[string]interface{}{
+		"webCertFile": cfg.WebCertFile,
+		"webKeyFile":  cfg.WebKeyFile,
+		"webDomain":   cfg.WebDomain,
+		"tlsActive":   panelTLSEnabled(cfg),
+	}
 }
 
 func normalizeRemarkModel(s string) string {
