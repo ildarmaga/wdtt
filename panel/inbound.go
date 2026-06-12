@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -12,8 +11,9 @@ import (
 	"time"
 )
 
+var wdttInboundPath = "/etc/wdtt/inbound.json"
+
 const (
-	wdttInboundPath     = "/etc/wdtt/inbound.json"
 	wdttServicePath     = "/etc/systemd/system/wdtt.service"
 	wdttInboundTag      = "wdtt-in"
 	wdttIptComment      = "WDTT_MANAGED"
@@ -77,9 +77,14 @@ func defaultWdttInbound() WdttInboundConfig {
 	}
 }
 
-func wdttInboundFileExists() bool {
-	_, err := os.Stat(wdttInboundPath)
-	return err == nil
+// isWdttInboundConfigured — SQLite wdtt_inbound или уже работающий wdtt.service.
+func isWdttInboundConfigured() bool {
+	if panelDBEnabled() {
+		if _, err := loadInboundNorm(); err == nil {
+			return true
+		}
+	}
+	return wdttServiceConfigured()
 }
 
 func wdttServiceConfigured() bool {
@@ -88,19 +93,6 @@ func wdttServiceConfigured() bool {
 		return false
 	}
 	return strings.Contains(string(data), "wdtt-server")
-}
-
-// isWdttInboundConfigured — inbound.json, SQLite или уже работающий wdtt.service (после install.sh).
-func isWdttInboundConfigured() bool {
-	if wdttInboundFileExists() {
-		return true
-	}
-	if panelDBEnabled() {
-		if _, err := loadInboundNorm(); err == nil {
-			return true
-		}
-	}
-	return wdttServiceConfigured()
 }
 
 func (c *WdttInboundConfig) normalize() {
@@ -277,21 +269,10 @@ func loadWdttInbound() (WdttInboundConfig, error) {
 	if panelDBEnabled() {
 		if cfg, err := loadInboundNorm(); err == nil {
 			cfg.normalize()
-			syncInboundJSONBackup(cfg)
 			return cfg, nil
 		}
 	}
 	cfg := defaultWdttInbound()
-	data, err := os.ReadFile(wdttInboundPath)
-	if err == nil {
-		if json.Unmarshal(data, &cfg) == nil {
-			cfg.normalize()
-			if panelDBEnabled() {
-				_ = saveInboundNorm(cfg)
-			}
-			return cfg, nil
-		}
-	}
 	if svc, err := parseWdttInboundFromService(); err == nil {
 		svc.normalize()
 		if panelDBEnabled() {
@@ -302,37 +283,12 @@ func loadWdttInbound() (WdttInboundConfig, error) {
 	return cfg, nil
 }
 
-// syncInboundJSONBackup дописывает inbound.json (mtu и др.) из БД при dual-write.
-func syncInboundJSONBackup(cfg WdttInboundConfig) {
-	cfg.normalize()
-	data, err := os.ReadFile(wdttInboundPath)
-	if err == nil {
-		var raw map[string]json.RawMessage
-		if json.Unmarshal(data, &raw) == nil {
-			if _, hasMTU := raw["mtu"]; hasMTU {
-				var onDisk WdttInboundConfig
-				if json.Unmarshal(data, &onDisk) == nil {
-					onDisk.normalize()
-					if onDisk.MTU == cfg.MTU && onDisk.DNS == cfg.DNS &&
-						onDisk.MaxUsers == cfg.MaxUsers && onDisk.HandshakeTimeoutSec == cfg.HandshakeTimeoutSec &&
-						onDisk.MaxDtlsPerDevice == cfg.MaxDtlsPerDevice {
-						return
-					}
-				}
-			}
-		}
-	}
-	if err := writeJSONFile(wdttInboundPath, cfg, 0600); err != nil {
-		log.Printf("panel inbound json sync: %v", err)
-	}
-}
-
 func saveWdttInbound(cfg WdttInboundConfig) error {
 	cfg.normalize()
 	if err := cfg.validate(); err != nil {
 		return err
 	}
-	return saveJSONDual(dbKeyInbound, wdttInboundPath, cfg, 0600)
+	return saveToDB(dbKeyInbound, cfg)
 }
 
 var (

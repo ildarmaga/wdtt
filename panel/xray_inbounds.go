@@ -80,7 +80,7 @@ func loadPanelXrayInboundMeta() map[string]PanelXrayInboundMeta {
 }
 
 func savePanelXrayInboundMeta(meta map[string]PanelXrayInboundMeta) error {
-	return saveJSONDual(dbKeyXrayInboundMeta, panelXrayInboundMetaPath, meta, 0600)
+	return saveToDB(dbKeyXrayInboundMeta, meta)
 }
 
 func listPanelXrayInbounds() ([]PanelXrayInboundRow, error) {

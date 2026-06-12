@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -57,59 +56,11 @@ func filepathDir(path string) string {
 	return "."
 }
 
-func syncJSONFileToDB(key, path string, dest interface{}) {
+func saveToDB(key string, v interface{}) error {
 	if !panelDBEnabled() {
-		return
+		return fmt.Errorf("panel database not available")
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	if err := json.Unmarshal(data, dest); err != nil {
-		return
-	}
-	if err := dbSaveJSON(key, dest); err != nil {
-		log.Printf("panel db sync %s: %v", key, err)
-		return
-	}
-	log.Printf("panel db: migrated %s from %s", key, path)
-}
-
-func migrateJSONStoresToDB() {
-	if !panelDBEnabled() {
-		return
-	}
-	type item struct {
-		key  string
-		path string
-		dest interface{}
-	}
-	items := []item{
-		{dbKeyXrayMeta, panelXrayMetaPath, &panelXrayMeta{}},
-		{dbKeyXrayInboundMeta, panelXrayInboundMetaPath, &map[string]PanelXrayInboundMeta{}},
-		{dbKeyPasswords, filepath.Join(wdttConfigDir, "passwords.json"), &PasswordsDB{}},
-		{dbKeyInbound, wdttInboundPath, &WdttInboundConfig{}},
-		{dbKeyXrayTraffic, xrayTrafficFile(), &xrayTrafficPersist{}},
-	}
-	for _, it := range items {
-		if ok, _ := dbLoadJSON(it.key, it.dest); ok {
-			continue
-		}
-		if _, err := os.Stat(it.path); err != nil {
-			continue
-		}
-		syncJSONFileToDB(it.key, it.path, it.dest)
-	}
-}
-
-func saveJSONDual(key, path string, v interface{}, perm os.FileMode) error {
-	if panelDBEnabled() {
-		if err := saveToNormalized(key, v); err != nil {
-			return fmt.Errorf("panel db normalize %s: %w", key, err)
-		}
-	}
-	// Dual-write JSON backup (primary source: panel.db).
-	return writeJSONFile(path, v, perm)
+	return saveToNormalized(key, v)
 }
 
 func saveToNormalized(key string, v interface{}) error {
@@ -153,4 +104,26 @@ func saveToNormalized(key string, v interface{}) error {
 	default:
 		return dbSaveJSON(key, v)
 	}
+}
+
+func migrateJSONStoresToDB() {
+	migrateLegacyJSONFiles()
+}
+
+func syncJSONFileToDB(key, path string, dest interface{}) {
+	if !panelDBEnabled() {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	if err := json.Unmarshal(data, dest); err != nil {
+		return
+	}
+	if err := dbSaveJSON(key, dest); err != nil {
+		log.Printf("panel db sync %s: %v", key, err)
+		return
+	}
+	log.Printf("panel db: migrated %s from %s", key, path)
 }

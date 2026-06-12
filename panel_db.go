@@ -209,55 +209,43 @@ func saveDatabaseToSQLite(src *Database) error {
 
 func loadDatabaseFromDiskSource() (*Database, error) {
 	if incoming, ok, err := loadDatabaseFromSQLite(); err != nil {
-		log.Printf("[DB] sqlite load: %v, fallback json", err)
+		return nil, err
 	} else if ok {
 		return incoming, nil
 	}
-	data, err := os.ReadFile(dbFile)
-	if err != nil {
-		return nil, err
+	// Одноразовый fallback: panel.db ещё пуст, passwords.json остался до миграции панели.
+	if data, err := os.ReadFile(dbFile); err == nil {
+		var incoming Database
+		if err := json.Unmarshal(data, &incoming); err != nil {
+			return nil, err
+		}
+		if incoming.Passwords == nil {
+			incoming.Passwords = make(map[string]*PasswordEntry)
+		}
+		if incoming.Devices == nil {
+			incoming.Devices = make(map[string]*ClientDevice)
+		}
+		if serverPanelDBReady() {
+			if err := saveDatabaseToSQLite(&incoming); err != nil {
+				log.Printf("[DB] migrate passwords.json to sqlite: %v", err)
+			} else {
+				_ = os.Remove(dbFile)
+				log.Printf("[DB] migrated passwords.json → %s", panelDBPath)
+			}
+		}
+		return &incoming, nil
 	}
-	var incoming Database
-	if err := json.Unmarshal(data, &incoming); err != nil {
-		return nil, err
-	}
-	if incoming.Passwords == nil {
-		incoming.Passwords = make(map[string]*PasswordEntry)
-	}
-	if incoming.Devices == nil {
-		incoming.Devices = make(map[string]*ClientDevice)
-	}
-	return &incoming, nil
+	return &Database{
+		Passwords: make(map[string]*PasswordEntry),
+		Devices:   make(map[string]*ClientDevice),
+	}, nil
 }
 
 func saveDatabaseDual() error {
-	if err := saveDBJSON(); err != nil {
-		return err
+	if !serverPanelDBReady() {
+		return fmt.Errorf("panel.db not available at %s", panelDBPath)
 	}
-	if serverPanelDBReady() {
-		if err := saveDatabaseToSQLite(db); err != nil {
-			log.Printf("[DB] sqlite save: %v", err)
-		}
-	}
-	return nil
-}
-
-func saveDBJSON() error {
-	data, err := json.MarshalIndent(db, "", "  ")
-	if err != nil {
-		log.Printf("[DB] save: marshal: %v", err)
-		return err
-	}
-	tmp := dbFile + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		log.Printf("[DB] save: write: %v", err)
-		return err
-	}
-	if err := os.Rename(tmp, dbFile); err != nil {
-		log.Printf("[DB] save: rename: %v", err)
-		return err
-	}
-	return nil
+	return saveDatabaseToSQLite(db)
 }
 
 type inboundRuntimeSettings struct {
@@ -331,15 +319,20 @@ func applyInboundRuntimeSettings(raw inboundRuntimeSettings) {
 
 func loadInboundSettings(configDir string) {
 	if raw, ok, err := loadInboundFromSQLite(); err != nil {
-		log.Printf("[DB] inbound sqlite load: %v, fallback json", err)
+		log.Printf("[DB] inbound sqlite load: %v", err)
 	} else if ok {
 		applyInboundRuntimeSettings(raw)
-		log.Printf("[CFG] inbound loaded from %s (sqlite primary)", panelDBPath)
+		log.Printf("[CFG] inbound loaded from %s", panelDBPath)
 		return
 	}
+	// Legacy fallback до миграции панели (v5).
 	raw, err := loadInboundFromJSONFile(configDir)
 	if err != nil {
+		log.Printf("[CFG] inbound: defaults (empty wdtt_inbound)")
 		return
 	}
 	applyInboundRuntimeSettings(raw)
+	if serverPanelDBReady() {
+		log.Printf("[CFG] inbound loaded from %s/inbound.json (migrate via panel)", configDir)
+	}
 }

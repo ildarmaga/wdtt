@@ -28,7 +28,7 @@ func main() {
 		log.Fatal("templates: ", err)
 	}
 	if err := initPanelDB(); err != nil {
-		log.Printf("panel db: %v (json fallback)", err)
+		log.Fatal("panel db: ", err)
 	}
 
 	cfg, err := loadPanelConfig()
@@ -36,6 +36,7 @@ func main() {
 		log.Fatal(err)
 	}
 	migrateToNormalizedTables()
+	ensureDefaultWdttData()
 	if _, err := loadWdttInbound(); err != nil {
 		log.Printf("panel inbound load: %v", err)
 	}

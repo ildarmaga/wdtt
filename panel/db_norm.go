@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const dbSchemaVersion = 4
+const dbSchemaVersion = 5
 
 const schemaV2DDL = `
 CREATE TABLE IF NOT EXISTS panel_config (
@@ -137,6 +137,11 @@ func migratePanelDBV4() error {
 		return err
 	}
 	log.Printf("panel db: migrated xray_config from %s", xrayConfigPath)
+	return nil
+}
+
+func migratePanelDBV5() error {
+	migrateLegacyJSONFiles()
 	return nil
 }
 

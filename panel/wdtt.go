@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -108,41 +107,23 @@ type ServerStats struct {
 const passChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
 
 func loadPasswords() (*PasswordsDB, error) {
-	if panelDBEnabled() {
-		if db, err := loadPasswordsNorm(); err == nil {
-			return db, nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			log.Printf("panel db passwords load: %v, fallback json", err)
-		}
+	if !panelDBEnabled() {
+		return &PasswordsDB{
+			Passwords: map[string]*PasswordEntry{},
+			Devices:   map[string]*DeviceEntry{},
+		}, nil
 	}
-	return loadPasswordsFromJSON()
-}
-
-func loadPasswordsFromJSON() (*PasswordsDB, error) {
-	p := filepath.Join(wdttConfigDir, "passwords.json")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		db := &PasswordsDB{Passwords: map[string]*PasswordEntry{}, Devices: map[string]*DeviceEntry{}}
+	db, err := loadPasswordsNorm()
+	if err == nil {
 		return db, nil
 	}
-	var db PasswordsDB
-	if err := json.Unmarshal(data, &db); err != nil {
-		return nil, err
+	if errors.Is(err, os.ErrNotExist) {
+		return &PasswordsDB{
+			Passwords: map[string]*PasswordEntry{},
+			Devices:   map[string]*DeviceEntry{},
+		}, nil
 	}
-	if db.Passwords == nil {
-		db.Passwords = map[string]*PasswordEntry{}
-	}
-	if db.Devices == nil {
-		db.Devices = map[string]*DeviceEntry{}
-	}
-	for _, entry := range db.Passwords {
-		normalizeEntryDevices(entry)
-	}
-	dedupePasswordDeviceBindings(&db)
-	if panelDBEnabled() {
-		_ = savePasswordsNorm(&db)
-	}
-	return &db, nil
+	return nil, err
 }
 
 func dedupePasswordDeviceBindings(db *PasswordsDB) {
@@ -185,13 +166,10 @@ func dedupePasswordDeviceBindings(db *PasswordsDB) {
 }
 
 func savePasswords(db *PasswordsDB) error {
-	if panelDBEnabled() {
-		if err := savePasswordsNorm(db); err != nil {
-			return err
-		}
+	if !panelDBEnabled() {
+		return fmt.Errorf("panel database not available")
 	}
-	p := filepath.Join(wdttConfigDir, "passwords.json")
-	return writeJSONFile(p, db, 0600)
+	return savePasswordsNorm(db)
 }
 
 func maskPassword(pass string) string {

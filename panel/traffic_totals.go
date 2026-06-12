@@ -63,15 +63,6 @@ func saveXrayTrafficPersistLocked() {
 	if panelDBEnabled() {
 		_ = saveXrayTrafficNorm(p)
 	}
-	data, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return
-	}
-	tmp := xrayTrafficFile() + ".tmp"
-	if os.WriteFile(tmp, data, 0600) != nil {
-		return
-	}
-	_ = os.Rename(tmp, xrayTrafficFile())
 	xrayTrafficDirty = false
 }
 

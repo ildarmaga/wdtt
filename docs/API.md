@@ -1,6 +1,6 @@
 # WDTT Panel API
 
-Базовый URL панели: `https://<IP>:2860/wdtt/` (порт и путь настраиваются в `/etc/wdtt/panel.json`; при включённом SSL HTTP автоматически редиректит на HTTPS).
+Базовый URL панели: `https://<IP>:2860/wdtt/` (порт и путь настраиваются в `panel.db`; при включённом SSL HTTP автоматически редиректит на HTTPS).
 
 Все эндпоинты ниже — относительно `https://<IP>:2860/wdtt/`.
 
@@ -247,15 +247,12 @@ JSON:
 
 ## Файлы конфигурации
 
-Primary — `/etc/wdtt/panel.db` (SQLite). JSON-файлы ниже — dual-write backup для совместимости.
+Primary — `/etc/wdtt/panel.db` (SQLite). При обновлении старые JSON в `/etc/wdtt/` импортируются в БД и удаляются (schema v5).
 
 | Файл | Назначение |
 |------|------------|
 | `/etc/wdtt/panel.db` | Панель, users, inbound, xray meta/config |
-| `/etc/wdtt/passwords.json` | Backup: пользователи, устройства, трафик |
-| `/etc/wdtt/inbound.json` | Backup: порты, DNS, MTU, лимит пользователей |
-| `/etc/wdtt/panel.json` | Backup: настройки панели |
-| `/etc/wdtt-xray/config.json` | Backup: Xray routing (процесс xray читает с диска) |
+| `/etc/wdtt-xray/config.json` | Xray routing (процесс xray читает с диска; панель синхронизирует из БД) |
 
 ---
 

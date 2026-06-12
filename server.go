@@ -316,15 +316,15 @@ func refreshWrapKeysFromDBLocked() error {
 }
 
 func initDB(dir, mainPass, adminID, botToken string) {
-	// dbFile — путь dual-write backup; primary: panel.db (SQLite).
 	dbFile = filepath.Join(dir, "passwords.json")
-	if incoming, err := loadDatabaseFromDiskSource(); err == nil && incoming != nil {
-		db = incoming
-	} else {
+	if incoming, err := loadDatabaseFromDiskSource(); err != nil {
+		log.Printf("[DB] load: %v", err)
 		db = &Database{
 			Passwords: make(map[string]*PasswordEntry),
 			Devices:   make(map[string]*ClientDevice),
 		}
+	} else {
+		db = incoming
 	}
 	if db.Passwords == nil {
 		db.Passwords = make(map[string]*PasswordEntry)

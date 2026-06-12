@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	panelDBPath    = "/etc/wdtt/panel.db"
 	panelDBSetting = "panel"
 )
+
+var panelDBPath = "/etc/wdtt/panel.db"
 
 var panelDB *sql.DB
 
@@ -66,6 +67,9 @@ func migratePanelDB() error {
 		if err := migratePanelDBV4(); err != nil {
 			return err
 		}
+		if err := migratePanelDBV5(); err != nil {
+			return err
+		}
 		_, err = panelDB.Exec(`INSERT INTO schema_version (version) VALUES (?)`, dbSchemaVersion)
 		return err
 	}
@@ -84,6 +88,11 @@ func migratePanelDB() error {
 	}
 	if ver < 4 {
 		if err := migratePanelDBV4(); err != nil {
+			return err
+		}
+	}
+	if ver < 5 {
+		if err := migratePanelDBV5(); err != nil {
 			return err
 		}
 	}
@@ -125,10 +134,7 @@ func loadPanelConfigFromDB() (*PanelConfig, error) {
 }
 
 func savePanelConfigToDB(cfg *PanelConfig) error {
-	if err := savePanelConfigNorm(cfg); err != nil {
-		return err
-	}
-	return dbSaveJSON(panelDBSetting, cfg)
+	return savePanelConfigNorm(cfg)
 }
 
 func exportPanelDB(w io.Writer) error {

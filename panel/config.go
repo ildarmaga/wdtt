@@ -3,22 +3,21 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"log"
+	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
-const (
-	// Панель
+var (
 	panelConfigPath   = "/etc/wdtt/panel.json"
 	panelXrayMetaPath = "/etc/wdtt/panel-xray.json"
+)
 
+const (
 	// WDTT VPN-сервер
 	wdttConfigDir     = "/etc/wdtt"
 	wdttServerBin     = "/usr/local/bin/wdtt-server"
@@ -26,11 +25,11 @@ const (
 	wdttServiceUnit   = "wdtt.service"
 
 	// WDTT xray
-	xrayConfigDir  = "/etc/wdtt-xray"
-	xrayConfigPath = "/etc/wdtt-xray/config.json"
-	xrayBinDir     = "/usr/local/wdtt-xray/bin"
-	xrayAssetDir   = "/usr/local/wdtt-xray/bin"
-	xrayLogDir     = "/var/log/wdtt-xray"
+	xrayConfigDir   = "/etc/wdtt-xray"
+	xrayConfigPath  = "/etc/wdtt-xray/config.json"
+	xrayBinDir      = "/usr/local/wdtt-xray/bin"
+	xrayAssetDir    = "/usr/local/wdtt-xray/bin"
+	xrayLogDir      = "/var/log/wdtt-xray"
 	xrayServiceUnit = "wdtt-xray.service"
 
 	panelServiceUnit = "wdtt-panel.service"
@@ -53,37 +52,17 @@ type PanelConfig struct {
 }
 
 func loadPanelConfig() (*PanelConfig, error) {
-	if panelDBEnabled() {
-		if cfg, err := loadPanelConfigFromDB(); err == nil {
-			return finalizePanelConfig(cfg)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			log.Printf("panel db load: %v, fallback to json", err)
-		}
+	if !panelDBEnabled() {
+		return nil, fmt.Errorf("panel database not available")
 	}
-
-	data, err := os.ReadFile(panelConfigPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return createDefaultPanelConfig()
-		}
-		return nil, err
+	cfg, err := loadPanelConfigFromDB()
+	if err == nil {
+		return finalizePanelConfig(cfg)
 	}
-	var cfg PanelConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+	if errors.Is(err, os.ErrNotExist) {
+		return createDefaultPanelConfig()
 	}
-	out, err := finalizePanelConfig(&cfg)
-	if err != nil {
-		return nil, err
-	}
-	if panelDBEnabled() {
-		if err := savePanelConfigToDB(out); err != nil {
-			log.Printf("panel db sync from json: %v", err)
-		} else {
-			log.Printf("panel db: settings synced from %s", panelConfigPath)
-		}
-	}
-	return out, nil
+	return nil, err
 }
 
 func finalizePanelConfig(cfg *PanelConfig) (*PanelConfig, error) {
@@ -213,14 +192,10 @@ func createDefaultPanelConfig() (*PanelConfig, error) {
 }
 
 func savePanelConfig(cfg *PanelConfig) error {
-	if panelDBEnabled() {
-		if err := savePanelConfigToDB(cfg); err != nil {
-			return err
-		}
+	if !panelDBEnabled() {
+		return fmt.Errorf("panel database not available")
 	}
-	os.MkdirAll(filepath.Dir(panelConfigPath), 0700)
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	return os.WriteFile(panelConfigPath, data, 0600)
+	return savePanelConfigToDB(cfg)
 }
 
 func randomHex(n int) string {
