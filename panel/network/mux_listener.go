@@ -6,11 +6,20 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 )
+
+const muxPeekTimeout = 15 * time.Second
 
 type muxListener struct {
 	net.Listener
 	tlsConfig *tls.Config
+	ready     chan muxConn
+}
+
+type muxConn struct {
+	conn net.Conn
+	err  error
 }
 
 // NewMuxListener accepts both HTTP (redirect to HTTPS) and TLS on the same port.
@@ -24,29 +33,52 @@ func NewMuxListener(listener net.Listener, tlsConfig *tls.Config) net.Listener {
 		}
 		return &mainCert, nil
 	}
-	return &muxListener{Listener: listener, tlsConfig: cfg}
+	l := &muxListener{
+		Listener:  listener,
+		tlsConfig: cfg,
+		ready:     make(chan muxConn),
+	}
+	go l.acceptLoop()
+	return l
 }
 
 func (l *muxListener) Accept() (net.Conn, error) {
+	item, ok := <-l.ready
+	if !ok {
+		return nil, net.ErrClosed
+	}
+	return item.conn, item.err
+}
+
+func (l *muxListener) acceptLoop() {
+	defer close(l.ready)
 	for {
 		conn, err := l.Listener.Accept()
 		if err != nil {
-			return nil, err
+			l.ready <- muxConn{err: err}
+			return
 		}
-		br := bufio.NewReader(conn)
-		b, err := br.Peek(1)
-		if err != nil {
-			conn.Close()
-			continue
-		}
-		if b[0] == 0x16 {
-			return tls.Server(&peekedConn{Conn: conn, r: br}, l.tlsConfig), nil
-		}
-		if redirectHTTP(conn, br) {
-			continue
-		}
-		return &peekedConn{Conn: conn, r: br}, nil
+		go l.handleConn(conn)
 	}
+}
+
+func (l *muxListener) handleConn(conn net.Conn) {
+	_ = conn.SetReadDeadline(time.Now().Add(muxPeekTimeout))
+	br := bufio.NewReader(conn)
+	b, err := br.Peek(1)
+	_ = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		conn.Close()
+		return
+	}
+	if b[0] == 0x16 {
+		l.ready <- muxConn{conn: tls.Server(&peekedConn{Conn: conn, r: br}, l.tlsConfig)}
+		return
+	}
+	if redirectHTTP(conn, br) {
+		return
+	}
+	l.ready <- muxConn{conn: &peekedConn{Conn: conn, r: br}}
 }
 
 type peekedConn struct {

@@ -1241,6 +1241,91 @@ type wgPeerCounters struct {
 // wgPeerTrafficLast — последние rx/tx с wg show dump (учёт по пирам, не по DTLS-сессии).
 var wgPeerTrafficLast sync.Map
 
+// wgActivitySample — активность WG-пира для онлайн-статуса панели.
+// Онлайн определяется по дельте трафика WG (rx+tx), а НЕ по DTLS keepalive:
+// keepalive relay-ядра идёт мимо WG и держал бы «призрак» онлайн после отключения VPN.
+// Подключённый (даже простаивающий) клиент шлёт WG PersistentKeepalive каждые keepalive сек,
+// что двигает счётчики; при отключении туннеля трафик замирает → офлайн по таймауту.
+type wgActivitySample struct {
+	bytes      int64
+	lastChange time.Time
+	label      string
+	ip         string
+	password   string
+}
+
+var (
+	wgActivity   = make(map[string]*wgActivitySample)
+	wgActivityMu sync.Mutex
+)
+
+func refreshWGActivity() {
+	peers, err := collectWGPeerInfos()
+	if err != nil {
+		return
+	}
+	now := time.Now()
+
+	type resolved struct {
+		id, ip, pass string
+		isMain       bool
+		bytes        int64
+		handshake    int64
+	}
+	var list []resolved
+	dbMutex.Lock()
+	for _, peer := range peers {
+		id, ip, pass, isMain := deviceForWGPeerLocked(peer)
+		if id == "" {
+			continue
+		}
+		if pass == "" {
+			pass = bindOrphanDeviceToMainLocked(id)
+		}
+		if pass == "" {
+			continue
+		}
+		if ip == "" {
+			ip = peer.allowedIP
+		}
+		// Только rx (приём от клиента). tx растёт от серверного PersistentKeepalive
+		// даже когда клиент уже отключился — это держало бы ложный онлайн.
+		list = append(list, resolved{id: id, ip: ip, pass: pass, isMain: isMain, bytes: peer.rx, handshake: peer.lastHandshake})
+	}
+	dbMutex.Unlock()
+
+	wgActivityMu.Lock()
+	defer wgActivityMu.Unlock()
+	seen := make(map[string]struct{}, len(list))
+	for _, r := range list {
+		seen[r.id] = struct{}{}
+		label := userLabel(r.pass, r.isMain)
+		cur, ok := wgActivity[r.id]
+		if !ok {
+			// Первая выборка: точка отсчёта — момент последнего handshake (если был),
+			// чтобы старый мёртвый пир не считался онлайн после рестарта.
+			init := time.Time{}
+			if r.handshake > 0 {
+				init = time.Unix(r.handshake, 0)
+			}
+			wgActivity[r.id] = &wgActivitySample{bytes: r.bytes, lastChange: init, label: label, ip: r.ip, password: r.pass}
+			continue
+		}
+		if r.bytes != cur.bytes {
+			cur.bytes = r.bytes
+			cur.lastChange = now
+		}
+		cur.label = label
+		cur.ip = r.ip
+		cur.password = r.pass
+	}
+	for id := range wgActivity {
+		if _, ok := seen[id]; !ok {
+			delete(wgActivity, id)
+		}
+	}
+}
+
 var (
 	serverWGDev      *device.Device
 	serverWGDevMu    sync.RWMutex
@@ -1260,6 +1345,10 @@ func userOnlineTimeoutDuration() time.Duration {
 	if sec > 600 {
 		sec = 600
 	}
+	// DTLS keepalive клиента = 15s; таймаут онлайн должен быть чуть больше, иначе ложный offline.
+	if sec < 20 {
+		sec = 20
+	}
 	return time.Duration(sec) * time.Second
 }
 
@@ -1270,6 +1359,10 @@ func wgPeerOnlineMaxAgeSec() int64 {
 	}
 	if sec > 600 {
 		sec = 600
+	}
+	// WG PersistentKeepalive=25s — меньше порога даёт офлайн между keepalive.
+	if sec < int64(keepalive)+10 {
+		sec = int64(keepalive) + 10
 	}
 	return sec
 }
@@ -1385,39 +1478,17 @@ func userSessionLeave(deviceID string) {
 }
 
 func userTouchActivity(deviceID string) {
-	userEnsurePresence(deviceID, "", "", "")
-}
-
-// userEnsurePresence обновляет lastActivity; если stale sweep уже удалил запись — восстанавливает presence.
-func userEnsurePresence(deviceID, ip, label, password string) {
 	if deviceID == "" {
 		return
 	}
 	now := time.Now()
 	onlineUsersMutex.Lock()
 	defer onlineUsersMutex.Unlock()
-
 	info, exists := onlineUsers[deviceID]
-	if !exists {
-		onlineUsers[deviceID] = &onlineUserInfo{
-			Label:        label,
-			Password:     password,
-			IP:           ip,
-			Sessions:     1,
-			LastActivity: now,
-		}
+	if !exists || info.Sessions <= 0 {
 		return
 	}
 	info.LastActivity = now
-	if ip != "" {
-		info.IP = ip
-	}
-	if label != "" {
-		info.Label = label
-	}
-	if password != "" {
-		info.Password = password
-	}
 }
 
 func userPresenceSweep() {
@@ -1444,7 +1515,8 @@ func userPresenceSweep() {
 		delete(onlineUsers, deviceID)
 		onlineUsersMutex.Unlock()
 		atomic.AddInt32(&activeUsers, -1)
-		log.Printf("[ОТКЛ] stale %s | %s | WG %s (sessions=%d)", label, deviceID, ip, sessions)
+		evicted := relayEvictDevice(deviceID)
+		log.Printf("[ОТКЛ] stale %s | %s | WG %s (sessions=%d, relay_evict=%d)", label, deviceID, ip, sessions, evicted)
 		if password != "" {
 			touchUserLastSeen(password)
 		}
@@ -1464,71 +1536,28 @@ func userPresenceLoop(ctx context.Context) {
 	}
 }
 
+// snapshotOnlineUsers — онлайн для панели по дельте трафика WG-пира.
+// DTLS keepalive НЕ учитывается: он идёт мимо WG и не отражает реальный туннель.
 func snapshotOnlineUsers() []map[string]string {
-	onlineUsersMutex.Lock()
-	defer onlineUsersMutex.Unlock()
-	out := make([]map[string]string, 0, len(onlineUsers))
-	for deviceID, info := range onlineUsers {
-		if info.Sessions <= 0 {
+	now := time.Now()
+	timeout := time.Duration(wgPeerOnlineMaxAgeSec()) * time.Second
+	wgActivityMu.Lock()
+	defer wgActivityMu.Unlock()
+	result := make([]map[string]string, 0, len(wgActivity))
+	for deviceID, s := range wgActivity {
+		if s == nil || s.lastChange.IsZero() {
 			continue
 		}
-		out = append(out, map[string]string{
+		if now.Sub(s.lastChange) >= timeout {
+			continue
+		}
+		result = append(result, map[string]string{
 			"device_id": deviceID,
-			"user":      info.Label,
-			"password":  info.Password,
-			"ip":        info.IP,
-			"sessions":  strconv.Itoa(info.Sessions),
-		})
-	}
-	return out
-}
-
-func mergeOnlineWithWGPeers(sessionOnline []map[string]string) []map[string]string {
-	byDevice := make(map[string]map[string]string, len(sessionOnline)+2)
-	for _, o := range sessionOnline {
-		if id := o["device_id"]; id != "" {
-			byDevice[id] = o
-		}
-	}
-	peers, err := collectWGPeerInfos()
-	if err != nil {
-		result := make([]map[string]string, 0, len(byDevice))
-		for _, o := range byDevice {
-			result = append(result, o)
-		}
-		return result
-	}
-	now := time.Now().Unix()
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-	for _, peer := range peers {
-		if peer.lastHandshake <= 0 || now-peer.lastHandshake > wgPeerOnlineMaxAgeSec() {
-			continue
-		}
-		id, ip, pass, isMain := deviceForWGPeerLocked(peer)
-		if id == "" || byDevice[id] != nil {
-			continue
-		}
-		if pass == "" {
-			pass = bindOrphanDeviceToMainLocked(id)
-		}
-		if pass == "" {
-			continue
-		}
-		if ip == "" {
-			ip = peer.allowedIP
-		}
-		byDevice[id] = map[string]string{
-			"device_id": id,
-			"user":      userLabel(pass, isMain),
-			"password":  pass,
-			"ip":        ip,
+			"user":      s.label,
+			"password":  s.password,
+			"ip":        s.ip,
 			"sessions":  "1",
-		}
-	}
-	result := make([]map[string]string, 0, len(byDevice))
-	for _, o := range byDevice {
-		result = append(result, o)
+		})
 	}
 	return result
 }
@@ -1813,7 +1842,8 @@ func statsLoop(ctx context.Context, configDir string) {
 			fromC := atomic.LoadInt64(&totalBytesFromClient)
 			toC := atomic.LoadInt64(&totalBytesToClient)
 			sessions := atomic.LoadInt32(&activeConns)
-			online := mergeOnlineWithWGPeers(snapshotOnlineUsers())
+			refreshWGActivity()
+			online := snapshotOnlineUsers()
 			users := int32(len(online))
 			atomic.StoreInt32(&activeUsers, users)
 			for _, o := range online {
@@ -1857,7 +1887,6 @@ func statsLoop(ctx context.Context, configDir string) {
 			os.WriteFile(statsFile, statsJSON, 0644)
 
 			syncTrafficFromWGPeers()
-			syncOnlineFromWGPeers()
 			syncVPNLocalServices(wgIfaceName)
 			relayEvictAllIdle(relayStaleEvictIdle)
 
@@ -2711,8 +2740,8 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				if relaySess != nil {
 					relaySess.touch()
 				}
-				if connDeviceID != "" {
-					userEnsurePresence(connDeviceID, connUserIP, userLabel(connPassword, connIsMainPass), connPassword)
+				if sessionEntered {
+					userTouchActivity(connDeviceID)
 				}
 				continue
 			}

@@ -98,3 +98,21 @@ func relayEvictAllIdle(minIdle time.Duration) {
 		relaySessionEvictIdle(deviceID, minIdle)
 	}
 }
+
+// relayEvictDevice закрывает все DTLS-relay устройства (при offline sweep).
+func relayEvictDevice(deviceID string) int {
+	if deviceID == "" {
+		return 0
+	}
+	relaySessionsMu.Lock()
+	defer relaySessionsMu.Unlock()
+	list := relaySessions[deviceID]
+	if len(list) == 0 {
+		return 0
+	}
+	for _, s := range list {
+		s.cancel()
+	}
+	delete(relaySessions, deviceID)
+	return len(list)
+}

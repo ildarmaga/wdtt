@@ -207,7 +207,6 @@
       this.max_users = Number(data.max_users) || 10;
       this.handshake_timeout_sec = Number(data.handshake_timeout_sec) || 30;
       this.max_dtls_per_device = Number.isFinite(Number(data.max_dtls_per_device)) ? Number(data.max_dtls_per_device) : 0;
-      this.online_timeout_sec = Number(data.online_timeout_sec) || 15;
       this.admin_addr = data.admin_addr || '127.0.0.1:2861';
       this.server_ip = data.server_ip || '';
       this.default_link_host = data.default_link_host || '';
@@ -235,7 +234,7 @@
         max_users: Number(this.max_users),
         handshake_timeout_sec: Number(this.handshake_timeout_sec) || 30,
         max_dtls_per_device: Number(this.max_dtls_per_device),
-        online_timeout_sec: Number(this.online_timeout_sec) || 15,
+        online_timeout_sec: Number(this.handshake_timeout_sec) || 30,
         admin_addr: (this.admin_addr || '127.0.0.1:2861').trim(),
       };
     }

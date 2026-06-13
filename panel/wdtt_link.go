@@ -112,6 +112,7 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 	return encodeWdttShareLink(WdttSharePayload{
 		Vpn:  vpnName,
 		Name: userName,
+		Ps:   userName, // legacy clients / subscription.js до name
 		IP:   host,
 		Dtls: dtls,
 		Pass: password,
