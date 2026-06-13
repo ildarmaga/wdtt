@@ -34,6 +34,29 @@ func (a *App) handleGetXrayVersion(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, versions)
 }
 
+func (a *App) handleGetPanelVersion(w http.ResponseWriter, r *http.Request) {
+	tags, err := fetchWdttPanelReleases()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusOK)
+		return
+	}
+	jsonOK(w, tags)
+}
+
+func (a *App) handleInstallPanel(w http.ResponseWriter, r *http.Request) {
+	tag := strings.TrimPrefix(r.URL.Path, a.cfg.basePath()+"panel/api/server/installPanel/")
+	tag = strings.Trim(tag, "/")
+	if tag == "" {
+		jsonError(w, "version required", http.StatusOK)
+		return
+	}
+	if err := installPanelVersion(tag); err != nil {
+		jsonMsg(w, err.Error(), false)
+		return
+	}
+	jsonMsg(w, "Panel "+tag+" installed", true)
+}
+
 func (a *App) handleGetConfigJSON(w http.ResponseWriter, r *http.Request) {
 	cfg, err := getXrayConfigJSON()
 	if err != nil {
@@ -224,6 +247,8 @@ func (a *App) handleServerAPI(w http.ResponseWriter, r *http.Request) {
 		a.handleCPUHistory(w, r)
 	case "getXrayVersion":
 		a.handleGetXrayVersion(w, r)
+	case "getPanelVersion":
+		a.handleGetPanelVersion(w, r)
 	case "getConfigJson":
 		a.handleGetConfigJSON(w, r)
 	case "getDb":
@@ -241,6 +266,11 @@ func (a *App) handleServerAPI(w http.ResponseWriter, r *http.Request) {
 			r.URL.Path = a.cfg.basePath() + "panel/api/server/installXray/" + parts[1]
 		}
 		a.handleInstallXray(w, r)
+	case "installPanel":
+		if len(parts) > 1 {
+			r.URL.Path = a.cfg.basePath() + "panel/api/server/installPanel/" + parts[1]
+		}
+		a.handleInstallPanel(w, r)
 	case "updateGeofile":
 		r.URL.Path = a.cfg.basePath() + "panel/api/server/updateGeofile"
 		if len(parts) > 1 {

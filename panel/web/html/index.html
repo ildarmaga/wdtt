@@ -205,9 +205,9 @@
                       <a-icon type="control"></a-icon>
                       <span v-if="!isMobile">{{ i18n "pages.index.config" }}</span>
                     </a-space>
-                    <a-space direction="horizontal" @click="openXraySettings" class="jc-center">
-                      <a-icon type="tool"></a-icon>
-                      <span v-if="!isMobile">{{ i18n "menu.xray" }}</span>
+                    <a-space direction="horizontal" @click="openSelectPanelVersion" class="jc-center cursor-pointer">
+                      <a-icon type="cloud-download"></a-icon>
+                      <span v-if="!isMobile">{{ i18n "menu.panelUpdate" }}</span>
                     </a-space>
                   </template>
                 </a-card>
@@ -375,6 +375,25 @@
       </a-spin>
     </a-layout-content>
   </a-layout>
+  <a-modal id="panel-version-modal" v-model="panelVersionModal.visible" title='{{ i18n "pages.index.panelUpdate" }}'
+    :closable="true" @ok="() => panelVersionModal.visible = false" :class="themeSwitcher.currentTheme" footer="">
+    <a-alert type="info" class="mb-12 w-100" message='{{ i18n "pages.index.panelUpdateDesk" }}' show-icon></a-alert>
+    <div class="mb-12">
+      <a-tag color="green">v{{ .cur_ver }}</a-tag>
+      <span class="ml-8">{{ i18n "pages.index.panelUpdateCurrent" }}</span>
+    </div>
+    <a-list class="ant-version-list w-100" bordered :loading="panelVersionModal.loading">
+      <a-list-item class="ant-version-list-item" v-for="version, index in panelVersionModal.versions" :key="version">
+        <a-space>
+          <a-tag :color="index === 0 ? 'cyan' : (index % 2 === 0 ? 'purple' : 'green')">[[ version ]]</a-tag>
+          <a-tag v-if="index === 0" color="blue">latest</a-tag>
+          <a-tag v-if="isCurrentPanelVersion(version)" color="green">●</a-tag>
+        </a-space>
+        <a-radio :class="themeSwitcher.currentTheme" :checked="isCurrentPanelVersion(version)"
+          @click="switchPanelVersion(version)"></a-radio>
+      </a-list-item>
+    </a-list>
+  </a-modal>
   <a-modal id="version-modal" v-model="versionModal.visible" title='{{ i18n "pages.index.xraySwitch" }}'
     :closable="true" @ok="() => versionModal.visible = false" :class="themeSwitcher.currentTheme" footer="">
     <a-collapse default-active-key="1">
@@ -897,6 +916,21 @@
     },
   };
 
+  const curPanelVersion = '{{ .cur_ver }}';
+
+  const panelVersionModal = {
+    visible: false,
+    loading: false,
+    versions: [],
+    show(versions) {
+      this.visible = true;
+      this.versions = versions || [];
+    },
+    hide() {
+      this.visible = false;
+    },
+  };
+
   const logModal = {
     visible: false,
     logs: [],
@@ -1065,6 +1099,7 @@
   cpuHistoryLabels: [],
   cpuHistoryModal: { visible: false, bucket: 2 },
       versionModal,
+      panelVersionModal,
       logModal,
       xraylogModal,
       backupModal,
@@ -1160,6 +1195,44 @@
         }
         versionModal.show(msg.obj);
         this.loadCustomGeo();
+      },
+      isCurrentPanelVersion(version) {
+        const v = String(version || '').replace(/^v/i, '');
+        const cur = String(curPanelVersion || '').replace(/^v/i, '');
+        return v !== '' && v === cur;
+      },
+      async openSelectPanelVersion() {
+        panelVersionModal.loading = true;
+        panelVersionModal.visible = true;
+        const msg = await HttpUtil.get('/panel/api/server/getPanelVersion');
+        panelVersionModal.loading = false;
+        if (!msg.success) {
+          panelVersionModal.visible = false;
+          return;
+        }
+        panelVersionModal.show(msg.obj);
+      },
+      switchPanelVersion(version) {
+        if (this.isCurrentPanelVersion(version)) {
+          return;
+        }
+        this.$confirm({
+          title: '{{ i18n "pages.index.panelSwitchVersionDialog"}}',
+          content: '{{ i18n "pages.index.panelSwitchVersionDialogDesc"}}'.replace('#version#', version),
+          okText: '{{ i18n "confirm"}}',
+          class: themeSwitcher.currentTheme,
+          cancelText: '{{ i18n "cancel"}}',
+          onOk: async () => {
+            panelVersionModal.hide();
+            this.loading(true, '{{ i18n "pages.index.dontRefresh"}}');
+            const msg = await HttpUtil.post(`/panel/api/server/installPanel/${encodeURIComponent(version)}`);
+            this.loading(false);
+            if (msg && msg.success) {
+              this.$message.success('{{ i18n "pages.index.panelUpdateSuccess"}}');
+              setTimeout(() => { window.location.reload(); }, 4000);
+            }
+          },
+        });
       },
       customGeoFormatTime(ts) {
         if (!ts) return '';
