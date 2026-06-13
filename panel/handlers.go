@@ -127,7 +127,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 	inbound, _ := loadWdttInbound()
 	linkHost := a.resolveLinkHost(inbound)
 	stats := loadServerStats()
-	users := []map[string]interface{}{mainUserRow(db, stats, inbound, linkHost)}
+	users := []map[string]interface{}{mainUserRow(db, stats, inbound, linkHost, a.cfg.SubTitle)}
 	if mainEntry, ok := db.Passwords[db.MainPassword]; ok {
 		a.enrichUserSub(users[0], mainEntry)
 	}
@@ -164,7 +164,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			"dtls_port":          dtlsPort,
 			"wg_port":            wgPort,
 			"client_port":        clientPort,
-			"link":               buildWdttLink(linkHost, pass, entry.VkHash, entry, inbound),
+			"link":               buildWdttLink(linkHost, pass, a.cfg.SubTitle, entry.VkHash, entry, inbound, a.buildSubURL(entry.SubID)),
 			"vk_hash":            entry.VkHash,
 		}
 		a.enrichUserSub(u, entry)
@@ -184,6 +184,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		"devices":       devices,
 		"inbound": map[string]interface{}{
 			"tag":               inbound.Tag,
+			"sub_title":         a.cfg.SubTitle,
 			"remark":            inbound.Remark,
 			"listen_host":       inbound.ListenHost,
 			"server_host":       inbound.ServerHost,

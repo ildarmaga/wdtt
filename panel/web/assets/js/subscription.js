@@ -68,9 +68,11 @@
       } else if (link.startsWith('wdtt://')) {
         try {
           const json = JSON.parse(atob(link.replace('wdtt://', '')));
+          if (json.name) return json.name;
           if (json.ps) return json.ps;
           if (json.remark) return json.remark;
           if (json.email) return json.email;
+          if (json.vpn) return json.vpn;
           if (json.ip) return json.ip;
           if (json.add) return json.add;
         } catch (e) { /* ignore */ }

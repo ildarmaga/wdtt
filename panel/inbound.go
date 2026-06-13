@@ -502,8 +502,8 @@ func resolveUserPorts(entry *PasswordEntry, inbound WdttInboundConfig) (dtls, wg
 	return
 }
 
-func buildWdttLink(serverIP, password, vkHash string, entry *PasswordEntry, inbound WdttInboundConfig) string {
-	link, err := buildWdttShareLink(serverIP, password, "", "", "", vkHash, entry, inbound)
+func buildWdttLink(serverIP, password, vpnTitle, vkHash string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) string {
+	link, err := buildWdttShareLink(serverIP, password, "", vpnTitle, "", vkHash, entry, inbound, subURL)
 	if err != nil {
 		return ""
 	}

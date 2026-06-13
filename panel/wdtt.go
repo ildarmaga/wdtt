@@ -241,7 +241,7 @@ func passwordsTrafficTotals(db *PasswordsDB) (up, down int64) {
 	return up, down
 }
 
-func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig, serverIP string) map[string]interface{} {
+func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig, serverIP, vpnTitle string) map[string]interface{} {
 	upBytes := int64(0)
 	downBytes := int64(0)
 	deviceIDs := []string{}
@@ -284,7 +284,7 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 		"dtls_port":        dtlsPort,
 		"wg_port":          wgPort,
 		"client_port":      clientPort,
-		"link":             buildWdttLink(serverIP, db.MainPassword, "", &PasswordEntry{Comment: "Владелец"}, inbound),
+		"link":             buildWdttLink(serverIP, db.MainPassword, vpnTitle, "", &PasswordEntry{Comment: "Владелец"}, inbound, ""),
 	}
 }
 

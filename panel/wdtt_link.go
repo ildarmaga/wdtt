@@ -9,12 +9,15 @@ import (
 
 // WdttSharePayload — JSON внутри base64 для wdtt:// ссылок.
 type WdttSharePayload struct {
-	Ps   string `json:"ps,omitempty"`
+	Vpn  string `json:"vpn,omitempty"`  // название VPN (заголовок подписки)
+	Name string `json:"name,omitempty"` // комментарий пользователя
+	Ps   string `json:"ps,omitempty"`   // legacy: то же что name
 	IP   string `json:"ip"`
 	Dtls int    `json:"dtls"`
 	Pass string `json:"pass"`
 	Did  string `json:"did,omitempty"`
 	Hash string `json:"hash,omitempty"`
+	Sub  string `json:"sub,omitempty"`
 }
 
 func encodeWdttShareLink(p WdttSharePayload) (string, error) {
@@ -52,6 +55,8 @@ func decodeWdttShareLink(link string) (WdttSharePayload, error) {
 		}
 	}
 	var legacy struct {
+		Vpn  string `json:"vpn"`
+		Name string `json:"name"`
 		Ps   string `json:"ps"`
 		IP   string `json:"ip"`
 		Add  string `json:"add"`
@@ -60,11 +65,14 @@ func decodeWdttShareLink(link string) (WdttSharePayload, error) {
 		Id   string `json:"id"`
 		Did  string `json:"did"`
 		Hash string `json:"hash"`
+		Sub  string `json:"sub"`
 	}
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return p, fmt.Errorf("неверный JSON в ссылке: %w", err)
 	}
-	p.Ps = legacy.Ps
+	p.Vpn = strings.TrimSpace(legacy.Vpn)
+	p.Name = strings.TrimSpace(firstNonEmpty(legacy.Name, legacy.Ps))
+	p.Ps = p.Name
 	p.IP = strings.TrimSpace(legacy.IP)
 	if p.IP == "" {
 		p.IP = strings.TrimSpace(legacy.Add)
@@ -76,32 +84,48 @@ func decodeWdttShareLink(link string) (WdttSharePayload, error) {
 	}
 	p.Did = legacy.Did
 	p.Hash = legacy.Hash
+	p.Sub = legacy.Sub
 	return p, nil
 }
 
-func buildWdttShareLink(serverIP, password, remark, tag, deviceID, vkHash string, entry *PasswordEntry, inbound WdttInboundConfig) (string, error) {
+func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) (string, error) {
 	inbound.normalize()
 	host := strings.TrimSpace(inbound.ServerHost)
 	if host == "" {
 		host = serverIP
 	}
 	dtls, _, _ := resolveUserPorts(entry, inbound)
-	ps := strings.TrimSpace(remark)
-	if ps == "" && entry != nil {
-		ps = strings.TrimSpace(entry.Comment)
+	userName := strings.TrimSpace(remark)
+	if userName == "" && entry != nil {
+		userName = strings.TrimSpace(entry.Comment)
 	}
-	if ps == "" {
-		ps = inbound.Remark
+	if userName == "" {
+		userName = inbound.Remark
+	}
+	vpnName := strings.TrimSpace(vpnTitle)
+	if vpnName == "" {
+		vpnName = strings.TrimSpace(inbound.Tag)
 	}
 	if entry != nil && vkHash == "" {
 		vkHash = entry.VkHash
 	}
 	return encodeWdttShareLink(WdttSharePayload{
-		Ps:   ps,
+		Vpn:  vpnName,
+		Name: userName,
 		IP:   host,
 		Dtls: dtls,
 		Pass: password,
 		Did:  strings.TrimSpace(deviceID),
 		Hash: vkHash,
+		Sub:  strings.TrimSpace(subURL),
 	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

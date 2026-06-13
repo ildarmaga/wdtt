@@ -225,7 +225,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	inbound, _ := loadWdttInbound()
 	linkHost := a.resolveLinkHost(inbound)
-	link, err := buildWdttShareLink(linkHost, info.Password, info.Email, inbound.Tag, "", info.Entry.VkHash, info.Entry, inbound)
+	link, err := buildWdttShareLink(linkHost, info.Password, info.Email, a.cfg.SubTitle, "", info.Entry.VkHash, info.Entry, inbound, a.buildSubURL(info.Entry.SubID))
 	if err != nil {
 		http.Error(w, "failed to build link", http.StatusInternalServerError)
 		return
