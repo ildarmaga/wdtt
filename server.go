@@ -1294,8 +1294,10 @@ func refreshWGActivity() {
 	}
 	dbMutex.Unlock()
 
+	timeout := time.Duration(wgPeerOnlineMaxAgeSec()) * time.Second
+	var offline []string
+
 	wgActivityMu.Lock()
-	defer wgActivityMu.Unlock()
 	seen := make(map[string]struct{}, len(list))
 	for _, r := range list {
 		seen[r.id] = struct{}{}
@@ -1322,6 +1324,20 @@ func refreshWGActivity() {
 	for id := range wgActivity {
 		if _, ok := seen[id]; !ok {
 			delete(wgActivity, id)
+		}
+	}
+	// Устройства, у которых WG rx замер дольше таймаута = реальный дисконнект.
+	// Их DTLS-relay сессии глушим сразу, не дожидаясь 3-мин idle-эвикта.
+	for id, s := range wgActivity {
+		if s != nil && !s.lastChange.IsZero() && now.Sub(s.lastChange) >= timeout {
+			offline = append(offline, id)
+		}
+	}
+	wgActivityMu.Unlock()
+
+	for _, id := range offline {
+		if n := relayEvictDevice(id); n > 0 {
+			log.Printf("[ОТКЛ] wg-idle %s relay_evict=%d", id, n)
 		}
 	}
 }
