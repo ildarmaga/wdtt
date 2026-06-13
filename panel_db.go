@@ -61,6 +61,7 @@ func ensureServerDBSchema(db *sql.DB) error {
 		`ALTER TABLE wdtt_global ADD COLUMN bot_token TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE wdtt_users ADD COLUMN sub_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE wdtt_users ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE wdtt_inbound ADD COLUMN online_timeout_sec INTEGER NOT NULL DEFAULT 15`,
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			return err
@@ -287,7 +288,32 @@ type inboundRuntimeSettings struct {
 	MaxUsers            int    `json:"max_users"`
 	HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
 	MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
+	OnlineTimeoutSec    int    `json:"online_timeout_sec"`
 	MTU                 int    `json:"mtu"`
+}
+
+func loadPanelServicePortsFromSQLite() (panelPort, subPort int, ok bool, err error) {
+	db, err := openServerPanelDB()
+	if err != nil {
+		return 0, 0, false, err
+	}
+	var p, s sql.NullInt64
+	err = db.QueryRow(`SELECT port, sub_port FROM panel_config WHERE id = 1`).Scan(&p, &s)
+	if err == sql.ErrNoRows {
+		return 0, 0, false, nil
+	}
+	if err != nil {
+		return 0, 0, false, err
+	}
+	panelPort = defaultPanelTCPPort
+	subPort = defaultSubTCPPort
+	if p.Valid && p.Int64 > 0 {
+		panelPort = int(p.Int64)
+	}
+	if s.Valid && s.Int64 > 0 {
+		subPort = int(s.Int64)
+	}
+	return panelPort, subPort, true, nil
 }
 
 func loadInboundFromSQLite() (inboundRuntimeSettings, bool, error) {
@@ -300,9 +326,9 @@ func loadInboundFromSQLite() (inboundRuntimeSettings, bool, error) {
 		return inboundRuntimeSettings{}, false, err
 	}
 	var s inboundRuntimeSettings
-	err = db.QueryRow(`SELECT dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device
+	err = db.QueryRow(`SELECT dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec
 		FROM wdtt_inbound WHERE id = 1`).Scan(
-		&s.DNS, &s.MTU, &s.MaxUsers, &s.HandshakeTimeoutSec, &s.MaxDtlsPerDevice,
+		&s.DNS, &s.MTU, &s.MaxUsers, &s.HandshakeTimeoutSec, &s.MaxDtlsPerDevice, &s.OnlineTimeoutSec,
 	)
 	if err == sql.ErrNoRows {
 		return inboundRuntimeSettings{}, false, nil
@@ -344,10 +370,16 @@ func applyInboundRuntimeSettings(raw inboundRuntimeSettings) {
 	if raw.MaxDtlsPerDevice >= 0 && raw.MaxDtlsPerDevice <= 50 {
 		maxDTLSPerDevice = int32(raw.MaxDtlsPerDevice)
 	}
+	if raw.OnlineTimeoutSec >= 5 && raw.OnlineTimeoutSec <= 600 {
+		userOnlineTimeoutSec = raw.OnlineTimeoutSec
+	} else {
+		userOnlineTimeoutSec = defaultOnlineTimeoutSec
+	}
 	if raw.MTU >= 576 && raw.MTU <= 1500 {
 		wgMTU = raw.MTU
 	}
-	log.Printf("[CFG] inbound: DTLS timeout=%s, max сессий/device=%d (0=без лимита)", dtlsHandshakeTimeout, maxDTLSPerDevice)
+	log.Printf("[CFG] inbound: DTLS timeout=%s, online=%s, max сессий/device=%d (0=без лимита)",
+		dtlsHandshakeTimeout, userOnlineTimeoutDuration(), maxDTLSPerDevice)
 	log.Printf("[CFG] DNS клиентов: %s, MTU: %d, лимит активных: %d", clientDNS, wgMTU, maxGeneratedPasswords)
 }
 

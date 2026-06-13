@@ -97,6 +97,14 @@
     </a-form-item>
     <a-form-item>
       <template slot="label">
+        <a-tooltip title="Через сколько секунд без активности (DTLS keepalive / WG) пользователь считается офлайн в панели. По умолчанию 15 — как интервал keepalive клиента. Применяется сразу после «Сохранить» (hot-reload)">
+          Онлайн, сек <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.online_timeout_sec" :min="5" :max="600" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
         <a-tooltip title="HTTP на localhost: POST /admin/reload (пользователи, лимиты) и /health. Смена порта — только после перезапуска WDTT">
           Admin HTTP <a-icon type="question-circle"></a-icon>
         </a-tooltip>

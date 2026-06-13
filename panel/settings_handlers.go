@@ -225,6 +225,7 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 500)
 		return
 	}
+	go refreshTunnelLocalServiceRules()
 	jsonOK(w, panelSettingsMap(a.cfg))
 }
 

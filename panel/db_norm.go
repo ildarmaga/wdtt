@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const dbSchemaVersion = 7
+const dbSchemaVersion = 8
 
 const schemaV2DDL = `
 CREATE TABLE IF NOT EXISTS panel_config (
@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS wdtt_inbound (
 	max_users INTEGER NOT NULL DEFAULT 10,
 	handshake_timeout_sec INTEGER NOT NULL DEFAULT 30,
 	max_dtls_per_device INTEGER NOT NULL DEFAULT 0,
+	online_timeout_sec INTEGER NOT NULL DEFAULT 15,
 	admin_addr TEXT NOT NULL DEFAULT '127.0.0.1:2861'
 );
 CREATE TABLE IF NOT EXISTS xray_panel_meta (
@@ -176,6 +177,13 @@ func migratePanelDBV6() error {
 
 func migratePanelDBV7() error {
 	if _, err := panelDB.Exec(`ALTER TABLE wdtt_users ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		return err
+	}
+	return nil
+}
+
+func migratePanelDBV8() error {
+	if _, err := panelDB.Exec(`ALTER TABLE wdtt_inbound ADD COLUMN online_timeout_sec INTEGER NOT NULL DEFAULT 15`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 		return err
 	}
 	return nil
@@ -506,10 +514,10 @@ func loadInboundNorm() (WdttInboundConfig, error) {
 	}
 	var enable int
 	err := panelDB.QueryRow(`SELECT tag, remark, enable, listen_host, server_host, dtls_port, wg_port,
-		client_port, dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, admin_addr
+		client_port, dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, admin_addr
 		FROM wdtt_inbound WHERE id = 1`).Scan(
 		&cfg.Tag, &cfg.Remark, &enable, &cfg.ListenHost, &cfg.ServerHost, &cfg.DtlsPort, &cfg.WgPort,
-		&cfg.ClientPort, &cfg.DNS, &cfg.MTU, &cfg.MaxUsers, &cfg.HandshakeTimeoutSec, &cfg.MaxDtlsPerDevice, &cfg.AdminAddr,
+		&cfg.ClientPort, &cfg.DNS, &cfg.MTU, &cfg.MaxUsers, &cfg.HandshakeTimeoutSec, &cfg.MaxDtlsPerDevice, &cfg.OnlineTimeoutSec, &cfg.AdminAddr,
 	)
 	if err == sql.ErrNoRows {
 		return cfg, os.ErrNotExist
@@ -533,17 +541,18 @@ func saveInboundNorm(cfg WdttInboundConfig) error {
 	}
 	_, err := panelDB.Exec(`INSERT INTO wdtt_inbound (
 		id, tag, remark, enable, listen_host, server_host, dtls_port, wg_port, client_port, dns, mtu,
-		max_users, handshake_timeout_sec, max_dtls_per_device, admin_addr
-	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, admin_addr
+	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	ON CONFLICT(id) DO UPDATE SET
 		tag=excluded.tag, remark=excluded.remark, enable=excluded.enable,
 		listen_host=excluded.listen_host, server_host=excluded.server_host,
 		dtls_port=excluded.dtls_port, wg_port=excluded.wg_port, client_port=excluded.client_port,
 		dns=excluded.dns, mtu=excluded.mtu, max_users=excluded.max_users,
 		handshake_timeout_sec=excluded.handshake_timeout_sec,
-		max_dtls_per_device=excluded.max_dtls_per_device, admin_addr=excluded.admin_addr`,
+		max_dtls_per_device=excluded.max_dtls_per_device,
+		online_timeout_sec=excluded.online_timeout_sec, admin_addr=excluded.admin_addr`,
 		cfg.Tag, cfg.Remark, en, cfg.ListenHost, cfg.ServerHost, cfg.DtlsPort, cfg.WgPort,
-		cfg.ClientPort, cfg.DNS, cfg.MTU, cfg.MaxUsers, cfg.HandshakeTimeoutSec, cfg.MaxDtlsPerDevice, cfg.AdminAddr,
+		cfg.ClientPort, cfg.DNS, cfg.MTU, cfg.MaxUsers, cfg.HandshakeTimeoutSec, cfg.MaxDtlsPerDevice, cfg.OnlineTimeoutSec, cfg.AdminAddr,
 	)
 	return err
 }

@@ -73,6 +73,7 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 
 	loadInboundSettings(filepath.Dir(dbFile))
 	syncAllSpeedLimits()
+	syncVPNLocalServices(wgIfaceName)
 	log.Printf("[ADMIN] Конфиг перезагружен (sqlite/json: %s)", panelDBPath)
 	return nil
 }

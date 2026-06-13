@@ -24,6 +24,7 @@ const (
 	defaultMaxUsers     = 10
 	defaultWgMTU        = 1280
 	maxUsersSubnetLimit = 249
+	defaultOnlineTimeoutSec = 15
 )
 
 type WdttInboundConfig struct {
@@ -40,6 +41,7 @@ type WdttInboundConfig struct {
 	MaxUsers            int    `json:"max_users"`
 	HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
 	MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
+	OnlineTimeoutSec    int    `json:"online_timeout_sec"`
 	AdminAddr           string `json:"admin_addr"`
 	Create              bool   `json:"create"`
 }
@@ -73,6 +75,7 @@ func defaultWdttInbound() WdttInboundConfig {
 		MaxUsers:            defaultMaxUsers,
 		HandshakeTimeoutSec: 30,
 		MaxDtlsPerDevice:    0,
+		OnlineTimeoutSec:    defaultOnlineTimeoutSec,
 		AdminAddr:           "127.0.0.1:2861",
 	}
 }
@@ -130,6 +133,9 @@ func (c *WdttInboundConfig) normalize() {
 	if c.MaxDtlsPerDevice < 0 {
 		c.MaxDtlsPerDevice = def.MaxDtlsPerDevice
 	}
+	if c.OnlineTimeoutSec <= 0 {
+		c.OnlineTimeoutSec = def.OnlineTimeoutSec
+	}
 	if strings.TrimSpace(c.AdminAddr) == "" {
 		c.AdminAddr = def.AdminAddr
 	}
@@ -171,6 +177,9 @@ func (c WdttInboundConfig) validate() error {
 	}
 	if c.MaxDtlsPerDevice < 0 || c.MaxDtlsPerDevice > 50 {
 		return fmt.Errorf("лимит DTLS на устройство: от 0 (без лимита) до 50")
+	}
+	if c.OnlineTimeoutSec < 5 || c.OnlineTimeoutSec > 600 {
+		return fmt.Errorf("таймаут «онлайн»: от 5 до 600 секунд")
 	}
 	adminHost, _, err := net.SplitHostPort(strings.TrimSpace(c.AdminAddr))
 	if err != nil || adminHost == "" {

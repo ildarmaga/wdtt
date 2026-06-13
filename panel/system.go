@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync/atomic"
@@ -100,6 +101,18 @@ func ensureXrayFollowsWdtt() {
 	log.Printf("[watchdog] WDTT активен, Xray выключен — запускаем")
 	if err := serviceStart(xrayServiceUnit); err != nil {
 		log.Printf("[watchdog] не удалось запустить Xray: %v", err)
+	}
+}
+
+// refreshTunnelLocalServiceRules обновляет iptables для панели/подписки через VPN (порты из panel.db).
+func refreshTunnelLocalServiceRules() {
+	if _, err := os.Stat(wdttXrayRulesPath); err == nil {
+		if _, err := runCmd("bash", wdttXrayRulesPath, "up"); err != nil {
+			log.Printf("[panel] xray rules refresh: %v", err)
+		}
+	}
+	if err := wdttHotReload(); err != nil {
+		log.Printf("[panel] wdtt hot-reload after port change: %v", err)
 	}
 }
 

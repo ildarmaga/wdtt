@@ -52,9 +52,9 @@ const (
 	defaultMaxUsers          = 10
 	maxUsersSubnetLimit      = 249
 	defaultWgMTU             = 1280
-	defaultPanelTCPPort      = 2860
-	defaultSubTCPPort        = 2096
-	keepalive                = 25
+	defaultPanelTCPPort = 2860 // fallback до panel.db
+	defaultSubTCPPort   = 2096
+	keepalive           = 25
 )
 
 var (
@@ -437,51 +437,30 @@ func deviceForWGIPLocked(ip string) (deviceID, password string, isMain bool) {
 }
 
 // resolveConnByWGLocalPort определяет устройство, когда клиент шлёт WG-пакеты без GETCONF
-// (повторное подключение с сохранённым конфигом). wg show endpoint = 127.0.0.1:<localPort>.
+// (повторное подключение с сохранённым конфигом). wg endpoint = 127.0.0.1:<localPort>.
 func resolveConnByWGLocalPort(localPort int) (deviceID, userIP, password string, isMain bool) {
 	if localPort <= 0 {
 		return "", "", "", false
 	}
-	out, err := exec.Command("wg", "show", "wdtt0", "dump").Output()
+	peers, err := collectWGPeerInfos()
 	if err != nil {
 		return "", "", "", false
 	}
 	needle := fmt.Sprintf(":%d", localPort)
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for _, peer := range peers {
+		if peer.endpoint == "" || !strings.Contains(peer.endpoint, needle) {
 			continue
 		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 4 || !strings.Contains(fields[2], needle) {
+		id, ip, pass, main := deviceForWGPeerLocked(peer)
+		if id == "" || pass == "" {
 			continue
 		}
-		allowed := strings.Split(fields[3], ",")[0]
-		if allowed == "off" || !strings.Contains(allowed, ".") {
-			continue
+		if ip == "" {
+			ip = peer.allowedIP
 		}
-		userIP = strings.TrimSuffix(allowed, "/32")
-		pubKey := fields[0]
-		for id, dev := range db.Devices {
-			if dev == nil {
-				continue
-			}
-			if dev.PubKey == pubKey || dev.IP == userIP {
-				pass := passwordForDeviceLocked(id)
-				if pass == "" {
-					continue
-				}
-				if dev.IP != "" {
-					userIP = dev.IP
-				}
-				return id, userIP, pass, pass == db.MainPassword
-			}
-		}
-		if id, pass, main := deviceForWGIPLocked(userIP); id != "" {
-			return id, userIP, pass, main
-		}
+		return id, ip, pass, main
 	}
 	return "", "", "", false
 }
@@ -1269,7 +1248,31 @@ var (
 )
 
 // Должен быть больше интервала DTLS keepalive клиента (15s) и запаса на jitter.
-const userIdleTimeout = 180 * time.Second
+const defaultOnlineTimeoutSec = 15
+
+var userOnlineTimeoutSec = defaultOnlineTimeoutSec
+
+func userOnlineTimeoutDuration() time.Duration {
+	sec := userOnlineTimeoutSec
+	if sec < 5 {
+		sec = defaultOnlineTimeoutSec
+	}
+	if sec > 600 {
+		sec = 600
+	}
+	return time.Duration(sec) * time.Second
+}
+
+func wgPeerOnlineMaxAgeSec() int64 {
+	sec := int64(userOnlineTimeoutSec)
+	if sec < 5 {
+		sec = defaultOnlineTimeoutSec
+	}
+	if sec > 600 {
+		sec = 600
+	}
+	return sec
+}
 
 type onlineUserInfo struct {
 	Label        string
@@ -1423,7 +1426,7 @@ func userPresenceSweep() {
 
 	onlineUsersMutex.Lock()
 	for deviceID, info := range onlineUsers {
-		if info.Sessions > 0 && now.Sub(info.LastActivity) >= userIdleTimeout {
+		if info.Sessions > 0 && now.Sub(info.LastActivity) >= userOnlineTimeoutDuration() {
 			stale = append(stale, deviceID)
 		}
 	}
@@ -1432,7 +1435,7 @@ func userPresenceSweep() {
 	for _, deviceID := range stale {
 		onlineUsersMutex.Lock()
 		info, exists := onlineUsers[deviceID]
-		if !exists || info.Sessions <= 0 || now.Sub(info.LastActivity) < userIdleTimeout {
+		if !exists || info.Sessions <= 0 || now.Sub(info.LastActivity) < userOnlineTimeoutDuration() {
 			onlineUsersMutex.Unlock()
 			continue
 		}
@@ -1487,7 +1490,7 @@ func mergeOnlineWithWGPeers(sessionOnline []map[string]string) []map[string]stri
 			byDevice[id] = o
 		}
 	}
-	wgOut, err := exec.Command("wg", "show", "wdtt0", "dump").Output()
+	peers, err := collectWGPeerInfos()
 	if err != nil {
 		result := make([]map[string]string, 0, len(byDevice))
 		for _, o := range byDevice {
@@ -1498,24 +1501,22 @@ func mergeOnlineWithWGPeers(sessionOnline []map[string]string) []map[string]stri
 	now := time.Now().Unix()
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
-	for _, line := range strings.Split(string(wgOut), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for _, peer := range peers {
+		if peer.lastHandshake <= 0 || now-peer.lastHandshake > wgPeerOnlineMaxAgeSec() {
 			continue
 		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 5 {
-			continue
-		}
-		handshake, _ := strconv.ParseInt(strings.TrimSpace(fields[4]), 10, 64)
-		if handshake <= 0 || now-handshake > 180 {
-			continue
-		}
-		allowed := strings.Split(fields[3], ",")[0]
-		ip := strings.TrimSuffix(allowed, "/32")
-		id, pass, isMain := deviceForWGIPLocked(ip)
+		id, ip, pass, isMain := deviceForWGPeerLocked(peer)
 		if id == "" || byDevice[id] != nil {
 			continue
+		}
+		if pass == "" {
+			pass = bindOrphanDeviceToMainLocked(id)
+		}
+		if pass == "" {
+			continue
+		}
+		if ip == "" {
+			ip = peer.allowedIP
 		}
 		byDevice[id] = map[string]string{
 			"device_id": id,
@@ -1586,50 +1587,60 @@ func syncTrafficFromWGPeers() {
 	}
 }
 
-type wgPeerStat struct {
-	pubKeyB64 string
-	rx, tx    int64
+type wgPeerInfo struct {
+	pubKeyB64     string
+	allowedIP     string
+	endpoint      string
+	lastHandshake int64
+	rx, tx        int64
 }
 
-func collectWGPeerStats() ([]wgPeerStat, error) {
+func deviceForWGPeerLocked(peer wgPeerInfo) (deviceID, userIP, password string, isMain bool) {
+	ip := strings.TrimSuffix(peer.allowedIP, "/32")
+	for id, dev := range db.Devices {
+		if dev == nil {
+			continue
+		}
+		if peer.pubKeyB64 != "" && dev.PubKey == peer.pubKeyB64 {
+			pass := passwordForDeviceLocked(id)
+			if pass == "" {
+				continue
+			}
+			if dev.IP != "" {
+				ip = dev.IP
+			}
+			return id, ip, pass, pass == db.MainPassword
+		}
+	}
+	if ip != "" {
+		id, pass, main := deviceForWGIPLocked(ip)
+		return id, ip, pass, main
+	}
+	return "", "", "", false
+}
+
+func collectWGPeerInfos() ([]wgPeerInfo, error) {
 	serverWGDevMu.RLock()
 	dev := serverWGDev
 	serverWGDevMu.RUnlock()
 	if dev != nil {
 		text, err := dev.IpcGet()
 		if err == nil {
-			if stats := parseWGPeerStatsIpc(text); len(stats) > 0 {
-				return stats, nil
+			if peers := parseWGPeerInfosIpc(text); len(peers) > 0 {
+				return peers, nil
 			}
 		}
 	}
 	out, err := exec.Command("wg", "show", wgIfaceName, "dump").Output()
 	if err != nil {
-		return nil, fmt.Errorf("IpcGet/wg show dump: %w (установите wireguard-tools)", err)
+		return nil, fmt.Errorf("IpcGet/wg show dump: %w", err)
 	}
-	var stats []wgPeerStat
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 7 {
-			continue
-		}
-		rx, errRx := strconv.ParseInt(strings.TrimSpace(fields[5]), 10, 64)
-		tx, errTx := strconv.ParseInt(strings.TrimSpace(fields[6]), 10, 64)
-		if errRx != nil || errTx != nil {
-			continue
-		}
-		stats = append(stats, wgPeerStat{pubKeyB64: fields[0], rx: rx, tx: tx})
-	}
-	return stats, nil
+	return parseWGPeerInfosDump(string(out)), nil
 }
 
-func parseWGPeerStatsIpc(text string) []wgPeerStat {
-	var stats []wgPeerStat
-	var cur *wgPeerStat
+func parseWGPeerInfosIpc(text string) []wgPeerInfo {
+	var peers []wgPeerInfo
+	var cur *wgPeerInfo
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -1645,8 +1656,20 @@ func parseWGPeerStatsIpc(text string) []wgPeerStat {
 			if err != nil {
 				continue
 			}
-			stats = append(stats, wgPeerStat{pubKeyB64: b64})
-			cur = &stats[len(stats)-1]
+			peers = append(peers, wgPeerInfo{pubKeyB64: b64})
+			cur = &peers[len(peers)-1]
+		case "endpoint":
+			if cur != nil {
+				cur.endpoint = strings.TrimSpace(v)
+			}
+		case "last_handshake_time_sec":
+			if cur != nil {
+				cur.lastHandshake, _ = strconv.ParseInt(v, 10, 64)
+			}
+		case "allowed_ip":
+			if cur != nil && cur.allowedIP == "" {
+				cur.allowedIP = strings.Split(strings.TrimSpace(v), "/")[0]
+			}
 		case "rx_bytes":
 			if cur != nil {
 				cur.rx, _ = strconv.ParseInt(v, 10, 64)
@@ -1657,7 +1680,116 @@ func parseWGPeerStatsIpc(text string) []wgPeerStat {
 			}
 		}
 	}
-	return stats
+	return peers
+}
+
+func parseWGPeerInfosDump(text string) []wgPeerInfo {
+	var peers []wgPeerInfo
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 7 {
+			continue
+		}
+		allowed := strings.Split(fields[3], ",")[0]
+		if allowed == "off" {
+			continue
+		}
+		handshake, _ := strconv.ParseInt(strings.TrimSpace(fields[4]), 10, 64)
+		rx, errRx := strconv.ParseInt(strings.TrimSpace(fields[5]), 10, 64)
+		tx, errTx := strconv.ParseInt(strings.TrimSpace(fields[6]), 10, 64)
+		if errRx != nil || errTx != nil {
+			continue
+		}
+		peers = append(peers, wgPeerInfo{
+			pubKeyB64:     fields[0],
+			endpoint:      fields[2],
+			allowedIP:     strings.TrimSuffix(allowed, "/32"),
+			lastHandshake: handshake,
+			rx:            rx,
+			tx:            tx,
+		})
+	}
+	return peers
+}
+
+// syncOnlineFromWGPeers восстанавливает presence по активным WG-пирам (multi-worker relay без GETCONF).
+func syncOnlineFromWGPeers() {
+	peers, err := collectWGPeerInfos()
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	nowUnix := now.Unix()
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	onlineUsersMutex.Lock()
+	defer onlineUsersMutex.Unlock()
+	for _, peer := range peers {
+		if peer.lastHandshake <= 0 || nowUnix-peer.lastHandshake > wgPeerOnlineMaxAgeSec() {
+			continue
+		}
+		id, ip, pass, isMain := deviceForWGPeerLocked(peer)
+		if id == "" {
+			continue
+		}
+		if pass == "" {
+			pass = bindOrphanDeviceToMainLocked(id)
+		}
+		if pass == "" {
+			continue
+		}
+		if ip == "" {
+			ip = peer.allowedIP
+		}
+		label := userLabel(pass, isMain)
+		if info, ok := onlineUsers[id]; ok && info != nil {
+			info.LastActivity = now
+			if info.Sessions <= 0 {
+				info.Sessions = 1
+			}
+			if ip != "" {
+				info.IP = ip
+			}
+			if pass != "" {
+				info.Password = pass
+			}
+			if label != "" {
+				info.Label = label
+			}
+			continue
+		}
+		onlineUsers[id] = &onlineUserInfo{
+			Label:        label,
+			Password:     pass,
+			IP:           ip,
+			Sessions:     1,
+			LastActivity: now,
+		}
+	}
+}
+
+func collectWGPeerStats() ([]wgPeerStat, error) {
+	peers, err := collectWGPeerInfos()
+	if err != nil {
+		return nil, err
+	}
+	stats := make([]wgPeerStat, 0, len(peers))
+	for _, p := range peers {
+		if p.pubKeyB64 == "" {
+			continue
+		}
+		stats = append(stats, wgPeerStat{pubKeyB64: p.pubKeyB64, rx: p.rx, tx: p.tx})
+	}
+	return stats, nil
+}
+
+type wgPeerStat struct {
+	pubKeyB64 string
+	rx, tx    int64
 }
 
 func hexKeyToB64(hexKey string) (string, error) {
@@ -1725,6 +1857,8 @@ func statsLoop(ctx context.Context, configDir string) {
 			os.WriteFile(statsFile, statsJSON, 0644)
 
 			syncTrafficFromWGPeers()
+			syncOnlineFromWGPeers()
+			syncVPNLocalServices(wgIfaceName)
 			relayEvictAllIdle(relayStaleEvictIdle)
 
 			if trafficDirty.Load() {
@@ -1867,7 +2001,7 @@ func setupFullConeNAT(wgIface string) error {
 	os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644)
 
 	setupForwardRules(wgIface)
-	setupVPNLocalServices(wgIface)
+	syncVPNLocalServices(wgIface)
 	extIface := getDefaultInterface()
 	log.Printf("[NAT] Внешний: %s", extIface)
 
@@ -1891,19 +2025,69 @@ func setupFullConeNAT(wgIface string) error {
 	return nil
 }
 
-func setupVPNLocalServices(wgIface string) {
+var (
+	vpnLocalPortsMu      sync.Mutex
+	vpnLocalPortsApplied []int
+)
+
+func panelServicePorts() []int {
+	panelPort, subPort := defaultPanelTCPPort, defaultSubTCPPort
+	if p, s, ok, _ := loadPanelServicePortsFromSQLite(); ok {
+		panelPort, subPort = p, s
+	}
+	ports := []int{panelPort}
+	if subPort != panelPort {
+		ports = append(ports, subPort)
+	}
+	return ports
+}
+
+func syncVPNLocalServices(wgIface string) {
+	ports := panelServicePorts()
+	vpnLocalPortsMu.Lock()
+	defer vpnLocalPortsMu.Unlock()
+	if portsEqual(vpnLocalPortsApplied, ports) && len(vpnLocalPortsApplied) > 0 {
+		return
+	}
 	if !commandExists("iptables") {
 		return
 	}
-	for _, port := range []int{defaultPanelTCPPort, defaultSubTCPPort} {
-		args := []string{"-i", wgIface, "-p", "tcp", "--dport", strconv.Itoa(port),
-			"-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT"}
-		for i := 0; i < 3; i++ {
-			exec.Command("iptables", append([]string{"-D", "INPUT"}, args...)...).Run()
-		}
-		exec.Command("iptables", append([]string{"-I", "INPUT", "1"}, args...)...).Run()
+	for _, port := range vpnLocalPortsApplied {
+		removeVPNLocalPortRule(wgIface, port)
 	}
-	log.Printf("[NAT] Панель/подписка: tcp %d,%d доступны с %s через VPN", defaultPanelTCPPort, defaultSubTCPPort, wgIface)
+	vpnLocalPortsApplied = append([]int(nil), ports...)
+	for _, port := range ports {
+		addVPNLocalPortRule(wgIface, port)
+	}
+	log.Printf("[NAT] Панель/подписка через VPN: tcp %v с %s", ports, wgIface)
+}
+
+func portsEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func addVPNLocalPortRule(wgIface string, port int) {
+	args := []string{"-i", wgIface, "-p", "tcp", "--dport", strconv.Itoa(port),
+		"-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT"}
+	exec.Command("iptables", append([]string{"-I", "INPUT", "1"}, args...)...).Run()
+}
+
+func removeVPNLocalPortRule(wgIface string, port int) {
+	args := []string{"-i", wgIface, "-p", "tcp", "--dport", strconv.Itoa(port),
+		"-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT"}
+	for i := 0; i < 5; i++ {
+		if exec.Command("iptables", append([]string{"-D", "INPUT"}, args...)...).Run() != nil {
+			break
+		}
+	}
 }
 
 func setupNftNAT(extIface string) {
