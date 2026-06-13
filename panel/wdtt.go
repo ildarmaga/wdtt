@@ -419,7 +419,7 @@ func addUserPasswords(count int) ([]string, error) {
 	return created, nil
 }
 
-func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
+func updateUser(oldPassword, newPassword string, entry *PasswordEntry, manageDevices bool) error {
 	if oldPassword == "" {
 		return fmt.Errorf("пароль не указан")
 	}
@@ -471,7 +471,10 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry) error {
 	}
 	normalizeEntryDevices(cur)
 	normalizeEntryDevices(entry)
-	if len(entry.DeviceIDs) == 0 && entry.DeviceID == "" {
+	// Сохраняем текущие устройства только если запрос их не редактировал.
+	// Если устройства переданы явно (в т.ч. пустой список) — применяем как есть,
+	// что позволяет отвязать все привязанные устройства.
+	if !manageDevices && len(entry.DeviceIDs) == 0 && entry.DeviceID == "" {
 		entry.DeviceIDs = append([]string(nil), cur.DeviceIDs...)
 		entry.DeviceID = cur.DeviceID
 	}

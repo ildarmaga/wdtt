@@ -200,10 +200,10 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 }
 
 type userAPIReq struct {
-	Password    string   `json:"password"`
-	DeviceID    string   `json:"device_id"`
-	DeviceIDs   []string `json:"device_ids"`
-	MaxDevices  int      `json:"max_devices"`
+	Password    string    `json:"password"`
+	DeviceID    string    `json:"device_id"`
+	DeviceIDs   *[]string `json:"device_ids"`
+	MaxDevices  int       `json:"max_devices"`
 	Comment     string  `json:"comment"`
 	ExpiresAt   int64   `json:"expires_at"`
 	TotalGB     float64 `json:"total_gb"`
@@ -233,8 +233,9 @@ func passwordEntryFromReq(req userAPIReq) *PasswordEntry {
 		Ports:         portsFromReq(req),
 		MaxDevices:    req.MaxDevices,
 	}
-	if len(req.DeviceIDs) > 0 {
-		entry.DeviceIDs = append([]string(nil), req.DeviceIDs...)
+	if req.DeviceIDs != nil {
+		// Поле передано явно (в т.ч. пустой список = отвязать все устройства).
+		entry.DeviceIDs = append([]string(nil), (*req.DeviceIDs)...)
 	} else if id := strings.TrimSpace(req.DeviceID); id != "" {
 		entry.DeviceIDs = []string{id}
 	}
@@ -286,7 +287,8 @@ func (a *App) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	readJSON(r, &req)
 	entry := passwordEntryFromReq(req.userAPIReq)
-	if err := updateUser(req.OldPassword, strings.TrimSpace(req.Password), entry); err != nil {
+	manageDevices := req.DeviceIDs != nil || strings.TrimSpace(req.DeviceID) != ""
+	if err := updateUser(req.OldPassword, strings.TrimSpace(req.Password), entry, manageDevices); err != nil {
 		jsonError(w, err.Error(), 400)
 		return
 	}
