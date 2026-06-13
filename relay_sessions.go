@@ -85,3 +85,16 @@ func relaySessionUnregister(deviceID string, s *relaySession) {
 		delete(relaySessions, deviceID)
 	}
 }
+
+func relayEvictAllIdle(minIdle time.Duration) {
+	relaySessionsMu.Lock()
+	devices := make([]string, 0, len(relaySessions))
+	for deviceID := range relaySessions {
+		devices = append(devices, deviceID)
+	}
+	relaySessionsMu.Unlock()
+
+	for _, deviceID := range devices {
+		relaySessionEvictIdle(deviceID, minIdle)
+	}
+}

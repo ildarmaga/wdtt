@@ -394,6 +394,29 @@ func passwordForDeviceLocked(deviceID string) string {
 	return fallback
 }
 
+// bindOrphanDeviceToMainLocked привязывает устройство из wdtt_devices без записи в wdtt_user_devices к главному паролю.
+func bindOrphanDeviceToMainLocked(deviceID string) string {
+	if deviceID == "" || db.MainPassword == "" {
+		return ""
+	}
+	if _, ok := db.Devices[deviceID]; !ok {
+		return ""
+	}
+	if pass := passwordForDeviceLocked(deviceID); pass != "" {
+		return pass
+	}
+	ensureMainPasswordEntryLocked()
+	mainEntry := db.Passwords[db.MainPassword]
+	if mainEntry == nil {
+		return ""
+	}
+	if bindDeviceToEntry(mainEntry, deviceID) {
+		trafficDirty.Store(true)
+		log.Printf("[WG] Автопривязка %s к главному паролю (учёт трафика)", deviceID)
+	}
+	return db.MainPassword
+}
+
 func deviceForWGIPLocked(ip string) (deviceID, password string, isMain bool) {
 	if ip == "" {
 		return "", "", false
@@ -1237,7 +1260,8 @@ type wgPeerCounters struct {
 // wgPeerTrafficLast — последние rx/tx с wg show dump (учёт по пирам, не по DTLS-сессии).
 var wgPeerTrafficLast sync.Map
 
-const userIdleTimeout = 60 * time.Second
+// Должен быть больше интервала DTLS keepalive клиента (15s) и запаса на jitter.
+const userIdleTimeout = 180 * time.Second
 
 type onlineUserInfo struct {
 	Label        string
@@ -1350,6 +1374,11 @@ func userSessionLeave(deviceID string) {
 }
 
 func userTouchActivity(deviceID string) {
+	userEnsurePresence(deviceID, "", "", "")
+}
+
+// userEnsurePresence обновляет lastActivity; если stale sweep уже удалил запись — восстанавливает presence.
+func userEnsurePresence(deviceID, ip, label, password string) {
 	if deviceID == "" {
 		return
 	}
@@ -1359,9 +1388,25 @@ func userTouchActivity(deviceID string) {
 
 	info, exists := onlineUsers[deviceID]
 	if !exists {
+		onlineUsers[deviceID] = &onlineUserInfo{
+			Label:        label,
+			Password:     password,
+			IP:           ip,
+			Sessions:     1,
+			LastActivity: now,
+		}
 		return
 	}
 	info.LastActivity = now
+	if ip != "" {
+		info.IP = ip
+	}
+	if label != "" {
+		info.Label = label
+	}
+	if password != "" {
+		info.Password = password
+	}
 }
 
 func userPresenceSweep() {
@@ -1515,6 +1560,9 @@ func syncTrafficFromWGPeers() {
 		}
 		pass := passwordForDeviceLocked(deviceID)
 		if pass == "" {
+			pass = bindOrphanDeviceToMainLocked(deviceID)
+		}
+		if pass == "" {
 			continue
 		}
 		cur := wgPeerCounters{rx: rx, tx: tx}
@@ -1595,11 +1643,15 @@ func statsLoop(ctx context.Context, configDir string) {
 			os.WriteFile(statsFile, statsJSON, 0644)
 
 			syncTrafficFromWGPeers()
+			relayEvictAllIdle(relayStaleEvictIdle)
 
 			if trafficDirty.Load() {
 				dbMutex.Lock()
-				saveDB()
-				trafficDirty.Store(false)
+				if err := saveDB(); err != nil {
+					log.Printf("[DB] save traffic: %v", err)
+				} else {
+					trafficDirty.Store(false)
+				}
 				dbMutex.Unlock()
 			}
 		}
@@ -2137,6 +2189,16 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 						maskPassword(password), deviceID, len(entry.DeviceIDs), entryMaxDevices(entry))
 				}
 			}
+			if isMainPass {
+				ensureMainPasswordEntryLocked()
+				if mainEntry, ok := db.Passwords[db.MainPassword]; ok && mainEntry != nil && !entryHasDevice(mainEntry, deviceID) {
+					if bindDeviceToEntry(mainEntry, deviceID) {
+						saveDB()
+						log.Printf("[WG] Главный пароль привязан к %s (%d/%d)",
+							deviceID, len(mainEntry.DeviceIDs), entryMaxDevices(mainEntry))
+					}
+				}
+			}
 
 			dev, exists := db.Devices[deviceID]
 			if !exists {
@@ -2363,6 +2425,9 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			if nn == 1 && (*b)[0] == 0xFF {
 				if relaySess != nil {
 					relaySess.touch()
+				}
+				if connDeviceID != "" {
+					userEnsurePresence(connDeviceID, connUserIP, userLabel(connPassword, connIsMainPass), connPassword)
 				}
 				continue
 			}
