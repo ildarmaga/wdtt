@@ -62,19 +62,19 @@
         </a-form-item>
         <a-form-item v-if="!userModal.isMain">
           <template slot="label">
-            <a-tooltip title="0 = без ограничения. Скачивание клиента (↓)">
-              Лимит скорости ↓ (MB/s) <a-icon type="question-circle"></a-icon>
+            <a-tooltip title="0 = без ограничения. Скорость скачивания для клиента (↓). Указывается в Мбит/с: 1 ≈ 1 мегабит в секунду.">
+              Лимит скорости ↓ (Мбит/с) <a-icon type="question-circle"></a-icon>
             </a-tooltip>
           </template>
-          <a-input-number v-model="userForm.max_down_mbps" :min="0" :step="1" :style="{ width: '100%' }"></a-input-number>
+          <a-input-number v-model="userForm.max_down_mbit" :min="0" :step="1" :style="{ width: '100%' }"></a-input-number>
         </a-form-item>
         <a-form-item v-if="!userModal.isMain">
           <template slot="label">
-            <a-tooltip title="0 = без ограничения. Отдача клиента (↑)">
-              Лимит скорости ↑ (MB/s) <a-icon type="question-circle"></a-icon>
+            <a-tooltip title="0 = без ограничения. Скорость отдачи клиента (↑). Указывается в Мбит/с.">
+              Лимит скорости ↑ (Мбит/с) <a-icon type="question-circle"></a-icon>
             </a-tooltip>
           </template>
-          <a-input-number v-model="userForm.max_up_mbps" :min="0" :step="1" :style="{ width: '100%' }"></a-input-number>
+          <a-input-number v-model="userForm.max_up_mbit" :min="0" :step="1" :style="{ width: '100%' }"></a-input-number>
         </a-form-item>
         <a-form-item v-if="userModal.isEdit || userModal.isMain" label="Использовано">
           <a-tag :color="trafficTagColor">[[ formatBytes(trafficUsed) ]]</a-tag>
@@ -342,6 +342,17 @@
         if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
         return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
       },
+      /** В БД — MB/s для tc; в UI — Мбит/с (1 Мбит/с = 0.125 MB/s). */
+      mbitFromStoredMb(mb) {
+        const v = Number(mb) || 0;
+        if (v <= 0) return 0;
+        return Math.round(v * 8 * 10) / 10;
+      },
+      mbFromMbit(mbit) {
+        const v = Number(mbit) || 0;
+        if (v <= 0) return 0;
+        return v / 8;
+      },
       linkFieldsChanged() {
         if (!this.linkSnapshot) return true;
         const s = this.linkSnapshot;
@@ -371,8 +382,8 @@
           up_bytes: 0,
           down_bytes: 0,
           total_gb: 0,
-          max_down_mbps: 0,
-          max_up_mbps: 0,
+          max_down_mbit: 0,
+          max_up_mbit: 0,
           use_custom_ports: false,
           dtls_port: this.userModal.inbound.dtls_port || 56000,
           wg_port: this.userModal.inbound.wg_port || 56001,
@@ -404,8 +415,8 @@
           up_bytes: row.up_bytes || 0,
           down_bytes: row.down_bytes || 0,
           total_gb: Number(row.total_gb) || 0,
-          max_down_mbps: Number(row.max_down_mbps) || 0,
-          max_up_mbps: Number(row.max_up_mbps) || 0,
+          max_down_mbit: this.mbitFromStoredMb(row.max_down_mbps),
+          max_up_mbit: this.mbitFromStoredMb(row.max_up_mbps),
           vk_hash: row.vk_hash || '',
           use_custom_ports: !!(row.ports || (row.dtls_port && row.dtls_port !== (this.userModal.inbound.dtls_port || 56000))),
           dtls_port: Number(row.dtls_port) || this.userModal.inbound.dtls_port || 56000,
@@ -485,8 +496,8 @@
               comment: this.userForm.comment,
               expires_at: this.userForm.unlimited ? 0 : this.userForm.expires_at,
               total_gb: Number(this.userForm.total_gb) || 0,
-              max_down_mbps: Number(this.userForm.max_down_mbps) || 0,
-              max_up_mbps: Number(this.userForm.max_up_mbps) || 0,
+              max_down_mbps: this.mbFromMbit(this.userForm.max_down_mbit),
+              max_up_mbps: this.mbFromMbit(this.userForm.max_up_mbit),
               active: this.userForm.active,
               use_custom_ports: this.userForm.use_custom_ports,
               dtls_port: Number(this.userForm.dtls_port) || 0,

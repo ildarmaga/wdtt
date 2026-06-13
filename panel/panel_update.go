@@ -62,7 +62,7 @@ func fetchWdttPanelReleases() ([]string, error) {
 			tags = append(tags, rel.TagName)
 		}
 	}
-	return tags, nil
+	return filterReleaseTagsSinceDB(tags), nil
 }
 
 func installPanelVersion(tag string) error {
