@@ -62,6 +62,9 @@ var (
 	wgMTU                 = defaultWgMTU
 )
 
+// Ограничение параллельных DTLS handshake (burst от multi-worker клиентов)
+var dtlsHandshakeSem = make(chan struct{}, 64)
+
 // ==================== База данных и Бот ====================
 
 type ClientDevice struct {
@@ -1948,6 +1951,7 @@ func main() {
 	go userPresenceLoop(ctx)
 	go expiredPasswordJanitor(ctx, wgDev)
 	go getconfFailJanitor(ctx)
+	go relayFailJanitor(ctx)
 	go botLoop(*botToken, *adminID, wgDev)
 	startAdminServer(ctx, wgDev)
 
@@ -1965,7 +1969,13 @@ func main() {
 		log.Fatalf("[WRAP] %v", err)
 	}
 
-	listener, err := dtls.NewListenerWithOptions(wrapListener, dtls.WithCertificates(cert), dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret), dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), dtls.WithConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	listener, err := dtls.NewListenerWithOptions(wrapListener,
+		dtls.WithCertificates(cert),
+		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithConnectionIDGenerator(dtls.RandomCIDGenerator(8)),
+		dtls.WithFlightInterval(100*time.Millisecond),
+	)
 	if err != nil {
 		log.Fatalf("[DTLS] %v", err)
 	}
@@ -2031,23 +2041,33 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 
 	remoteAddr := clientConn.RemoteAddr()
 	hsTimeout := relayHandshakeTimeoutFor(remoteAddr)
+
+	select {
+	case dtlsHandshakeSem <- struct{}{}:
+	case <-ctx.Done():
+		return
+	}
+	hsStart := time.Now()
 	hctx, hcancel := context.WithTimeout(ctx, hsTimeout)
-	if err := dtlsConn.HandshakeContext(hctx); err != nil {
+	err := dtlsConn.HandshakeContext(hctx)
+	hcancel()
+	<-dtlsHandshakeSem
+
+	if err != nil {
 		log.Printf("[DTLS] Handshake failed from %s (timeout %s): %v", remoteAddr, hsTimeout, err)
 		relayNoteHandshakeFail(remoteAddr)
-		hcancel()
 		return
 	}
 	relayNoteHandshakeOK(remoteAddr)
-	hcancel()
+	log.Printf("[DTLS] Handshake OK from %s in %s", remoteAddr, time.Since(hsStart).Round(time.Millisecond))
 
 	atomic.AddInt32(&activeConns, 1)
 	defer atomic.AddInt32(&activeConns, -1)
 
 	buf := make([]byte, 1600)
-	firstReadDeadline := hsTimeout
-	if firstReadDeadline < 45*time.Second {
-		firstReadDeadline = 45 * time.Second
+	firstReadDeadline := dtlsHandshakeTimeout
+	if hsTimeout > firstReadDeadline {
+		firstReadDeadline = hsTimeout
 	}
 	clientConn.SetReadDeadline(time.Now().Add(firstReadDeadline))
 	n, err := clientConn.Read(buf)

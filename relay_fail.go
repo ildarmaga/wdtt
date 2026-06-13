@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"sync"
@@ -9,6 +10,12 @@ import (
 
 // После рестарта iOS часто шлёт WRAP со старых TURN relay; DTLS там не поднимается.
 // Укороченный timeout и сброс счётчика после успеха ускоряют переход на новые relay.
+// Базовый timeout берётся из панели (handshake_timeout_sec) → dtlsHandshakeTimeout.
+
+const (
+	relayDropAfterFails   = 3
+	relayFailMapClearSize = 8000
+)
 
 var (
 	relayFailMu     sync.Mutex
@@ -16,20 +23,29 @@ var (
 )
 
 func relayHandshakeTimeoutFor(addr net.Addr) time.Duration {
+	base := dtlsHandshakeTimeout
 	if addr == nil {
-		return dtlsHandshakeTimeout
+		return base
 	}
 	relayFailMu.Lock()
 	fails := relayFailCounts[addr.String()]
 	relayFailMu.Unlock()
 
 	switch {
-	case fails >= 3:
-		return 5 * time.Second
+	case fails >= 2:
+		t := base / 4
+		if t < 5*time.Second {
+			return 5 * time.Second
+		}
+		return t
 	case fails >= 1:
-		return 10 * time.Second
+		t := base / 2
+		if t < 8*time.Second {
+			return 8 * time.Second
+		}
+		return t
 	default:
-		return dtlsHandshakeTimeout
+		return base
 	}
 }
 
@@ -42,7 +58,7 @@ func relayNoteHandshakeFail(addr net.Addr) {
 	relayFailCounts[key]++
 	n := relayFailCounts[key]
 	relayFailMu.Unlock()
-	if n == 2 || n == 5 {
+	if n == 1 || n == relayDropAfterFails {
 		log.Printf("[RELAY] Stale TURN relay %s: %d DTLS handshake fail(s), fast-fail enabled", key, n)
 	}
 }
@@ -64,5 +80,24 @@ func relayShouldDrop(addr net.Addr) bool {
 	relayFailMu.Lock()
 	fails := relayFailCounts[addr.String()]
 	relayFailMu.Unlock()
-	return fails >= 5
+	return fails >= relayDropAfterFails
+}
+
+func relayFailJanitor(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			relayFailMu.Lock()
+			n := len(relayFailCounts)
+			if n > relayFailMapClearSize {
+				relayFailCounts = map[string]int{}
+				log.Printf("[RELAY] Cleared %d stale relay fail entries", n)
+			}
+			relayFailMu.Unlock()
+		}
+	}
 }
