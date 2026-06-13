@@ -52,6 +52,8 @@ const (
 	defaultMaxUsers          = 10
 	maxUsersSubnetLimit      = 249
 	defaultWgMTU             = 1280
+	defaultPanelTCPPort      = 2860
+	defaultSubTCPPort        = 2096
 	keepalive                = 25
 )
 
@@ -1260,6 +1262,12 @@ type wgPeerCounters struct {
 // wgPeerTrafficLast — последние rx/tx с wg show dump (учёт по пирам, не по DTLS-сессии).
 var wgPeerTrafficLast sync.Map
 
+var (
+	serverWGDev      *device.Device
+	serverWGDevMu    sync.RWMutex
+	wgTrafficErrOnce sync.Once
+)
+
 // Должен быть больше интервала DTLS keepalive клиента (15s) и запаса на jitter.
 const userIdleTimeout = 180 * time.Second
 
@@ -1524,33 +1532,25 @@ func mergeOnlineWithWGPeers(sessionOnline []map[string]string) []map[string]stri
 	return result
 }
 
-// syncTrafficFromWGPeers начисляет трафик по дельте rx/tx из wg show dump.
+// syncTrafficFromWGPeers начисляет трафик по дельте rx/tx WireGuard-пиров.
 // Надёжнее per-session flush: один peer может иметь несколько DTLS-прокси без GETCONF.
 func syncTrafficFromWGPeers() {
-	out, err := exec.Command("wg", "show", "wdtt0", "dump").Output()
+	peers, err := collectWGPeerStats()
 	if err != nil {
+		wgTrafficErrOnce.Do(func() {
+			log.Printf("[WG] учёт трафика: %v", err)
+		})
 		return
 	}
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 7 {
-			continue
-		}
-		pubKey := fields[0]
-		rx, errRx := strconv.ParseInt(strings.TrimSpace(fields[5]), 10, 64)
-		tx, errTx := strconv.ParseInt(strings.TrimSpace(fields[6]), 10, 64)
-		if errRx != nil || errTx != nil {
+	for _, peer := range peers {
+		if peer.pubKeyB64 == "" {
 			continue
 		}
 		var deviceID string
 		for id, dev := range db.Devices {
-			if dev != nil && dev.PubKey == pubKey {
+			if dev != nil && dev.PubKey == peer.pubKeyB64 {
 				deviceID = id
 				break
 			}
@@ -1565,18 +1565,18 @@ func syncTrafficFromWGPeers() {
 		if pass == "" {
 			continue
 		}
-		cur := wgPeerCounters{rx: rx, tx: tx}
+		cur := wgPeerCounters{rx: peer.rx, tx: peer.tx}
 		prevVal, hadPrev := wgPeerTrafficLast.Load(deviceID)
 		wgPeerTrafficLast.Store(deviceID, cur)
 		if !hadPrev {
 			continue
 		}
 		prev := prevVal.(wgPeerCounters)
-		if rx < prev.rx || tx < prev.tx {
+		if peer.rx < prev.rx || peer.tx < prev.tx {
 			continue
 		}
-		dRx := rx - prev.rx
-		dTx := tx - prev.tx
+		dRx := peer.rx - prev.rx
+		dTx := peer.tx - prev.tx
 		if dRx > 0 {
 			addTrafficLocked(pass, dRx, false)
 		}
@@ -1584,6 +1584,88 @@ func syncTrafficFromWGPeers() {
 			addTrafficLocked(pass, dTx, true)
 		}
 	}
+}
+
+type wgPeerStat struct {
+	pubKeyB64 string
+	rx, tx    int64
+}
+
+func collectWGPeerStats() ([]wgPeerStat, error) {
+	serverWGDevMu.RLock()
+	dev := serverWGDev
+	serverWGDevMu.RUnlock()
+	if dev != nil {
+		text, err := dev.IpcGet()
+		if err == nil {
+			if stats := parseWGPeerStatsIpc(text); len(stats) > 0 {
+				return stats, nil
+			}
+		}
+	}
+	out, err := exec.Command("wg", "show", wgIfaceName, "dump").Output()
+	if err != nil {
+		return nil, fmt.Errorf("IpcGet/wg show dump: %w (установите wireguard-tools)", err)
+	}
+	var stats []wgPeerStat
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 7 {
+			continue
+		}
+		rx, errRx := strconv.ParseInt(strings.TrimSpace(fields[5]), 10, 64)
+		tx, errTx := strconv.ParseInt(strings.TrimSpace(fields[6]), 10, 64)
+		if errRx != nil || errTx != nil {
+			continue
+		}
+		stats = append(stats, wgPeerStat{pubKeyB64: fields[0], rx: rx, tx: tx})
+	}
+	return stats, nil
+}
+
+func parseWGPeerStatsIpc(text string) []wgPeerStat {
+	var stats []wgPeerStat
+	var cur *wgPeerStat
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "public_key":
+			b64, err := hexKeyToB64(v)
+			if err != nil {
+				continue
+			}
+			stats = append(stats, wgPeerStat{pubKeyB64: b64})
+			cur = &stats[len(stats)-1]
+		case "rx_bytes":
+			if cur != nil {
+				cur.rx, _ = strconv.ParseInt(v, 10, 64)
+			}
+		case "tx_bytes":
+			if cur != nil {
+				cur.tx, _ = strconv.ParseInt(v, 10, 64)
+			}
+		}
+	}
+	return stats
+}
+
+func hexKeyToB64(hexKey string) (string, error) {
+	b, err := hex.DecodeString(strings.TrimSpace(hexKey))
+	if err != nil || len(b) != 32 {
+		return "", fmt.Errorf("bad wg public_key hex")
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 func statsLoop(ctx context.Context, configDir string) {
@@ -1785,6 +1867,7 @@ func setupFullConeNAT(wgIface string) error {
 	os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644)
 
 	setupForwardRules(wgIface)
+	setupVPNLocalServices(wgIface)
 	extIface := getDefaultInterface()
 	log.Printf("[NAT] Внешний: %s", extIface)
 
@@ -1806,6 +1889,21 @@ func setupFullConeNAT(wgIface string) error {
 	log.Printf("[NAT] Режим: %s", natType)
 	log.Println("[NAT] ══════════════════════════════════════")
 	return nil
+}
+
+func setupVPNLocalServices(wgIface string) {
+	if !commandExists("iptables") {
+		return
+	}
+	for _, port := range []int{defaultPanelTCPPort, defaultSubTCPPort} {
+		args := []string{"-i", wgIface, "-p", "tcp", "--dport", strconv.Itoa(port),
+			"-m", "comment", "--comment", "WDTT_MANAGED", "-j", "ACCEPT"}
+		for i := 0; i < 3; i++ {
+			exec.Command("iptables", append([]string{"-D", "INPUT"}, args...)...).Run()
+		}
+		exec.Command("iptables", append([]string{"-I", "INPUT", "1"}, args...)...).Run()
+	}
+	log.Printf("[NAT] Панель/подписка: tcp %d,%d доступны с %s через VPN", defaultPanelTCPPort, defaultSubTCPPort, wgIface)
 }
 
 func setupNftNAT(extIface string) {
@@ -1988,6 +2086,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("[WG] Запуск: %v", err)
 	}
+	serverWGDevMu.Lock()
+	serverWGDev = wgDev
+	serverWGDevMu.Unlock()
 	if n := suspendExpiredPasswords(wgDev); n > 0 {
 		log.Printf("[DB] Отключено истёкших паролей при старте (остались в базе): %d", n)
 	}
