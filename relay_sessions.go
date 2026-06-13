@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-const relayStaleEvictIdle = 20 * time.Second
+// Multi-worker clients keep many DTLS relays alive via 15s keepalive; 20s caused mass evictions.
+const relayStaleEvictIdle = 3 * time.Minute
 
 type relaySession struct {
 	cancel       context.CancelFunc

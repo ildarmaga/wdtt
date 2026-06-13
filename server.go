@@ -2045,7 +2045,11 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	defer atomic.AddInt32(&activeConns, -1)
 
 	buf := make([]byte, 1600)
-	clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	firstReadDeadline := hsTimeout
+	if firstReadDeadline < 45*time.Second {
+		firstReadDeadline = 45 * time.Second
+	}
+	clientConn.SetReadDeadline(time.Now().Add(firstReadDeadline))
 	n, err := clientConn.Read(buf)
 	if err != nil {
 		log.Printf("[DTLS] First read failed from %s: %v", clientConn.RemoteAddr(), err)
