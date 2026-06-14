@@ -54,7 +54,7 @@
                   </span>
                   <span slot="comment" slot-scope="text">[[ text || '—' ]]</span>
                   <span slot="vk_hash" slot-scope="text">
-                    <code v-if="text" style="font-size:11px">[[ text.length > 14 ? text.slice(0, 10) + '…' : text ]]</code>
+                    <code v-if="text" style="font-size:11px">[[ formatVkHashCell(text) ]]</code>
                     <span v-else class="text-muted">—</span>
                   </span>
                   <span slot="device" slot-scope="_, row">
@@ -180,6 +180,14 @@
         const v = Number(mb) || 0;
         if (v <= 0) return 0;
         return Math.round(v * 8 * 10) / 10;
+      },
+      formatVkHashCell(text) {
+        const list = wdttParseVkHashes(text || '');
+        if (!list.length) return '—';
+        const first = list[0];
+        const short = first.length > 10 ? first.slice(0, 10) + '…' : first;
+        if (list.length === 1) return short;
+        return short + ' +' + (list.length - 1);
       },
       toast(msg, ok) {
         if (ok) this.$message.success(msg); else this.$message.error(msg);

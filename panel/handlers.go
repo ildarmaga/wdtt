@@ -233,7 +233,7 @@ func passwordEntryFromReq(req userAPIReq) *PasswordEntry {
 		IsDeactivated: !active,
 		Ports:         portsFromReq(req),
 		MaxDevices:    req.MaxDevices,
-		VkHash:        stripVkHash(req.VkHash),
+		VkHash:        normalizeVkHashes(req.VkHash),
 	}
 	if req.DeviceIDs != nil {
 		// Поле передано явно (в т.ч. пустой список = отвязать все устройства).
@@ -245,25 +245,55 @@ func passwordEntryFromReq(req userAPIReq) *PasswordEntry {
 	return entry
 }
 
-func stripVkHash(raw string) string {
+const maxVkHashes = 4
+
+func normalizeVkHashes(raw string) string {
+	var out []string
+	seen := make(map[string]struct{})
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	}) {
+		h := stripVkHashOne(part)
+		if h == "" {
+			continue
+		}
+		if _, ok := seen[h]; ok {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
+		if len(out) >= maxVkHashes {
+			break
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+func stripVkHashOne(raw string) string {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return ""
 	}
-	prefixes := []string{
-		"https://vk.com/call/join/", "http://vk.com/call/join/",
-		"https://m.vk.com/call/join/", "http://m.vk.com/call/join/",
-		"m.vk.com/call/join/", "vk.com/call/join/",
-		"https://vk.me/join/", "http://vk.me/join/", "vk.me/join/",
-	}
 	lower := strings.ToLower(s)
-	for _, p := range prefixes {
-		if strings.HasPrefix(lower, p) {
-			s = s[len(p):]
-			break
+	if idx := strings.Index(lower, "/call/join/"); idx >= 0 {
+		s = s[idx+len("/call/join/"):]
+	} else if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return ""
+	} else {
+		prefixes := []string{
+			"https://vk.com/call/join/", "http://vk.com/call/join/",
+			"https://m.vk.com/call/join/", "http://m.vk.com/call/join/",
+			"m.vk.com/call/join/", "vk.com/call/join/",
+			"https://vk.me/join/", "http://vk.me/join/", "vk.me/join/",
+		}
+		for _, p := range prefixes {
+			if strings.HasPrefix(lower, p) {
+				s = s[len(p):]
+				break
+			}
 		}
 	}
-	if i := strings.IndexAny(s, "?#"); i >= 0 {
+	if i := strings.IndexAny(s, "?#/"); i >= 0 {
 		s = s[:i]
 	}
 	return strings.Trim(s, "/ ")

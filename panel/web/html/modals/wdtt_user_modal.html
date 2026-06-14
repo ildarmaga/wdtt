@@ -41,7 +41,14 @@
           <a-input v-model.trim="userForm.comment" placeholder="Имя, заметка"></a-input>
         </a-form-item>
         <a-form-item v-if="!userModal.isMain" label="VK_HASH">
-          <a-input v-model.trim="userForm.vk_hash" placeholder="Хеш или ссылка vk.com/call/join/…"></a-input>
+          <a-textarea
+            v-model="userForm.vk_hash"
+            :auto-size="{ minRows: 1, maxRows: 4 }"
+            placeholder="Один или несколько хешей (до 4): через запятую или с новой строки. Ссылка vk.com/call/join/… тоже подойдёт."
+          ></a-textarea>
+          <div v-if="connVkHashCount > 0" class="text-muted" style="font-size:11px;margin-top:4px">
+            Задано хешей: [[ connVkHashCount ]] · iOS возьмёт первый, остальные клиенты — все
+          </div>
         </a-form-item>
         <a-form-item v-if="!userModal.isMain">
           <template slot="label">
@@ -260,7 +267,7 @@
           dtls: p.dtls,
           wg: p.wg,
           clientPort: p.client,
-          vkHash: this.userForm.vk_hash,
+          subUrl: this.userForm.sub_url,
         });
         return link || '—';
       },
@@ -278,6 +285,9 @@
       },
       connVkHash() {
         return (this.userForm.vk_hash || '').trim();
+      },
+      connVkHashCount() {
+        return wdttParseVkHashes(this.connVkHash).length;
       },
       connBaseOpts() {
         const p = this.connPorts;
@@ -300,42 +310,42 @@
             key: 'ios',
             title: 'iOS — VK Turn Proxy',
             repo: 'https://github.com/anton48/vk-turn-proxy-ios',
-            hint: 'wdtt:// colon, bare-хеш или VK_HASH',
-            value: wdttBuildColonLink({ ...o, localPort: 0, withName: false }),
+            hint: 'wdtt:// colon, только 1-й хеш (клиент не поддерживает несколько)',
+            value: wdttBuildColonLink({ ...o, localPort: 0, withName: false, hashLimit: 1 }),
           },
           {
             key: 'android',
             title: 'Android — WDTT',
             repo: 'https://github.com/amurcanov/proxy-turn-vk-android',
-            hint: 'wdtt:// colon, bare-хеш или VK_HASH',
+            hint: 'wdtt:// colon, до 4 хешей через запятую или VK_HASH',
             value: wdttBuildColonLink({ ...o, localPort: o.port || 9000, withName: false }),
           },
           {
             key: 'pwdtt',
             title: 'PWDTT — Desktop Win/Linux',
             repo: 'https://github.com/luminescq/PWDTT',
-            hint: 'wdtt:// colon, bare-хеш или VK_HASH',
+            hint: 'wdtt:// colon, до 4 хешей через запятую или VK_HASH',
             value: wdttBuildColonLink({ ...o, localPort: 0, withName: true }),
           },
           {
             key: 'windows',
             title: 'WDTT — Windows',
             repo: 'https://github.com/IGOR7276/proxy-turn-vk-windows',
-            hint: 'wdtt:// colon, bare-хеш или VK_HASH',
+            hint: 'wdtt:// colon, до 4 хешей через запятую или VK_HASH',
             value: wdttBuildColonLink({ ...o, localPort: 0, withName: true }),
           },
           {
             key: 'qwdtt',
             title: 'qWDTT — Android fork',
             repo: 'https://github.com/SpaceNeuroX/proxy-turn-vk-android',
-            hint: 'qwdtt://, hashes=vk.com/call/join/… или VK_HASH',
+            hint: 'qwdtt://, hashes=h1,h2,… (bare, до 4) или VK_HASH',
             value: wdttBuildQwdttLink(o),
           },
           {
             key: 'qwdtt_win',
             title: 'WDTT Windows — qwdtt',
             repo: 'https://github.com/IGOR7276/proxy-turn-vk-windows',
-            hint: 'qwdtt://, hashes=vk.com/call/join/… или VK_HASH',
+            hint: 'qwdtt://, hashes=h1,h2,… (bare, до 4) или VK_HASH',
             value: wdttBuildQwdttLink(o),
           },
         ];
@@ -439,7 +449,6 @@
           || (f.comment || '') !== s.comment
           || Number(f.max_devices) !== Number(s.max_devices)
           || JSON.stringify(f.device_ids || []) !== JSON.stringify(s.device_ids || [])
-          || (f.vk_hash || '') !== s.vk_hash
           || !!f.use_custom_ports !== !!s.use_custom_ports
           || Number(f.dtls_port) !== Number(s.dtls_port)
           || Number(f.wg_port) !== Number(s.wg_port)

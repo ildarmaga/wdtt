@@ -12,7 +12,6 @@ function wdttBuildShareLink(opts) {
     pass: password,
   };
   if (opts.deviceId) obj.did = opts.deviceId;
-  obj.hash = wdttFormatVkHash(opts.vkHash, 'bare');
   if (opts.subUrl) obj.sub = opts.subUrl;
   return 'wdtt://' + Base64.encode(JSON.stringify(obj));
 }
@@ -32,45 +31,80 @@ function wdttCopyLink(link, onOk, onErr) {
 }
 
 const WDTT_VK_HASH_PLACEHOLDER = 'VK_HASH';
+const WDTT_VK_HASH_MAX = 4;
 
 /** Голый токен из хеша или ссылки VK (как stripVkUrl в клиентах). */
 function wdttStripVkHashBare(raw) {
   let s = String(raw || '').trim();
   if (!s) return '';
-  const prefixes = [
-    'https://vk.com/call/join/', 'http://vk.com/call/join/',
-    'https://m.vk.com/call/join/', 'http://m.vk.com/call/join/',
-    'm.vk.com/call/join/', 'vk.com/call/join/',
-    'https://vk.me/join/', 'http://vk.me/join/', 'vk.me/join/',
-  ];
   const lower = s.toLowerCase();
-  for (const p of prefixes) {
-    if (lower.startsWith(p)) {
-      s = s.slice(p.length);
-      break;
+  const joinIdx = lower.indexOf('/call/join/');
+  if (joinIdx >= 0) {
+    s = s.slice(joinIdx + '/call/join/'.length);
+  } else if (lower.startsWith('http://') || lower.startsWith('https://')) {
+    return '';
+  } else {
+    const prefixes = [
+      'https://vk.com/call/join/', 'http://vk.com/call/join/',
+      'https://m.vk.com/call/join/', 'http://m.vk.com/call/join/',
+      'm.vk.com/call/join/', 'vk.com/call/join/',
+      'https://vk.me/join/', 'http://vk.me/join/', 'vk.me/join/',
+    ];
+    for (const p of prefixes) {
+      if (lower.startsWith(p)) {
+        s = s.slice(p.length);
+        break;
+      }
     }
   }
   const q = s.indexOf('?');
   if (q !== -1) s = s.slice(0, q);
   const h = s.indexOf('#');
   if (h !== -1) s = s.slice(0, h);
+  const slash = s.indexOf('/');
+  if (slash !== -1) s = s.slice(0, slash);
   return s.replace(/\/+$/, '').trim();
+}
+
+/** Список bare-хешей (до 4), разделители: запятая, пробел, перевод строки. */
+function wdttParseVkHashes(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return [];
+  const seen = new Set();
+  const out = [];
+  for (const part of s.split(/[,;\n\r\t ]+/)) {
+    const bare = wdttStripVkHashBare(part);
+    if (!bare || seen.has(bare)) continue;
+    seen.add(bare);
+    out.push(bare);
+    if (out.length >= WDTT_VK_HASH_MAX) break;
+  }
+  return out;
 }
 
 /**
  * format:
- *   bare      — только токен (colon wdtt://, iOS/Android/desktop)
- *   join-url  — https://vk.com/call/join/TOKEN (qwdtt hashes=)
- * Пустое поле → всегда плейсхолдер VK_HASH.
+ *   bare      — bare-токены через запятую (colon wdtt://, qwdtt hashes=)
+ *   join-url  — https://vk.com/call/join/TOKEN (по одному на хеш, через запятую)
+ * limit — макс. число хешей (iOS = 1)
+ * Пустое поле → плейсхолдер VK_HASH.
  */
-function wdttFormatVkHash(raw, format) {
-  const bare = wdttStripVkHashBare(raw);
-  if (!bare) return WDTT_VK_HASH_PLACEHOLDER;
-  if (format === 'join-url') return 'https://vk.com/call/join/' + bare;
-  return bare;
+function wdttFormatVkHashes(raw, format, limit) {
+  let list = wdttParseVkHashes(raw);
+  if (typeof limit === 'number' && limit > 0) list = list.slice(0, limit);
+  if (!list.length) return WDTT_VK_HASH_PLACEHOLDER;
+  if (format === 'join-url') {
+    return list.map((h) => 'https://vk.com/call/join/' + h).join(',');
+  }
+  return list.join(',');
 }
 
-/** wdtt://IP:DTLS:WG:LOCAL:PASS:HASH[#name] — colon; HASH всегда в ссылке */
+/** @deprecated используйте wdttFormatVkHashes */
+function wdttFormatVkHash(raw, format) {
+  return wdttFormatVkHashes(raw, format);
+}
+
+/** wdtt://IP:DTLS:WG:LOCAL:PASS:HASH[,HASH…][#name] — colon */
 function wdttBuildColonLink(opts) {
   const host = String(opts.host || '').trim();
   const password = String(opts.password || '').trim();
@@ -79,13 +113,13 @@ function wdttBuildColonLink(opts) {
   const wg = Number(opts.wg) || 56001;
   const localPort = opts.localPort != null ? Number(opts.localPort) : 0;
   const name = String(opts.name || '').trim();
-  const hash = wdttFormatVkHash(opts.vkHash, 'bare');
+  const hash = wdttFormatVkHashes(opts.vkHash, 'bare', opts.hashLimit);
   let link = 'wdtt://' + host + ':' + dtls + ':' + wg + ':' + localPort + ':' + password + ':' + hash;
   if (name && opts.withName) link += '#' + name;
   return link;
 }
 
-/** qwdtt://config?... — hashes с полной ссылкой vk.com/call/join/ */
+/** qwdtt://config?... — hashes: bare-токены через запятую (как в qWDTT) */
 function wdttBuildQwdttLink(opts) {
   const host = String(opts.host || '').trim();
   const password = String(opts.password || '').trim();
@@ -94,10 +128,9 @@ function wdttBuildQwdttLink(opts) {
   const params = new URLSearchParams();
   params.set('name', String(opts.name || 'WDTT').trim() || 'WDTT');
   params.set('peer', host + ':' + dtls);
-  params.set('hashes', wdttFormatVkHash(opts.vkHash, 'join-url'));
+  params.set('hashes', wdttFormatVkHashes(opts.vkHash, 'bare'));
   params.set('workers', String(Number(opts.workers) || 18));
   params.set('port', String(Number(opts.port) || 9000));
   params.set('pass', password);
   return 'qwdtt://config?' + params.toString();
 }
-

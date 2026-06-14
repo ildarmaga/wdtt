@@ -106,9 +106,6 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 	if vpnName == "" {
 		vpnName = strings.TrimSpace(inbound.Tag)
 	}
-	if entry != nil && vkHash == "" {
-		vkHash = entry.VkHash
-	}
 	return encodeWdttShareLink(WdttSharePayload{
 		Vpn:  vpnName,
 		Name: userName,
@@ -117,16 +114,8 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 		Dtls: dtls,
 		Pass: password,
 		Did:  strings.TrimSpace(deviceID),
-		Hash: vkHashForLink(vkHash),
 		Sub:  strings.TrimSpace(subURL),
 	})
-}
-
-func vkHashForLink(raw string) string {
-	if h := stripVkHash(raw); h != "" {
-		return h
-	}
-	return "VK_HASH"
 }
 
 func firstNonEmpty(values ...string) string {

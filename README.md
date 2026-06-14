@@ -28,12 +28,12 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 
 | Клиент | Платформа | Формат ссылок |
 |--------|-----------|---------------|
-| **VK Turn Proxy** | iOS | `wdtt://` (colon), bare-хеш или `VK_HASH` |
-| **WDTT** | Android | `wdtt://` (colon), bare-хеш или `VK_HASH` |
-| **PWDTT** | Desktop Win/Linux | `wdtt://` (colon), bare-хеш или `VK_HASH` |
-| **WDTT** | Windows | `wdtt://` (colon), bare-хеш или `VK_HASH` |
-| **qWDTT** | Android (fork) | `qwdtt://`, `hashes=vk.com/call/join/…` или `VK_HASH` |
-| **WDTT** (qwdtt) | Windows | `qwdtt://`, `hashes=vk.com/call/join/…` или `VK_HASH` |
+| **VK Turn Proxy** | iOS | `wdtt://` (colon), 1-й хеш или `VK_HASH` |
+| **WDTT** | Android | `wdtt://` (colon), до 4 хешей через `,` или `VK_HASH` |
+| **PWDTT** | Desktop Win/Linux | `wdtt://` (colon), до 4 хешей через `,` или `VK_HASH` |
+| **WDTT** | Windows | `wdtt://` (colon), до 4 хешей через `,` или `VK_HASH` |
+| **qWDTT** | Android (fork) | `qwdtt://`, `hashes=h1,h2,…` (bare, до 4) или `VK_HASH` |
+| **WDTT** (qwdtt) | Windows | `qwdtt://`, `hashes=h1,h2,…` (bare, до 4) или `VK_HASH` |
 
 ## Компоненты
 
