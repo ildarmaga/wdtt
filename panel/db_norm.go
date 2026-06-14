@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -11,7 +10,7 @@ import (
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
-const dbSchemaVersion = 8
+const dbSchemaVersion = 9
 
 const schemaV2DDL = `
 CREATE TABLE IF NOT EXISTS panel_config (
@@ -232,73 +231,7 @@ func tableHasRows(query string) bool {
 }
 
 func migrateBlobsToNormalized() error {
-	if tableHasRows(`SELECT COUNT(*) FROM panel_config`) {
-		return nil
-	}
-
-	if cfg, err := loadPanelConfigFromBlob(); err == nil {
-		if err := savePanelConfigNorm(cfg); err != nil {
-			return err
-		}
-		log.Printf("panel db: normalized panel_config")
-	}
-
-	var pdb PasswordsDB
-	if ok, _ := dbLoadJSON(dbKeyPasswords, &pdb); ok {
-		if err := savePasswordsNorm(&pdb); err != nil {
-			return err
-		}
-		log.Printf("panel db: normalized wdtt_users (%d)", len(pdb.Passwords))
-	}
-
-	var inb WdttInboundConfig
-	if ok, _ := dbLoadJSON(dbKeyInbound, &inb); ok {
-		inb.normalize()
-		if err := saveInboundNorm(inb); err != nil {
-			return err
-		}
-		log.Printf("panel db: normalized wdtt_inbound")
-	}
-
-	var xm panelXrayMeta
-	if ok, _ := dbLoadJSON(dbKeyXrayMeta, &xm); ok {
-		if err := saveXrayMetaNorm(xm); err != nil {
-			return err
-		}
-		log.Printf("panel db: normalized xray_panel_meta")
-	}
-
-	meta := map[string]PanelXrayInboundMeta{}
-	if ok, _ := dbLoadJSON(dbKeyXrayInboundMeta, &meta); ok {
-		if err := saveXrayInboundMetaNorm(meta); err != nil {
-			return err
-		}
-		log.Printf("panel db: normalized xray_inbound_meta (%d)", len(meta))
-	}
-
-	var tr xrayTrafficPersist
-	if ok, _ := dbLoadJSON(dbKeyXrayTraffic, &tr); ok {
-		if err := saveXrayTrafficNorm(tr); err != nil {
-			return err
-		}
-		log.Printf("panel db: normalized xray_traffic_totals")
-	}
-	return nil
-}
-
-func loadPanelConfigFromBlob() (*PanelConfig, error) {
-	raw, ok, err := dbSettingGet(panelDBSetting)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, os.ErrNotExist
-	}
-	var cfg PanelConfig
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+	return migrateLegacySettingsBlobs()
 }
 
 func loadPanelConfigNorm() (*PanelConfig, error) {

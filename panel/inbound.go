@@ -297,7 +297,7 @@ func saveWdttInbound(cfg WdttInboundConfig) error {
 	if err := cfg.validate(); err != nil {
 		return err
 	}
-	return saveToDB(dbKeyInbound, cfg)
+	return saveInboundNorm(cfg)
 }
 
 var (

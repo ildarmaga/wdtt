@@ -11,10 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const (
-	panelDBSetting = "panel"
-)
-
 var panelDBPath = "/etc/wdtt/panel.db"
 
 var panelDB *sql.DB
@@ -84,6 +80,9 @@ func migratePanelDB() error {
 		if err := migratePanelDBV8(); err != nil {
 			return err
 		}
+		if err := migratePanelDBV9(); err != nil {
+			return err
+		}
 		_, err = panelDB.Exec(`INSERT INTO schema_version (version) VALUES (?)`, dbSchemaVersion)
 		return err
 	}
@@ -125,6 +124,11 @@ func migratePanelDB() error {
 			return err
 		}
 	}
+	if ver < 9 {
+		if err := migratePanelDBV9(); err != nil {
+			return err
+		}
+	}
 	if ver < dbSchemaVersion {
 		_, err = panelDB.Exec(`UPDATE schema_version SET version = ?`, dbSchemaVersion)
 	}
@@ -133,33 +137,6 @@ func migratePanelDB() error {
 	}
 	// Повторно после старого wdtt-server без sub_id в save/load.
 	return migrateEnsureUserSubIDs()
-}
-
-func dbSettingGet(key string) (string, bool, error) {
-	if panelDB == nil {
-		return "", false, fmt.Errorf("database not initialized")
-	}
-	var value string
-	err := panelDB.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return value, true, nil
-}
-
-func dbSettingSet(key, value string) error {
-	if panelDB == nil {
-		return fmt.Errorf("database not initialized")
-	}
-	_, err := panelDB.Exec(
-		`INSERT INTO settings (key, value) VALUES (?, ?)
-		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-		key, value,
-	)
-	return err
 }
 
 func loadPanelConfigFromDB() (*PanelConfig, error) {

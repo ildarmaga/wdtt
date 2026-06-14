@@ -45,7 +45,7 @@ func loadPanelXrayMeta() panelXrayMeta {
 }
 
 func savePanelXrayMeta(meta panelXrayMeta) error {
-	return saveToDB(dbKeyXrayMeta, meta)
+	return saveXrayMetaNorm(meta)
 }
 
 func loadXrayConfigRaw() (string, error) {
