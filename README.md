@@ -71,7 +71,6 @@ chmod +x panel/build.sh
 |-------------|------------|
 | [ildarmaga/wdtt](https://github.com/ildarmaga/wdtt) | Сервер + панель (этот репо) |
 | [ildarmaga/wdtt-install](https://github.com/ildarmaga/wdtt-install) | Установщик одной строкой |
-| [ildarmaga/pwdtt-client](https://github.com/ildarmaga/pwdtt-client) | Десктоп-клиент (Windows/Linux) |
 | [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) | iOS-клиент |
 | [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Android-клиент / исходный VPN-протокол |
 
