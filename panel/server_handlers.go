@@ -22,14 +22,10 @@ func (a *App) handleCPUHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetXrayVersion(w http.ResponseWriter, r *http.Request) {
-	releases, err := fetchXrayReleases()
+	versions, err := xrayVersionTagList()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusOK)
 		return
-	}
-	versions := make([]string, 0, len(releases))
-	for _, rel := range releases {
-		versions = append(versions, rel.TagName)
 	}
 	jsonOK(w, versions)
 }
@@ -67,8 +63,7 @@ func (a *App) handleGetConfigJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleStopXrayService(w http.ResponseWriter, r *http.Request) {
-	markXrayManuallyStopped()
-	if err := serviceStop(xrayServiceUnit); err != nil {
+	if err := controlService("xray", "stop"); err != nil {
 		jsonMsg(w, i18nWeb("pages.xray.stopError")+": "+err.Error(), false)
 		return
 	}
@@ -76,7 +71,7 @@ func (a *App) handleStopXrayService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleStopWdttService(w http.ResponseWriter, r *http.Request) {
-	if err := serviceStop(wdttServiceUnit); err != nil {
+	if err := controlService("wdtt", "stop"); err != nil {
 		jsonMsg(w, "WDTT stop error: "+err.Error(), false)
 		return
 	}
@@ -84,7 +79,7 @@ func (a *App) handleStopWdttService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRestartWdttService(w http.ResponseWriter, r *http.Request) {
-	if err := restartWdttWithDeps(); err != nil {
+	if err := controlService("wdtt", "restart"); err != nil {
 		jsonMsg(w, "WDTT restart error: "+err.Error(), false)
 		return
 	}
@@ -106,22 +101,19 @@ func (a *App) handleInstallXray(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleUpdateGeofile(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, a.cfg.basePath()+"panel/api/server/updateGeofile/")
-	if name == "" || name == "/" {
-		updated, err := updateAllGeofiles()
-		if err != nil {
-			jsonMsg(w, err.Error(), false)
-			return
-		}
-		jsonMsg(w, "Updated: "+strings.Join(updated, ", "), true)
-		return
-	}
-	name = strings.Trim(name, "/")
-	if err := updateGeofile(name); err != nil {
+	updated, restartXray, err := updateGeofilesOp(name)
+	if err != nil {
 		jsonMsg(w, err.Error(), false)
 		return
 	}
-	serviceRestart(xrayServiceUnit)
-	jsonMsg(w, name+" updated", true)
+	if restartXray {
+		serviceRestart(xrayServiceUnit)
+	}
+	if len(updated) == 1 {
+		jsonMsg(w, updated[0]+" updated", true)
+		return
+	}
+	jsonMsg(w, "Updated: "+strings.Join(updated, ", "), true)
 }
 
 func (a *App) handleServerLogs(w http.ResponseWriter, r *http.Request) {
@@ -131,24 +123,8 @@ func (a *App) handleServerLogs(w http.ResponseWriter, r *http.Request) {
 		count = 20
 	}
 	form, _ := parsePostForm(r)
-	unit := panelServiceUnit
-	switch form.Get("service") {
-	case "wdtt":
-		unit = wdttServiceUnit
-	case "xray":
-		unit = xrayServiceUnit
-	case "panel":
-		unit = panelServiceUnit
-	}
 	syslog := form.Get("syslog") == "true"
-	level := form.Get("level")
-	if syslog {
-		unit = ""
-	}
-	lines := fetchFormattedServiceLogs(unit, count, level, syslog)
-	if lines == nil {
-		lines = []string{}
-	}
+	lines := fetchServiceLogLines(count, form.Get("service"), form.Get("level"), syslog)
 	jsonOK(w, lines)
 }
 

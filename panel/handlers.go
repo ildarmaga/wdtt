@@ -352,56 +352,22 @@ func (a *App) handleService(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "неверный запрос", 400)
 		return
 	}
-	svcMap := map[string]string{"wdtt": wdttServiceUnit, "xray": xrayServiceUnit}
-	svc, ok := svcMap[parts[0]]
-	if !ok {
-		jsonError(w, "неизвестный сервис", 400)
-		return
-	}
-	var err error
-	switch parts[1] {
-	case "restart":
-		if svc == wdttServiceUnit {
-			err = restartWdttWithDeps()
-		} else if svc == xrayServiceUnit {
-			markXrayAutoManaged()
-			err = serviceRestart(svc)
-		} else {
-			err = serviceRestart(svc)
-		}
-	case "stop":
-		if svc == xrayServiceUnit {
-			markXrayManuallyStopped()
-		}
-		err = serviceStop(svc)
-	case "start":
-		if svc == xrayServiceUnit {
-			markXrayAutoManaged()
-		}
-		err = serviceStart(svc)
-	default:
-		jsonError(w, "неизвестное действие", 400)
-		return
-	}
-	if err != nil {
+	if err := controlService(parts[0], parts[1]); err != nil {
 		jsonError(w, err.Error(), 500)
 		return
 	}
-	jsonOK(w, map[string]string{"service": svc, "action": parts[1]})
+	svcMap := map[string]string{"wdtt": wdttServiceUnit, "xray": xrayServiceUnit}
+	jsonOK(w, map[string]string{"service": svcMap[parts[0]], "action": parts[1]})
 }
 
 func (a *App) handleXrayVersions(w http.ResponseWriter, r *http.Request) {
-	releases, err := fetchXrayReleases()
+	tags, err := xrayVersionTagList()
 	if err != nil {
 		jsonError(w, err.Error(), 500)
 		return
 	}
-	tags := make([]string, 0, len(releases))
-	for _, rel := range releases {
-		tags = append(tags, rel.TagName)
-	}
 	jsonOK(w, map[string]interface{}{
-		"current": xrayVersion(),
+		"current":  xrayVersion(),
 		"versions": tags,
 	})
 }
@@ -421,21 +387,19 @@ func (a *App) handleXrayInstall(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleXrayGeofiles(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, a.cfg.basePath()+"panel/api/xray/geofiles/")
-	if name == "" || name == "all" {
-		updated, err := updateAllGeofiles()
-		if err != nil {
-			jsonError(w, err.Error(), 500)
-			return
-		}
-		jsonOK(w, map[string]interface{}{"updated": updated})
-		return
-	}
-	if err := updateGeofile(name); err != nil {
+	updated, restartXray, err := updateGeofilesOp(name)
+	if err != nil {
 		jsonError(w, err.Error(), 500)
 		return
 	}
-	serviceRestart(xrayServiceUnit)
-	jsonOK(w, map[string]string{"updated": name})
+	if restartXray {
+		serviceRestart(xrayServiceUnit)
+	}
+	if len(updated) == 1 {
+		jsonOK(w, map[string]string{"updated": updated[0]})
+		return
+	}
+	jsonOK(w, map[string]interface{}{"updated": updated})
 }
 
 func (a *App) handleXrayConfig(w http.ResponseWriter, r *http.Request) {
@@ -483,8 +447,10 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if svc == "" {
 		svc = "wdtt"
 	}
-	out, _ := runCmd("journalctl", "-u", svc+".service", "-n", strconv.Itoa(n), "-r", "--no-pager", "-o", "cat")
-	jsonOK(w, map[string]string{"logs": out})
+	level := r.URL.Query().Get("level")
+	syslog := r.URL.Query().Get("syslog") == "true"
+	lines := fetchServiceLogLines(n, svc, level, syslog)
+	jsonOK(w, map[string]interface{}{"logs": lines})
 }
 
 func writeStatic(w http.ResponseWriter, data []byte, contentType string) {
