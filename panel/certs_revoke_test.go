@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestAcmeCertInstallDir(t *testing.T) {
-	if got := acmeCertInstallDir("45.146.131.254"); got != "/root/cert/ip" {
+	if got := acmeCertInstallDir("203.0.113.10"); got != "/root/cert/ip" {
 		t.Fatalf("ip cert dir: got %q", got)
 	}
 	if got := acmeCertInstallDir("ip"); got != "/root/cert/ip" {

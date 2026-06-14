@@ -14,10 +14,10 @@ func TestResolveAcmeContactEmail(t *testing.T) {
 	if got != "admin@vpn.example.com" {
 		t.Fatalf("webDomain: got %q", got)
 	}
-	if resolveAcmeContactEmail(&PanelConfig{WebDomain: "45.146.131.254"}, "user@gmail.com") != "user@gmail.com" {
+	if resolveAcmeContactEmail(&PanelConfig{WebDomain: "203.0.113.10"}, "user@gmail.com") != "user@gmail.com" {
 		t.Fatal("override should win over ip webDomain")
 	}
-	if resolveAcmeContactEmail(&PanelConfig{WebDomain: "45.146.131.254"}, "") != "" {
+	if resolveAcmeContactEmail(&PanelConfig{WebDomain: "203.0.113.10"}, "") != "" {
 		t.Fatal("ip-only server should require explicit email")
 	}
 }

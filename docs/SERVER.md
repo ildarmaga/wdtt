@@ -1,9 +1,7 @@
 # WDTT Server — полный разбор
 
-Документ описывает монолит `wdtt-server` (`server.go` + `devices.go` + `speedlimit.go`).
-
-**Резервная копия исходника (не трогать для экспериментов):**  
-`/root/wdtt/server.go.backup-20260609` — снимок `server.go` от 2026-06-09.
+Документ описывает монолит `wdtt-server` (`server.go` + `devices.go` + `speedlimit.go`
++ `relay_sessions.go` + `relay_fail.go` + `panel_db.go`).
 
 ---
 
@@ -30,9 +28,12 @@ WDTT Server — VPN-бэкенд для схемы **VK TURN → WRAP → DTLS �
 
 | Файл | Строк ~ | За что отвечает |
 |------|---------|-----------------|
-| `server.go` | 2240 | Основной бинарник: DTLS, WRAP, WG, БД, Telegram-бот, NAT, статистика |
+| `server.go` | 3090 | Основной бинарник: DTLS, WRAP, WG, БД, Telegram-бот, NAT, статистика |
 | `devices.go` | 150 | Привязка `device_id` к паролям, лимит устройств на пароль |
 | `speedlimit.go` | 175 | `tc` HTB — лимиты скорости по IP клиента в подсети WG |
+| `relay_sessions.go` | 120 | Учёт и эвикция «осиротевших» TURN-relay сессий |
+| `relay_fail.go` | 105 | Fast-fail «мёртвых» VK TURN relay по числу неудачных handshake |
+| `panel_db.go` | — | Чтение настроек/пользователей из общей `panel.db` |
 
 Конфиг на диске (`/etc/wdtt/`):
 
@@ -101,6 +102,9 @@ CLI-флаги `main()`:
 | `-password` | — | Главный пароль (WRAP + GETCONF) |
 | `-admin` | — | Telegram admin ID |
 | `-bot-token` | — | Telegram bot token |
+| `-handshake-timeout` | `30s` | Базовый таймаут DTLS handshake |
+| `-admin-addr` | `127.0.0.1:2861` | Localhost HTTP: `/health`, `POST /admin/reload` |
+| `-max-dtls-per-device` | `0` | Лимит параллельных GETCONF на `device_id` (0 = без лимита) |
 
 ---
 
@@ -245,6 +249,26 @@ Long-polling `getUpdates`. Команды:
 - `bufPool` — пул буферов 1600 B для relay.
 - `getPublicIP` — ipify для ссылок в боте.
 
+### 5.10 Управление relay-сессиями (`relay_sessions.go`, `relay_fail.go`)
+
+Мультиворкерные клиенты держат десятки DTLS-relay через VK TURN; релеи ВК
+периодически проворачивают аллокацию, и воркер переподключается на новый порт.
+
+| Механизм | Файл | Поведение |
+|----------|------|-----------|
+| Учёт активных relay-сессий | `relay_sessions.go` | `relaySessionRegister/Unregister`, `touch()` на каждом пакете и keepalive |
+| Эвикция «осиротевших» | `relay_sessions.go` | `relayEvictAllIdle` каждую минуту закрывает сессии без активности > 3 мин (`[RELAY] Evicted …`) |
+| Сброс при WG-disconnect | `server.go` | при реальном разрыве WG все relay устройства device_id закрываются (`relayEvictDevice`) |
+| Fast-fail «мёртвых» TURN | `relay_fail.go` | после 1–3 неудачных handshake с одного relay таймаут укорачивается; после успеха счётчик сбрасывается (`[RELAY] Stale TURN relay …`) |
+
+Живые сессии под эвикцию не попадают: `touch()` вызывается на каждом up/down пакете
+и на keepalive `0xFF`, поэтому 3-минутный idle срабатывает только для покинутых relay.
+
+### 5.11 `panel_db.go`
+
+Чтение настроек и пользователей из общей `panel.db` (handshake timeout, online timeout,
+лимиты per-password) — сервер и панель работают с одной SQLite-базой.
+
 ---
 
 ## 6. `devices.go`
@@ -280,7 +304,7 @@ Per-IP shaping на интерфейсе `wdtt0` через `tc` HTB:
 6. Клиент шлёт WG handshake packets через тот же DTLS.
 7. Дальше bidirectional WG в DTLS.
 
-Пароль в GETCONF = `wrap_a_password` в iOS (`ildar` и т.д.), не VK TURN password.
+Пароль в GETCONF = `wrap_a_password` в iOS (например `<your_password>`), не VK TURN password.
 
 ---
 
@@ -305,7 +329,8 @@ Per-IP shaping на интерфейсе `wdtt0` через `tc` HTB:
 | `[DTLS]` | Handshake fail |
 | `[WG]` | GETCONF, новые устройства, отказы |
 | `[ПОДКЛ]` | Начало relay-сессии (успешный VPN) |
-| `[СТАТ]` | Каждые 10 s |
+| `[RELAY]` | Эвикция idle-сессий, fast-fail мёртвых TURN relay |
+| `[СТАТ]` | Каждые 10 s: Пользователей / Сессий / Всего / NAT / ↑↓ |
 | `[NAT]` | Настройка MASQUERADE |
 | `[TC]` | Лимиты скорости |
 
