@@ -124,23 +124,7 @@ func loadPanelServicePortsFromSQLite() (panelPort, subPort int, ok bool, err err
 	if err != nil {
 		return 0, 0, false, err
 	}
-	var p, s sql.NullInt64
-	err = db.QueryRow(`SELECT port, sub_port FROM panel_config WHERE id = 1`).Scan(&p, &s)
-	if err == sql.ErrNoRows {
-		return 0, 0, false, nil
-	}
-	if err != nil {
-		return 0, 0, false, err
-	}
-	panelPort = defaultPanelTCPPort
-	subPort = defaultSubTCPPort
-	if p.Valid && p.Int64 > 0 {
-		panelPort = int(p.Int64)
-	}
-	if s.Valid && s.Int64 > 0 {
-		subPort = int(s.Int64)
-	}
-	return panelPort, subPort, true, nil
+	return paneldb.LoadPanelServicePorts(db)
 }
 
 func loadInboundFromSQLite() (inboundRuntimeSettings, bool, error) {

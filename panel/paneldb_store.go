@@ -154,6 +154,78 @@ func wdttInboundToPaneldb(cfg WdttInboundConfig) *paneldb.Inbound {
 	}
 }
 
+func panelConfigToPaneldb(cfg *PanelConfig) *paneldb.PanelConfig {
+	if cfg == nil {
+		return nil
+	}
+	return &paneldb.PanelConfig{
+		Username:      cfg.Username,
+		PasswordHash:  cfg.PasswordHash,
+		Port:          cfg.Port,
+		WebBasePath:   cfg.WebBasePath,
+		SessionKey:    cfg.SessionKey,
+		WebListen:     cfg.WebListen,
+		WebDomain:     cfg.WebDomain,
+		WebCertFile:   cfg.WebCertFile,
+		WebKeyFile:    cfg.WebKeyFile,
+		SessionMaxAge: cfg.SessionMaxAge,
+		PageSize:      cfg.PageSize,
+		RemarkModel:   cfg.RemarkModel,
+		BlockPing:     cfg.BlockPing,
+		SubEnable:     cfg.SubEnable,
+		SubListen:     cfg.SubListen,
+		SubPort:       cfg.SubPort,
+		SubPath:       cfg.SubPath,
+		SubDomain:     cfg.SubDomain,
+		SubCertFile:   cfg.SubCertFile,
+		SubKeyFile:    cfg.SubKeyFile,
+		SubEncrypt:    cfg.SubEncrypt,
+		SubUpdates:    cfg.SubUpdates,
+		SubTitle:      cfg.SubTitle,
+		SubSupportURL: cfg.SubSupportURL,
+		SubProfileURL: cfg.SubProfileURL,
+		SubAnnounce:   cfg.SubAnnounce,
+		SubURI:        cfg.SubURI,
+		SubShowInfo:   cfg.SubShowInfo,
+	}
+}
+
+func panelConfigFromPaneldb(pc *paneldb.PanelConfig) *PanelConfig {
+	if pc == nil {
+		return nil
+	}
+	return &PanelConfig{
+		Username:      pc.Username,
+		PasswordHash:  pc.PasswordHash,
+		Port:          pc.Port,
+		WebBasePath:   pc.WebBasePath,
+		SessionKey:    pc.SessionKey,
+		WebListen:     pc.WebListen,
+		WebDomain:     pc.WebDomain,
+		WebCertFile:   pc.WebCertFile,
+		WebKeyFile:    pc.WebKeyFile,
+		SessionMaxAge: pc.SessionMaxAge,
+		PageSize:      pc.PageSize,
+		RemarkModel:   pc.RemarkModel,
+		BlockPing:     pc.BlockPing,
+		SubEnable:     pc.SubEnable,
+		SubListen:     pc.SubListen,
+		SubPort:       pc.SubPort,
+		SubPath:       pc.SubPath,
+		SubDomain:     pc.SubDomain,
+		SubCertFile:   pc.SubCertFile,
+		SubKeyFile:    pc.SubKeyFile,
+		SubEncrypt:    pc.SubEncrypt,
+		SubUpdates:    pc.SubUpdates,
+		SubTitle:      pc.SubTitle,
+		SubSupportURL: pc.SubSupportURL,
+		SubProfileURL: pc.SubProfileURL,
+		SubAnnounce:   pc.SubAnnounce,
+		SubURI:        pc.SubURI,
+		SubShowInfo:   pc.SubShowInfo,
+	}
+}
+
 func wdttInboundFromPaneldb(in *paneldb.Inbound) WdttInboundConfig {
 	if in == nil {
 		return defaultWdttInbound()

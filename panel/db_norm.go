@@ -305,82 +305,24 @@ func loadPanelConfigNorm() (*PanelConfig, error) {
 	if !panelDBEnabled() {
 		return nil, os.ErrNotExist
 	}
-	var cfg PanelConfig
-	var blockPing, subEnable, subEncrypt, subShowInfo int
-	err := panelDB.QueryRow(`SELECT username, password_hash, port, web_base_path, session_key,
-		web_listen, web_domain, web_cert_file, web_key_file, session_max_age, page_size, remark_model, block_ping,
-		sub_enable, sub_listen, sub_port, sub_path, sub_domain, sub_cert_file, sub_key_file,
-		sub_encrypt, sub_updates, sub_title, sub_support_url, sub_profile_url, sub_announce, sub_uri, sub_show_info
-		FROM panel_config WHERE id = 1`).Scan(
-		&cfg.Username, &cfg.PasswordHash, &cfg.Port, &cfg.WebBasePath, &cfg.SessionKey,
-		&cfg.WebListen, &cfg.WebDomain, &cfg.WebCertFile, &cfg.WebKeyFile,
-		&cfg.SessionMaxAge, &cfg.PageSize, &cfg.RemarkModel, &blockPing,
-		&subEnable, &cfg.SubListen, &cfg.SubPort, &cfg.SubPath, &cfg.SubDomain, &cfg.SubCertFile, &cfg.SubKeyFile,
-		&subEncrypt, &cfg.SubUpdates, &cfg.SubTitle, &cfg.SubSupportURL, &cfg.SubProfileURL, &cfg.SubAnnounce, &cfg.SubURI, &subShowInfo,
-	)
+	pc, err := paneldb.LoadPanelConfig(panelDB)
 	if err == sql.ErrNoRows {
 		return nil, os.ErrNotExist
 	}
 	if err != nil {
 		return nil, err
 	}
-	cfg.BlockPing = blockPing != 0
-	cfg.SubEnable = subEnable != 0
-	cfg.SubEncrypt = subEncrypt != 0
-	cfg.SubShowInfo = subShowInfo != 0
-	normalizeSubConfig(&cfg)
-	return &cfg, nil
+	cfg := panelConfigFromPaneldb(pc)
+	normalizeSubConfig(cfg)
+	return cfg, nil
 }
 
 func savePanelConfigNorm(cfg *PanelConfig) error {
 	if !panelDBEnabled() || cfg == nil {
 		return nil
 	}
-	bp := 0
-	if cfg.BlockPing {
-		bp = 1
-	}
-	se := 0
-	if cfg.SubEnable {
-		se = 1
-	}
-	senc := 0
-	if cfg.SubEncrypt {
-		senc = 1
-	}
-	sshow := 0
-	if cfg.SubShowInfo {
-		sshow = 1
-	}
 	normalizeSubConfig(cfg)
-	_, err := panelDB.Exec(`INSERT INTO panel_config (
-		id, username, password_hash, port, web_base_path, session_key,
-		web_listen, web_domain, web_cert_file, web_key_file,
-		session_max_age, page_size, remark_model, block_ping,
-		sub_enable, sub_listen, sub_port, sub_path, sub_domain, sub_cert_file, sub_key_file,
-		sub_encrypt, sub_updates, sub_title, sub_support_url, sub_profile_url, sub_announce, sub_uri, sub_show_info
-	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-	ON CONFLICT(id) DO UPDATE SET
-		username=excluded.username, password_hash=excluded.password_hash, port=excluded.port,
-		web_base_path=excluded.web_base_path, session_key=excluded.session_key,
-		web_listen=excluded.web_listen, web_domain=excluded.web_domain,
-		web_cert_file=excluded.web_cert_file, web_key_file=excluded.web_key_file,
-		session_max_age=excluded.session_max_age, page_size=excluded.page_size,
-		remark_model=excluded.remark_model, block_ping=excluded.block_ping,
-		sub_enable=excluded.sub_enable, sub_listen=excluded.sub_listen, sub_port=excluded.sub_port,
-		sub_path=excluded.sub_path, sub_domain=excluded.sub_domain,
-		sub_cert_file=excluded.sub_cert_file, sub_key_file=excluded.sub_key_file,
-		sub_encrypt=excluded.sub_encrypt, sub_updates=excluded.sub_updates,
-		sub_title=excluded.sub_title, sub_support_url=excluded.sub_support_url,
-		sub_profile_url=excluded.sub_profile_url, sub_announce=excluded.sub_announce,
-		sub_uri=excluded.sub_uri, sub_show_info=excluded.sub_show_info`,
-		cfg.Username, cfg.PasswordHash, cfg.Port, cfg.WebBasePath, cfg.SessionKey,
-		cfg.WebListen, cfg.WebDomain, cfg.WebCertFile, cfg.WebKeyFile,
-		cfg.SessionMaxAge, cfg.PageSize, cfg.RemarkModel, bp,
-		se, cfg.SubListen, cfg.SubPort, cfg.SubPath, cfg.SubDomain, cfg.SubCertFile, cfg.SubKeyFile,
-		senc, cfg.SubUpdates, cfg.SubTitle, cfg.SubSupportURL, cfg.SubProfileURL, cfg.SubAnnounce, cfg.SubURI, sshow,
-	)
-	return err
+	return paneldb.SavePanelConfig(panelDB, panelConfigToPaneldb(cfg))
 }
 
 func loadPasswordsNorm() (*PasswordsDB, error) {
