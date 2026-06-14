@@ -16,13 +16,7 @@ panel/wdtt-panel
 # IDE / OS
 .idea/
 .vscode/
-# Cursor: ECC (skills, hooks, MCP state) — local only
-.cursor/*
-!.cursor/README.md
-!.cursor/rules/
-.cursor/rules/*
-!.cursor/rules/wdtt/
-!.cursor/rules/wdtt/**
+.cursor/
 .DS_Store
 *.log
 *.tmp
