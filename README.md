@@ -19,7 +19,7 @@ WDTT расширяет upstream: мультипользователи, веб-�
 ## Быстрая установка
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/install.sh) install -p YOUR_PASSWORD --xray --panel
+bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/install.sh)
 ```
 
 Панель: `http://IP:2860/wdtt/` — логин `admin` / `wdtt` (смените в настройках).
