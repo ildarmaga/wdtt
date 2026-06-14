@@ -3,6 +3,7 @@ module wdtt-panel
 go 1.25.0
 
 require (
+	github.com/ildarmaga/wdtt v0.0.0
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
 	github.com/pelletier/go-toml/v2 v2.2.4
 	golang.org/x/crypto v0.51.0
@@ -21,3 +22,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/ildarmaga/wdtt => ../
