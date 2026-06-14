@@ -409,23 +409,18 @@ func savePasswordsNorm(db *PasswordsDB) error {
 
 func loadInboundNorm() (WdttInboundConfig, error) {
 	cfg := defaultWdttInbound()
-	if !panelDBEnabled() || !tableHasRows(`SELECT COUNT(*) FROM wdtt_inbound`) {
+	if !panelDBEnabled() {
 		return cfg, os.ErrNotExist
 	}
-	var enable int
-	err := panelDB.QueryRow(`SELECT tag, remark, enable, listen_host, server_host, dtls_port, wg_port,
-		client_port, dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, admin_addr
-		FROM wdtt_inbound WHERE id = 1`).Scan(
-		&cfg.Tag, &cfg.Remark, &enable, &cfg.ListenHost, &cfg.ServerHost, &cfg.DtlsPort, &cfg.WgPort,
-		&cfg.ClientPort, &cfg.DNS, &cfg.MTU, &cfg.MaxUsers, &cfg.HandshakeTimeoutSec, &cfg.MaxDtlsPerDevice, &cfg.OnlineTimeoutSec, &cfg.AdminAddr,
-	)
-	if err == sql.ErrNoRows {
+	has, err := paneldb.HasInbound(panelDB)
+	if err != nil || !has {
 		return cfg, os.ErrNotExist
 	}
+	in, err := paneldb.LoadInbound(panelDB)
 	if err != nil {
 		return cfg, err
 	}
-	cfg.Enable = enable != 0
+	cfg = wdttInboundFromPaneldb(in)
 	cfg.normalize()
 	return cfg, nil
 }
@@ -435,26 +430,7 @@ func saveInboundNorm(cfg WdttInboundConfig) error {
 		return nil
 	}
 	cfg.normalize()
-	en := 0
-	if cfg.Enable {
-		en = 1
-	}
-	_, err := panelDB.Exec(`INSERT INTO wdtt_inbound (
-		id, tag, remark, enable, listen_host, server_host, dtls_port, wg_port, client_port, dns, mtu,
-		max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, admin_addr
-	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-	ON CONFLICT(id) DO UPDATE SET
-		tag=excluded.tag, remark=excluded.remark, enable=excluded.enable,
-		listen_host=excluded.listen_host, server_host=excluded.server_host,
-		dtls_port=excluded.dtls_port, wg_port=excluded.wg_port, client_port=excluded.client_port,
-		dns=excluded.dns, mtu=excluded.mtu, max_users=excluded.max_users,
-		handshake_timeout_sec=excluded.handshake_timeout_sec,
-		max_dtls_per_device=excluded.max_dtls_per_device,
-		online_timeout_sec=excluded.online_timeout_sec, admin_addr=excluded.admin_addr`,
-		cfg.Tag, cfg.Remark, en, cfg.ListenHost, cfg.ServerHost, cfg.DtlsPort, cfg.WgPort,
-		cfg.ClientPort, cfg.DNS, cfg.MTU, cfg.MaxUsers, cfg.HandshakeTimeoutSec, cfg.MaxDtlsPerDevice, cfg.OnlineTimeoutSec, cfg.AdminAddr,
-	)
-	return err
+	return paneldb.SaveInbound(panelDB, wdttInboundToPaneldb(cfg))
 }
 
 func loadXrayMetaNorm() (panelXrayMeta, bool, error) {

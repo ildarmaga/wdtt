@@ -133,3 +133,46 @@ func allEntryDeviceIDsPanel(entry *PasswordEntry) []string {
 	syncDeviceFields(entry, u)
 	return ids
 }
+
+func wdttInboundToPaneldb(cfg WdttInboundConfig) *paneldb.Inbound {
+	return &paneldb.Inbound{
+		Tag:                 cfg.Tag,
+		Remark:              cfg.Remark,
+		Enable:              cfg.Enable,
+		ListenHost:          cfg.ListenHost,
+		ServerHost:          cfg.ServerHost,
+		DtlsPort:            cfg.DtlsPort,
+		WgPort:              cfg.WgPort,
+		ClientPort:          cfg.ClientPort,
+		DNS:                 cfg.DNS,
+		MTU:                 cfg.MTU,
+		MaxUsers:            cfg.MaxUsers,
+		HandshakeTimeoutSec: cfg.HandshakeTimeoutSec,
+		MaxDtlsPerDevice:    cfg.MaxDtlsPerDevice,
+		OnlineTimeoutSec:    cfg.OnlineTimeoutSec,
+		AdminAddr:           cfg.AdminAddr,
+	}
+}
+
+func wdttInboundFromPaneldb(in *paneldb.Inbound) WdttInboundConfig {
+	if in == nil {
+		return defaultWdttInbound()
+	}
+	return WdttInboundConfig{
+		Tag:                 in.Tag,
+		Remark:              in.Remark,
+		Enable:              in.Enable,
+		ListenHost:          in.ListenHost,
+		ServerHost:          in.ServerHost,
+		DtlsPort:            in.DtlsPort,
+		WgPort:              in.WgPort,
+		ClientPort:          in.ClientPort,
+		DNS:                 in.DNS,
+		MTU:                 in.MTU,
+		MaxUsers:            in.MaxUsers,
+		HandshakeTimeoutSec: in.HandshakeTimeoutSec,
+		MaxDtlsPerDevice:    in.MaxDtlsPerDevice,
+		OnlineTimeoutSec:    in.OnlineTimeoutSec,
+		AdminAddr:           in.AdminAddr,
+	}
+}

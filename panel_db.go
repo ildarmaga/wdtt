@@ -117,14 +117,7 @@ func saveDatabaseDual() error {
 	return saveDatabaseToSQLite(db)
 }
 
-type inboundRuntimeSettings struct {
-	DNS                 string `json:"dns"`
-	MaxUsers            int    `json:"max_users"`
-	HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
-	MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
-	OnlineTimeoutSec    int    `json:"online_timeout_sec"`
-	MTU                 int    `json:"mtu"`
-}
+type inboundRuntimeSettings = paneldb.RuntimeSettings
 
 func loadPanelServicePortsFromSQLite() (panelPort, subPort int, ok bool, err error) {
 	db, err := openServerPanelDB()
@@ -155,23 +148,7 @@ func loadInboundFromSQLite() (inboundRuntimeSettings, bool, error) {
 	if err != nil {
 		return inboundRuntimeSettings{}, false, err
 	}
-	var n int
-	err = db.QueryRow(`SELECT COUNT(*) FROM wdtt_inbound`).Scan(&n)
-	if err != nil || n == 0 {
-		return inboundRuntimeSettings{}, false, err
-	}
-	var s inboundRuntimeSettings
-	err = db.QueryRow(`SELECT dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec
-		FROM wdtt_inbound WHERE id = 1`).Scan(
-		&s.DNS, &s.MTU, &s.MaxUsers, &s.HandshakeTimeoutSec, &s.MaxDtlsPerDevice, &s.OnlineTimeoutSec,
-	)
-	if err == sql.ErrNoRows {
-		return inboundRuntimeSettings{}, false, nil
-	}
-	if err != nil {
-		return inboundRuntimeSettings{}, false, err
-	}
-	return s, true, nil
+	return paneldb.LoadRuntimeSettings(db)
 }
 
 func loadInboundFromJSONFile(configDir string) (inboundRuntimeSettings, error) {
