@@ -547,10 +547,21 @@ func passwordExpiry(e *PasswordEntry) string {
 	if e == nil || e.ExpiresAt == 0 {
 		return "бессрочно"
 	}
-	t := time.Unix(e.ExpiresAt, 0)
-	if time.Now().After(t) {
+	days := expiryCalendarDays(e.ExpiresAt)
+	if days < 0 {
 		return "истёк"
 	}
-	days := int(math.Ceil(time.Until(t).Hours() / 24))
+	if days == 0 {
+		return "сегодня"
+	}
 	return fmt.Sprintf("%d дн.", days)
+}
+
+// expiryCalendarDays — оставшиеся календарные дни до даты истечения (как PWDTT expireLabel).
+func expiryCalendarDays(expiresAt int64) int {
+	now := time.Now()
+	exp := time.Unix(expiresAt, 0).In(now.Location())
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	expDay := time.Date(exp.Year(), exp.Month(), exp.Day(), 0, 0, 0, 0, now.Location())
+	return int(math.Ceil(expDay.Sub(today).Hours() / 24))
 }

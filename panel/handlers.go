@@ -215,6 +215,7 @@ type userAPIReq struct {
 	WgPort      int     `json:"wg_port"`
 	ClientPort  int     `json:"client_port"`
 	UseCustomPorts bool `json:"use_custom_ports"`
+	VkHash      string  `json:"vk_hash"`
 	Count       int     `json:"count"`
 }
 
@@ -232,6 +233,7 @@ func passwordEntryFromReq(req userAPIReq) *PasswordEntry {
 		IsDeactivated: !active,
 		Ports:         portsFromReq(req),
 		MaxDevices:    req.MaxDevices,
+		VkHash:        stripVkHash(req.VkHash),
 	}
 	if req.DeviceIDs != nil {
 		// Поле передано явно (в т.ч. пустой список = отвязать все устройства).
@@ -241,6 +243,30 @@ func passwordEntryFromReq(req userAPIReq) *PasswordEntry {
 	}
 	normalizeEntryDevices(entry)
 	return entry
+}
+
+func stripVkHash(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	prefixes := []string{
+		"https://vk.com/call/join/", "http://vk.com/call/join/",
+		"https://m.vk.com/call/join/", "http://m.vk.com/call/join/",
+		"m.vk.com/call/join/", "vk.com/call/join/",
+		"https://vk.me/join/", "http://vk.me/join/", "vk.me/join/",
+	}
+	lower := strings.ToLower(s)
+	for _, p := range prefixes {
+		if strings.HasPrefix(lower, p) {
+			s = s[len(p):]
+			break
+		}
+	}
+	if i := strings.IndexAny(s, "?#"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.Trim(s, "/ ")
 }
 
 func portsFromReq(req userAPIReq) string {

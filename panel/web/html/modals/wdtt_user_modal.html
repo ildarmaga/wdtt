@@ -3,7 +3,7 @@
   :title="userModal.isMain ? 'Главный пароль' : (userModal.isEdit ? 'Редактировать пользователя' : 'Добавить пользователя')"
   :confirm-loading="userModal.saving" :closable="true" :mask-closable="false"
   :class="themeSwitcher.currentTheme" ok-text="Сохранить" cancel-text="Закрыть"
-  @ok="userModal.save" width="720px">
+  @ok="userModal.save" width="900px">
   <a-tabs :active-key="userModal.activeTab" @change="userModal.activeTab = $event" :class="themeSwitcher.currentTheme">
     <a-tab-pane key="main" tab="Основное">
       <a-form layout="horizontal" :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
@@ -39,6 +39,9 @@
         </a-form-item>
         <a-form-item v-else label="Комментарий">
           <a-input v-model.trim="userForm.comment" placeholder="Имя, заметка"></a-input>
+        </a-form-item>
+        <a-form-item v-if="!userModal.isMain" label="VK_HASH">
+          <a-input v-model.trim="userForm.vk_hash" placeholder="Хеш или ссылка vk.com/call/join/…"></a-input>
         </a-form-item>
         <a-form-item v-if="!userModal.isMain">
           <template slot="label">
@@ -99,24 +102,35 @@
         <a-col :xs="24" :md="14">
           <div class="user-conn-block">
             <div class="user-conn-label">Ссылка</div>
-            <code class="user-conn-code">[[ connLink ]]</code>
-            <a-button size="small" icon="copy" style="margin-top:10px" @click="copyConnLink">Копировать ссылку</a-button>
+            <code class="user-conn-code user-conn-code--copy" title="Нажмите чтобы скопировать"
+              @click="copyField(connLink, 'Ссылка')">[[ connLink ]]</code>
+            <div class="user-conn-hint">Нажмите на поле — копируется в буфер</div>
           </div>
           <div v-if="userForm.sub_url" class="user-conn-block" style="margin-top:16px">
-            <div class="user-conn-label">Подписка</div>
-            <code class="user-conn-code">[[ userForm.sub_url ]]</code>
-            <a-button size="small" icon="copy" style="margin-top:10px;margin-right:8px" @click="copySubUrl">Копировать подписку</a-button>
-            <a-button size="small" icon="link" @click="openSubUrl">Открыть</a-button>
+            <div class="user-conn-label">
+              Подписка
+              <a class="user-conn-open-link" href="#" @click.prevent="openSubUrl">Открыть</a>
+            </div>
+            <code class="user-conn-code user-conn-code--copy" title="Нажмите чтобы скопировать"
+              @click="copyField(userForm.sub_url, 'Подписка')">[[ userForm.sub_url ]]</code>
           </div>
-          <div v-if="userForm.sub_id" class="user-conn-block" style="margin-top:12px">
-            <div class="user-conn-label">Sub ID</div>
-            <code class="user-conn-code">[[ userForm.sub_id ]]</code>
+
+          <div class="user-conn-clients-title">Совместимые клиенты</div>
+          <div v-for="cl in clientLinks" :key="cl.key" class="user-conn-client">
+            <div class="user-conn-client-name">
+              <a :href="cl.repo" target="_blank" rel="noopener" @click.stop>[[ cl.title ]]</a>
+              <span class="text-muted"> — [[ cl.hint ]]</span>
+            </div>
+            <code v-if="cl.value && cl.value !== '—'" class="user-conn-code user-conn-code--copy"
+              title="Нажмите чтобы скопировать"
+              @click="copyField(cl.value, cl.title)">[[ cl.value ]]</code>
+            <code v-else class="user-conn-code text-muted">—</code>
           </div>
         </a-col>
         <a-col :xs="24" :md="10">
           <div class="qr-modal" style="justify-content:center">
             <div v-if="userForm.sub_url" class="qr-box">
-              <a class="qr-bg-sub cursor-pointer" @click.prevent="openSubUrl" :title="userForm.sub_url">
+              <a class="qr-bg-sub cursor-pointer" @click.prevent="copyField(userForm.sub_url, 'Подписка')" :title="userForm.sub_url">
                 <div class="qr-bg-sub-inner">
                   <canvas id="wdtt-user-sub-qr" class="qr-cv"></canvas>
                 </div>
@@ -124,7 +138,7 @@
               <a-tag class="qr-tag" color="green">Подписка</a-tag>
             </div>
             <div class="qr-box">
-              <a class="qr-bg cursor-pointer" @click.prevent="copyConnLink" :title="connLink">
+              <a class="qr-bg cursor-pointer" @click.prevent="copyField(connLink, 'Ссылка')" :title="connLink">
                 <canvas id="wdtt-user-share-qr" class="qr-cv"></canvas>
               </a>
               <a-tag class="qr-tag" color="blue">Конфиг wdtt://</a-tag>
@@ -262,6 +276,70 @@
         if (used < limit) return 'orange';
         return 'red';
       },
+      connVkHash() {
+        return (this.userForm.vk_hash || '').trim();
+      },
+      connBaseOpts() {
+        const p = this.connPorts;
+        const name = (this.userForm.comment || '').trim() || 'WDTT';
+        return {
+          host: this.connHost,
+          password: this.userForm.password,
+          vkHash: this.connVkHash,
+          name: name,
+          dtls: p.dtls,
+          wg: p.wg,
+          port: p.client,
+        };
+      },
+      clientLinks() {
+        const o = this.connBaseOpts;
+        if (!o.host || !o.password) return [];
+        return [
+          {
+            key: 'ios',
+            title: 'iOS — VK Turn Proxy',
+            repo: 'https://github.com/anton48/vk-turn-proxy-ios',
+            hint: 'wdtt:// colon, bare-хеш или VK_HASH',
+            value: wdttBuildColonLink({ ...o, localPort: 0, withName: false }),
+          },
+          {
+            key: 'android',
+            title: 'Android — WDTT',
+            repo: 'https://github.com/amurcanov/proxy-turn-vk-android',
+            hint: 'wdtt:// colon, bare-хеш или VK_HASH',
+            value: wdttBuildColonLink({ ...o, localPort: o.port || 9000, withName: false }),
+          },
+          {
+            key: 'pwdtt',
+            title: 'PWDTT — Desktop Win/Linux',
+            repo: 'https://github.com/luminescq/PWDTT',
+            hint: 'wdtt:// colon, bare-хеш или VK_HASH',
+            value: wdttBuildColonLink({ ...o, localPort: 0, withName: true }),
+          },
+          {
+            key: 'windows',
+            title: 'WDTT — Windows',
+            repo: 'https://github.com/IGOR7276/proxy-turn-vk-windows',
+            hint: 'wdtt:// colon, bare-хеш или VK_HASH',
+            value: wdttBuildColonLink({ ...o, localPort: 0, withName: true }),
+          },
+          {
+            key: 'qwdtt',
+            title: 'qWDTT — Android fork',
+            repo: 'https://github.com/SpaceNeuroX/proxy-turn-vk-android',
+            hint: 'qwdtt://, hashes=vk.com/call/join/… или VK_HASH',
+            value: wdttBuildQwdttLink(o),
+          },
+          {
+            key: 'qwdtt_win',
+            title: 'WDTT Windows — qwdtt',
+            repo: 'https://github.com/IGOR7276/proxy-turn-vk-windows',
+            hint: 'qwdtt://, hashes=vk.com/call/join/… или VK_HASH',
+            value: wdttBuildQwdttLink(o),
+          },
+        ];
+      },
     },
     watch: {
       connLink() {
@@ -384,6 +462,7 @@
           total_gb: 0,
           max_down_mbit: 0,
           max_up_mbit: 0,
+          vk_hash: '',
           use_custom_ports: false,
           dtls_port: this.userModal.inbound.dtls_port || 56000,
           wg_port: this.userModal.inbound.wg_port || 56001,
@@ -426,21 +505,20 @@
           sub_url: row.sub_url || '',
         };
       },
-      copySubUrl() {
-        const url = this.userForm.sub_url || '';
-        wdttCopyLink(url, () => this.$message.success('Подписка скопирована'), () => this.$message.error('Не удалось скопировать'));
+      copyField(text, label) {
+        const v = (text || '').trim();
+        if (!v || v === '—') {
+          this.$message.warning('Нечего копировать');
+          return;
+        }
+        wdttCopyLink(v,
+          () => this.$message.success((label || 'Ссылка') + ' скопирована'),
+          (msg) => this.$message.error(msg || 'Не удалось скопировать'));
       },
       openSubUrl() {
         const url = (this.userForm.sub_url || '').trim();
         if (!url) return;
         window.open(url, '_blank', 'noopener');
-      },
-      copyConnLink() {
-        const self = this;
-        const link = this.connLink;
-        wdttCopyLink(link === '—' ? '' : link,
-          () => Vue.prototype.$message.success('Ссылка скопирована: ' + self.userForm.password),
-          (msg) => Vue.prototype.$message.error(msg || 'Не удалось скопировать'));
       },
       resetTraffic() {
         const self = this;
@@ -498,6 +576,7 @@
               total_gb: Number(this.userForm.total_gb) || 0,
               max_down_mbps: this.mbFromMbit(this.userForm.max_down_mbit),
               max_up_mbps: this.mbFromMbit(this.userForm.max_up_mbit),
+              vk_hash: (this.userForm.vk_hash || '').trim(),
               active: this.userForm.active,
               use_custom_ports: this.userForm.use_custom_ports,
               dtls_port: Number(this.userForm.dtls_port) || 0,

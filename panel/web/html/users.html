@@ -53,6 +53,10 @@
                     <code>[[ text ]]</code>
                   </span>
                   <span slot="comment" slot-scope="text">[[ text || '—' ]]</span>
+                  <span slot="vk_hash" slot-scope="text">
+                    <code v-if="text" style="font-size:11px">[[ text.length > 14 ? text.slice(0, 10) + '…' : text ]]</code>
+                    <span v-else class="text-muted">—</span>
+                  </span>
                   <span slot="device" slot-scope="_, row">
                     <span v-if="row.is_main">[[ row.device_id || '—' ]]</span>
                     <span v-else>
@@ -110,6 +114,16 @@
   .user-conn-table tr:nth-child(odd) td { background: rgba(255,255,255,.03); }
   .user-conn-block .user-conn-label { font-size: 12px; opacity: .65; margin-bottom: 6px; }
   .user-conn-code { display: block; word-break: break-all; font-size: 12px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); }
+  .user-conn-code--copy { cursor: pointer; user-select: none; transition: background .15s, border-color .15s; }
+  .user-conn-code--copy:hover { background: rgba(24,144,255,.08); border-color: rgba(24,144,255,.35); }
+  .user-conn-code--copy:active { opacity: .85; }
+  .user-conn-hint { font-size: 11px; opacity: .5; margin-top: 4px; }
+  .user-conn-clients-title { font-size: 13px; font-weight: 600; margin: 20px 0 12px; opacity: .85; }
+  .user-conn-client { margin-bottom: 14px; }
+  .user-conn-client-name { font-size: 12px; margin-bottom: 6px; }
+  .user-conn-client-name a { color: #1890ff; }
+  .user-conn-client-name a:hover { text-decoration: underline; }
+  .user-conn-open-link { font-size: 11px; margin-left: 8px; color: #1890ff; }
   #user-modal .qr-box { width: 220px; margin: 0 auto 8px; }
   #user-modal .qr-cv { width: 100%; height: 100%; }
 </style>
@@ -137,6 +151,7 @@
       userCols: [
         { title: 'Пароль', dataIndex: 'password', scopedSlots: { customRender: 'password' } },
         { title: 'Комментарий', dataIndex: 'comment', scopedSlots: { customRender: 'comment' } },
+        { title: 'VK_HASH', dataIndex: 'vk_hash', scopedSlots: { customRender: 'vk_hash' }, width: 120 },
         { title: 'Устройства', scopedSlots: { customRender: 'device' } },
         { title: 'Срок', dataIndex: 'expires' },
         { title: 'Статус', dataIndex: 'active', scopedSlots: { customRender: 'active' } },
