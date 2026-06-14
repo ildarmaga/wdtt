@@ -13,10 +13,13 @@ panel/wdtt-panel
 *.pem
 *.keystore
 
-# IDE / OS
+# IDE / OS (Cursor/ECC — local only, never commit)
 .idea/
 .vscode/
 .cursor/
+AGENTS.md
+wdtt.code-workspace
+scripts/cursor-local-setup.sh
 .DS_Store
 *.log
 *.tmp
