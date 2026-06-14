@@ -229,8 +229,10 @@ func userSessionEnter(deviceID, ip, label, password string) bool {
 		atomic.AddInt32(&activeUsers, 1)
 		log.Printf("[ПОДКЛ] %s | %s | WG %s", info.Label, deviceID, info.IP)
 	}
-	if password != "" {
-		touchUserLastSeen(password)
+	touchPass := password
+	onlineUsersMutex.Unlock()
+	if touchPass != "" {
+		touchUserLastSeen(touchPass)
 	}
 	return true
 }

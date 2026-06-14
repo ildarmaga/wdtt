@@ -139,7 +139,7 @@
           { label: 'Xray WDTT', value: o.xray_active ? 'ON' : 'OFF', dot: o.xray_active ? 'success' : 'error', sub: o.xray_version || '—' },
           { label: 'Онлайн', value: s.active_users || 0, sub: 'сессий: ' + (s.sessions || 0) },
           { label: 'Трафик ↓', value: s.down_gb || '0', suffix: 'GB', sub: '↑ ' + (s.up_gb || '0') + ' GB' },
-          { label: 'IP сервера', value: o.server_ip || '—', sub: 'пароль: ' + (o.main_password || '—') },
+          { label: 'IP сервера', value: o.server_ip || '—', sub: 'пользователей: ' + (o.users_count || 0) },
           { label: 'NAT', value: (s.nat || '—').slice(0, 24), sub: 'uptime: ' + (s.uptime || '—') },
         ];
         this.online = s.online || [];

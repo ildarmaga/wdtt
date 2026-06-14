@@ -284,7 +284,7 @@ func savePasswordsNorm(db *PasswordsDB) error {
 	if !panelDBEnabled() || db == nil {
 		return nil
 	}
-	return paneldb.SaveStore(panelDB, storeFromPasswordsDB(db), paneldb.SaveOptions{})
+	return paneldb.SaveStore(panelDB, storeFromPasswordsDB(db), paneldb.SaveOptions{PreserveSubIDs: true})
 }
 
 func loadInboundNorm() (WdttInboundConfig, error) {

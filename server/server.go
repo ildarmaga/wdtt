@@ -148,9 +148,7 @@ func initDB(mainPass, adminID, botToken string) {
 		db.Devices = make(map[string]*ClientDevice)
 	}
 	migrateDatabaseDevices()
-	db.MainPassword = mainPass
-	db.AdminID = adminID
-	db.BotToken = botToken
+	applyDBGlobalFromCLI(mainPass, adminID, botToken)
 	if db.MainPassword != "" {
 		ensureMainPasswordEntryLocked()
 	}

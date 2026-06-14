@@ -390,10 +390,17 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					continue
 				}
 				expiresAt := time.Now().Add(time.Duration(tempDays) * 24 * time.Hour).Unix()
+				subID, err := genSubID()
+				if err != nil {
+					dbMutex.Unlock()
+					sendTelegram(token, adminID, "❌ Не удалось создать sub_id. Повторите /new.", nil)
+					continue
+				}
 				db.Passwords[newPass] = &PasswordEntry{
 					ExpiresAt: expiresAt,
 					VkHash:    hash,
 					Ports:     tempPorts,
+					SubID:     subID,
 				}
 				saveDB()
 				dbMutex.Unlock()

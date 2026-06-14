@@ -93,7 +93,6 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"xray_version":     xrayVersion(),
 		"xray_binary":      xrayBinary(),
 		"stats":            stats,
-		"main_password":    db.MainPassword,
 		"users_count":      len(db.Passwords),
 		"devices_count":    len(db.Devices),
 		"server_ip":          a.serverIP(),
@@ -161,6 +160,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			"traffic_exceeded":   trafficExceeded(entry),
 			"active":             !entry.IsDeactivated && !isPasswordExpired(entry),
 			"online":             userOnlineFromStats(pass, deviceIDsDisplay(entry), false, stats),
+			"last_seen_at":       entry.LastSeenAt,
 			"ports":              entry.Ports,
 			"dtls_port":          dtlsPort,
 			"wg_port":            wgPort,
@@ -261,7 +261,10 @@ func portsFromReq(req userAPIReq) string {
 
 func (a *App) handleUserAdd(w http.ResponseWriter, r *http.Request) {
 	var req userAPIReq
-	readJSON(r, &req)
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
 	if req.Password == "" && req.DeviceID == "" && req.Comment == "" && req.ExpiresAt == 0 && req.TotalGB == 0 && req.Active == nil {
 		if req.Count < 1 {
 			req.Count = 1
@@ -288,10 +291,12 @@ func (a *App) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		OldPassword string `json:"old_password"`
 		userAPIReq
 	}
-	readJSON(r, &req)
-	entry := passwordEntryFromReq(req.userAPIReq)
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
 	manageDevices := req.DeviceIDs != nil || strings.TrimSpace(req.DeviceID) != ""
-	if err := updateUser(req.OldPassword, strings.TrimSpace(req.Password), entry, manageDevices); err != nil {
+	if err := updateUser(req.OldPassword, strings.TrimSpace(req.Password), req.userAPIReq, manageDevices); err != nil {
 		jsonError(w, err.Error(), 400)
 		return
 	}

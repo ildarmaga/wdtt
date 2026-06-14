@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	"wdtt-panel/network"
 )
 
@@ -55,28 +56,25 @@ func lookupUserBySubID(subID string) (*subUserInfo, error) {
 	if !panelDBEnabled() {
 		return nil, fmt.Errorf("database unavailable")
 	}
-	var pass, subCol string
-	var e PasswordEntry
-	var deactivated int
-	err := panelDB.QueryRow(`SELECT password, sub_id, device_id, max_devices, expires_at, down_bytes, up_bytes,
-		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, last_seen_at
-		FROM wdtt_users WHERE sub_id = ?`, subID).Scan(
-		&pass, &subCol, &e.DeviceID, &e.MaxDevices, &e.ExpiresAt, &e.DownBytes, &e.UpBytes,
-		&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.LastSeenAt,
-	)
+	s, err := paneldb.LoadStore(panelDB)
 	if err != nil {
 		return nil, fmt.Errorf("subscription not found")
 	}
-	e.SubID = subCol
-	e.IsDeactivated = deactivated != 0
-	if e.IsDeactivated || isPasswordExpired(&e) || trafficExceeded(&e) {
-		return nil, fmt.Errorf("subscription inactive")
+	for pass, u := range s.Users {
+		if u == nil || u.SubID != subID {
+			continue
+		}
+		e := userEntryFromPaneldb(u)
+		if e.IsDeactivated || isPasswordExpired(e) || trafficExceeded(e) {
+			return nil, fmt.Errorf("subscription inactive")
+		}
+		email := strings.TrimSpace(e.Comment)
+		if email == "" {
+			email = pass
+		}
+		return &subUserInfo{Password: pass, Entry: e, Email: email}, nil
 	}
-	email := strings.TrimSpace(e.Comment)
-	if email == "" {
-		email = pass
-	}
-	return &subUserInfo{Password: pass, Entry: &e, Email: email}, nil
+	return nil, fmt.Errorf("subscription not found")
 }
 
 func (a *App) buildSubURL(subID string) string {

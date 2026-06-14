@@ -422,13 +422,11 @@ func addUserPasswords(count int) ([]string, error) {
 	return created, nil
 }
 
-func updateUser(oldPassword, newPassword string, entry *PasswordEntry, manageDevices bool) error {
+func updateUser(oldPassword, newPassword string, req userAPIReq, manageDevices bool) error {
 	if oldPassword == "" {
 		return fmt.Errorf("пароль не указан")
 	}
-	if entry == nil {
-		entry = &PasswordEntry{}
-	}
+	patch := passwordEntryFromReq(req)
 	if newPassword == "" {
 		newPassword = oldPassword
 	}
@@ -443,6 +441,20 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry, manageDev
 	if !ok {
 		return fmt.Errorf("пользователь не найден")
 	}
+	entry := *cur
+	entry.Comment = patch.Comment
+	entry.ExpiresAt = patch.ExpiresAt
+	entry.TotalBytes = patch.TotalBytes
+	entry.MaxDownMBps = patch.MaxDownMBps
+	entry.MaxUpMBps = patch.MaxUpMBps
+	entry.Ports = patch.Ports
+	entry.VkHash = patch.VkHash
+	if req.Active != nil {
+		entry.IsDeactivated = patch.IsDeactivated
+	}
+	if patch.MaxDevices > 0 {
+		entry.MaxDevices = patch.MaxDevices
+	}
 	if newPassword != oldPassword {
 		if _, exists := db.Passwords[newPassword]; exists {
 			return fmt.Errorf("пароль уже существует")
@@ -452,13 +464,13 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry, manageDev
 		entry.SubID = cur.SubID
 		entry.LastSeenAt = cur.LastSeenAt
 		delete(db.Passwords, oldPassword)
-		db.Passwords[newPassword] = entry
+		db.Passwords[newPassword] = &entry
 	} else {
 		entry.DownBytes = cur.DownBytes
 		entry.UpBytes = cur.UpBytes
 		entry.SubID = cur.SubID
 		entry.LastSeenAt = cur.LastSeenAt
-		db.Passwords[oldPassword] = entry
+		db.Passwords[oldPassword] = &entry
 	}
 	if strings.TrimSpace(entry.SubID) == "" {
 		subID, err := genSubID()
@@ -468,27 +480,34 @@ func updateUser(oldPassword, newPassword string, entry *PasswordEntry, manageDev
 		entry.SubID = subID
 	}
 	wasExpired := isPasswordExpired(cur)
-	nowValid := !isPasswordExpired(entry)
-	if wasExpired && nowValid && !trafficExceeded(entry) {
+	nowValid := !isPasswordExpired(&entry)
+	if wasExpired && nowValid && !trafficExceeded(&entry) {
 		entry.IsDeactivated = false
 	}
 	normalizeEntryDevices(cur)
-	normalizeEntryDevices(entry)
-	// Сохраняем текущие устройства только если запрос их не редактировал.
-	// Если устройства переданы явно (в т.ч. пустой список) — применяем как есть,
-	// что позволяет отвязать все привязанные устройства.
-	if !manageDevices && len(entry.DeviceIDs) == 0 && entry.DeviceID == "" {
+	normalizeEntryDevices(&entry)
+	if manageDevices {
+		if req.DeviceIDs != nil {
+			entry.DeviceIDs = append([]string(nil), (*req.DeviceIDs)...)
+		} else if id := strings.TrimSpace(req.DeviceID); id != "" {
+			entry.DeviceIDs = []string{id}
+		} else {
+			entry.DeviceIDs = nil
+			entry.DeviceID = ""
+		}
+		normalizeEntryDevices(&entry)
+	} else if len(entry.DeviceIDs) == 0 && entry.DeviceID == "" {
 		entry.DeviceIDs = append([]string(nil), cur.DeviceIDs...)
 		entry.DeviceID = cur.DeviceID
 	}
 	if entry.MaxDevices <= 0 {
 		entry.MaxDevices = cur.MaxDevices
 	}
-	if len(entry.DeviceIDs) > entryMaxDevices(entry) {
-		return fmt.Errorf("привязано %d устройств — лимит %d, сначала отвяжите лишние", len(entry.DeviceIDs), entryMaxDevices(entry))
+	if len(entry.DeviceIDs) > entryMaxDevices(&entry) {
+		return fmt.Errorf("привязано %d устройств — лимит %d, сначала отвяжите лишние", len(entry.DeviceIDs), entryMaxDevices(&entry))
 	}
 	for _, devID := range cur.DeviceIDs {
-		if !entryHasDevice(entry, devID) {
+		if !entryHasDevice(&entry, devID) {
 			delete(db.Devices, devID)
 		}
 	}

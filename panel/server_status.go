@@ -229,7 +229,6 @@ func fillWdttStatus(s *serverStatus) {
 		s.Wdtt.DownBytes = down
 		s.Wdtt.UpGB = fmt.Sprintf("%.2f", float64(up)/float64(oneGB))
 		s.Wdtt.DownGB = fmt.Sprintf("%.2f", float64(down)/float64(oneGB))
-		s.Wdtt.MainPass = db.MainPassword
 	}
 	s.Wdtt.Iface = getWdttIface()
 	if t, err := serviceUptime(wdttServiceUnit); err == nil {

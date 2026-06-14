@@ -73,6 +73,18 @@ func updateLastSeenInSQLite(password string, ts int64) error {
 	return paneldb.UpdateLastSeen(db, password, ts)
 }
 
+func applyDBGlobalFromCLI(mainPass, adminID, botToken string) {
+	if mainPass != "" {
+		db.MainPassword = mainPass
+	}
+	if adminID != "" {
+		db.AdminID = adminID
+	}
+	if botToken != "" {
+		db.BotToken = botToken
+	}
+}
+
 func loadDatabaseFromDiskSource() (*Database, error) {
 	if incoming, ok, err := loadDatabaseFromSQLite(); err != nil {
 		return nil, err

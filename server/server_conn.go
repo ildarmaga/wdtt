@@ -90,6 +90,12 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			password = parts[2]
 		}
 
+		if maxDTLSPerDevice > 0 && deviceSessionCount(deviceID) >= int(maxDTLSPerDevice) {
+			clientConn.Write([]byte("DENIED:too_many_sessions"))
+			log.Printf("[WG] Отказ: лимит %d DTLS-сессий для %s", maxDTLSPerDevice, deviceID)
+			return
+		}
+
 		dbMutex.Lock()
 
 		// Проверяем пароль
@@ -101,19 +107,16 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			clientConn.Write([]byte("DENIED:deactivated"))
 			log.Printf("[WG] Отказ: пароль %s деактивирован, запрос от %s", maskPassword(password), deviceID)
 			dbMutex.Unlock()
-		} else if valid && isGenPass && !entryCanAcceptDevice(entry, deviceID) {
+			return
+		}
+		if valid && isGenPass && !entryCanAcceptDevice(entry, deviceID) {
 			clientConn.Write([]byte("DENIED:device_mismatch"))
 			log.Printf("[WG] Отказ: пароль %s — лимит устройств %d/%d, запрос от %s",
 				maskPassword(password), len(allEntryDeviceIDs(entry)), entryMaxDevices(entry), deviceID)
 			dbMutex.Unlock()
-		} else if valid {
-			if maxDTLSPerDevice > 0 && deviceSessionCount(deviceID) >= int(maxDTLSPerDevice) {
-				clientConn.Write([]byte("DENIED:too_many_sessions"))
-				log.Printf("[WG] Отказ: лимит %d DTLS-сессий для %s", maxDTLSPerDevice, deviceID)
-				dbMutex.Unlock()
-				return
-			}
-
+			return
+		}
+		if valid {
 			connPassword = password
 			connIsMainPass = isMainPass
 
@@ -175,6 +178,8 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				getconfFailReset(clientConn.RemoteAddr())
 			} else {
 				clientConn.Write([]byte("NOCONF"))
+				dbMutex.Unlock()
+				return
 			}
 			dbMutex.Unlock()
 		} else {
@@ -189,6 +194,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				getconfFailLog(clientConn.RemoteAddr(), "wrong_password")
 			}
 			dbMutex.Unlock()
+			return
 		}
 		if connDeviceID != "" {
 			relaySessionEvictIdle(connDeviceID, relayStaleEvictIdle)
