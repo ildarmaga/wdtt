@@ -206,6 +206,12 @@ detect_firewall() {
 }
 
 # ─── Firewall-абстракция ─────────────────────────────────────────────────────
+ensure_nft_wdtt() {
+    nft add table inet wdtt 2>/dev/null || true
+    nft add chain inet wdtt input '{ type filter hook input priority 0; policy accept; }' 2>/dev/null || true
+    nft add chain inet wdtt forward '{ type filter hook forward priority 0; policy accept; }' 2>/dev/null || true
+}
+
 fw_add_input_udp() {
     local port="$1"
     case "$FW_BACKEND" in
@@ -282,15 +288,21 @@ fw_add_established() {
 }
 
 install_wdtt_mtu_rules_script() {
-    local src="${SCRIPT_DIR}/wdtt-mtu-rules.sh"
-    if [ -f "$src" ]; then
+    local src=""
+    for candidate in "${SCRIPT_DIR}/scripts/wdtt-mtu-rules.sh" "${SCRIPT_DIR}/wdtt-mtu-rules.sh"; do
+        if [ -f "$candidate" ]; then
+            src="$candidate"
+            break
+        fi
+    done
+    if [ -n "$src" ]; then
         install -m 0755 "$src" /usr/local/bin/wdtt-mtu-rules.sh
         return 0
     fi
     if [ -x /usr/local/bin/wdtt-mtu-rules.sh ]; then
         return 0
     fi
-    log_warn "wdtt-mtu-rules.sh не найден рядом с deploy.sh — MTU правила пропущены"
+    log_warn "wdtt-mtu-rules.sh не найден (scripts/ или рядом с deploy.sh) — MTU правила пропущены"
     return 1
 }
 

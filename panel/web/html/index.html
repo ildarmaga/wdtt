@@ -65,18 +65,12 @@
   <a-layout id="content-layout">
     <a-layout-content>
       <a-spin :spinning="loadingStates.spinning" :delay="200" :tip="loadingTip" size="large">
-        <transition name="list" appear>
-          <a-alert type="error" v-if="showAlert && loadingStates.fetched"
+        <a-alert type="error" v-if="showAlert"
             :style="{ marginBottom: '10px' }"
             message='{{ i18n "secAlertTitle" }}' color="red"
             description='{{ i18n "secAlertSsl" }}' show-icon closable>
           </a-alert>
-        </transition>
-        <transition name="list" appear>
-            <a-row v-if="!loadingStates.fetched" key="loading">
-              <div :style="{ minHeight: 'calc(100vh - 120px)' }"></div>
-            </a-row>
-            <a-row class="dashboard-grid" :gutter="isMobile ? 8 : 16" v-else key="grid">
+        <a-row class="dashboard-grid" :gutter="isMobile ? 8 : 16">
               <a-col :span="24">
                 <a-card hoverable>
                   <a-row :gutter="[0, isMobile ? 16 : 0]">
@@ -371,7 +365,6 @@
                 </a-card>
               </a-col>
             </a-row>
-        </transition>
       </a-spin>
     </a-layout-content>
   </a-layout>
@@ -1090,7 +1083,7 @@
     data: {
       themeSwitcher,
       loadingStates: {
-        fetched: false,
+        fetched: true,
         spinning: false
       },
       status: new Status(),

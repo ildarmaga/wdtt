@@ -88,7 +88,7 @@ func decodeWdttShareLink(link string) (WdttSharePayload, error) {
 	return p, nil
 }
 
-func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) (string, error) {
+func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, _ string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) (string, error) {
 	inbound.normalize()
 	host := strings.TrimSpace(inbound.ServerHost)
 	if host == "" {
@@ -106,10 +106,11 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 	if vpnName == "" {
 		vpnName = strings.TrimSpace(inbound.Tag)
 	}
+	// hash намеренно не в base64-ссылке (v1.3.3+): хеши — в colon/qwdtt или поле VK_HASH у пользователя.
+	// name — имя профиля; ps не дублируем (legacy-клиенты читают name или ps при decode).
 	return encodeWdttShareLink(WdttSharePayload{
 		Vpn:  vpnName,
 		Name: userName,
-		Ps:   userName, // legacy clients / subscription.js до name
 		IP:   host,
 		Dtls: dtls,
 		Pass: password,

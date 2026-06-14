@@ -71,7 +71,10 @@ func trafficExceeded(entry *PasswordEntry) bool {
 }
 
 func isPasswordExpired(entry *PasswordEntry) bool {
-	if entry == nil || entry.ExpiresAt == 0 {
+	if entry == nil {
+		return true
+	}
+	if entry.ExpiresAt == 0 {
 		return false
 	}
 	return time.Now().Unix() > entry.ExpiresAt
