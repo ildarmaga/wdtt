@@ -1,0 +1,14 @@
+{
+  "folders": [
+    {
+      "name": "wdtt",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/wdtt-server-linux-*": true,
+      "**/wdtt-panel-linux-*": true
+    }
+  }
+}

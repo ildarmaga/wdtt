@@ -19,6 +19,7 @@ panel/wdtt-panel
 # Cursor: ECC (skills, hooks, MCP state) — local only
 .cursor/*
 !.cursor/README.md
+!.cursor/mcp.json.example
 !.cursor/rules/
 .cursor/rules/*
 !.cursor/rules/wdtt/
