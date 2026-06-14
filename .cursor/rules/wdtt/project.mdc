@@ -1,0 +1,38 @@
+---
+description: WDTT monorepo layout, build, deploy
+alwaysApply: true
+---
+
+# WDTT project
+
+## Layout
+
+```
+pkg/           sharelink, vkhash, paneldb — shared by server + panel
+server/        wdtt-server (go.mod: wdtt-server)
+panel/         wdtt-panel (go.mod: wdtt-panel)
+```
+
+Data: `/etc/wdtt/panel.db` (SQLite schema v9). Server reads users/inbound via `pkg/paneldb`; panel owns xray + panel_config.
+
+## Build
+
+```bash
+./build.sh amd64 server   # wdtt-server-linux-amd64
+./build.sh amd64 panel    # wdtt-panel-linux-amd64
+./build.sh amd64 all
+```
+
+Deploy: `systemctl stop wdtt` → copy binary → `systemctl start wdtt` (same for `wdtt-panel`).
+
+## Refactor conventions
+
+- New SQLite access → `pkg/paneldb` + thin adapters in `panel/paneldb_store.go` or `server/paneldb_store.go`
+- Panel legacy API (`panel/api/server/*`) → delegate to native handlers / `api_ops.go`
+- Minimal diffs; match existing naming and error shapes (`jsonOK` / `jsonMsg`)
+- Commits: user asks explicitly; this env may need `git commit-tree` if `git commit` fails on `--trailer`
+
+## Docs
+
+- `docs/SERVER.md` — server architecture
+- `docs/API.md` — panel REST

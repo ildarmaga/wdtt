@@ -1,0 +1,22 @@
+---
+description: pkg/paneldb and SQLite migrations
+globs: pkg/paneldb/**/*.go,panel/db*.go,panel/paneldb_store.go,server/panel_db.go,server/paneldb_store.go
+alwaysApply: false
+---
+
+# paneldb
+
+Shared package for `panel.db` tables:
+
+| API | Table(s) |
+|-----|----------|
+| `LoadStore` / `SaveStore` | wdtt_users, wdtt_devices, wdtt_global |
+| `LoadInbound` / `SaveInbound` | wdtt_inbound |
+| `LoadPanelConfig` / `SavePanelConfig` | panel_config |
+| `LoadXray*` / `SaveXray*` | xray_panel_meta, xray_inbound_meta, xray_traffic_totals, xray_config |
+
+Panel: `load*Norm` / `save*Norm` in `db_norm.go` call paneldb; normalization stays in panel (`normalizeSubConfig`, etc.).
+
+Legacy JSON blobs in `settings` — migrated and purged in schema **v9** (`db_migrate_blobs.go`); do not reintroduce `db_store.go` blob layer.
+
+Add tests in `pkg/paneldb/*_test.go` (in-memory SQLite).
