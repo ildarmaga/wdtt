@@ -1,7 +1,34 @@
 # WDTT Server — полный разбор
 
-Документ описывает монолит `wdtt-server` (`server.go` + `devices.go` + `speedlimit.go`
-+ `relay_sessions.go` + `relay_fail.go` + `panel_db.go`).
+Документ описывает бинарник `wdtt-server` — Go-модуль `server/` (~4300 строк в 18 файлах).
+Общая SQLite-логика с панелью вынесена в `pkg/paneldb/`.
+
+---
+
+## 0. Структура репозитория
+
+```
+wdtt/
+├── pkg/                 # общие пакеты (server + panel)
+│   ├── paneldb/         # SQLite: users, devices, inbound, panel_config, xray_*
+│   ├── sharelink/       # wdtt:// encode/decode
+│   └── vkhash/          # парсинг VK hash для deep link
+├── server/              # wdtt-server (go.mod: wdtt-server)
+│   ├── server.go        # main, Database, initDB, NAT, stats loop
+│   ├── server_wrap.go   # WRAP / RTP AEAD obfs
+│   ├── server_conn.go   # handleConn, GETCONF, relay
+│   ├── server_wg.go     # userspace WireGuard
+│   ├── server_bot.go    # Telegram-бот
+│   ├── server_stats.go  # statsLoop, server.log
+│   ├── server_presence.go
+│   ├── panel_db.go      # чтение panel.db через paneldb
+│   └── …                # devices, speedlimit, relay_*, admin
+├── panel/               # wdtt-panel (веб-UI + API)
+├── build.sh             # go build ./server
+└── deploy.sh            # установщик VPS
+```
+
+Сборка: `./build.sh` или `go build -o wdtt-server ./server` из корня репозитория.
 
 ---
 
@@ -26,24 +53,49 @@ WDTT Server — VPN-бэкенд для схемы **VK TURN → WRAP → DTLS �
 
 ## 2. Файлы и роли
 
+### 2.1 `server/` — исходники wdtt-server
+
 | Файл | Строк ~ | За что отвечает |
 |------|---------|-----------------|
-| `server.go` | 3090 | Основной бинарник: DTLS, WRAP, WG, БД, Telegram-бот, NAT, статистика |
-| `devices.go` | 150 | Привязка `device_id` к паролям, лимит устройств на пароль |
-| `speedlimit.go` | 175 | `tc` HTB — лимиты скорости по IP клиента в подсети WG |
-| `relay_sessions.go` | 120 | Учёт и эвикция «осиротевших» TURN-relay сессий |
-| `relay_fail.go` | 105 | Fast-fail «мёртвых» VK TURN relay по числу неудачных handshake |
-| `panel_db.go` | — | Чтение настроек/пользователей из общей `panel.db` |
+| `server.go` | 550 | `main`, типы `Database` / `PasswordEntry`, `initDB`, NAT, expired janitor |
+| `server_wrap.go` | 450 | WRAP key store, RTP AEAD wrap/unwrap, `listenWrapped` |
+| `server_conn.go` | 420 | `handleConn`: DTLS handshake, GETCONF, READY, relay DTLS↔WG |
+| `server_wg.go` | 590 | userspace WireGuard (TUN `wdtt0`, peers, UAPI) |
+| `server_bot.go` | 600 | Telegram long-poll, команды, deep links |
+| `server_presence.go` | 350 | online/idle пользователей, `userTouchActivity` |
+| `server_stats.go` | 115 | `statsLoop`, запись `server.log` |
+| `server_util.go` | 75 | утилиты (публичный IP, BBR, buf pool) |
+| `panel_db.go` | 200 | SQLite `panel.db` через `pkg/paneldb` |
+| `paneldb_store.go` | 135 | адаптеры Database ↔ paneldb.Store |
+| `devices.go` | 155 | лимит устройств на пароль, bind device_id |
+| `speedlimit.go` | 175 | `tc` HTB — лимиты скорости по IP в WG |
+| `relay_sessions.go` | 118 | учёт relay-сессий, эвикция idle > 3 мин |
+| `relay_fail.go` | 103 | fast-fail «мёртвых» VK TURN relay |
+| `admin.go` | 116 | localhost HTTP: `/health`, `POST /admin/reload` |
+| `getconf_ratelimit.go` | 67 | rate-limit неудачных GETCONF |
+| `dtls_cert.go` | 83 | self-signed cert для DTLS |
+| `wdtt_share.go` | 24 | обёртка над `pkg/sharelink` |
 
-Конфиг на диске (`/etc/wdtt/`):
+### 2.2 Конфиг на диске (`/etc/wdtt/`)
 
 | Файл | Назначение |
 |------|------------|
-| `panel.db` | **Primary:** SQLite — панель, users, inbound, xray (schema v5) |
+| `panel.db` | **Primary:** SQLite — панель + VPN-данные (schema v9). Таблицы: `panel_config`, `wdtt_*`, `xray_*` |
 | `wg-keys.dat` | Серверные/legacy WG ключи (4 строки base64) |
 | `server.log` | JSON-снимок статистики для панели (каждые 10 с) |
 
----
+Legacy JSON (`passwords.json`, `inbound.json`, `panel.json`) импортируется панелью при миграции и удаляется.
+
+### 2.3 `pkg/paneldb` — что читает сервер
+
+| API | Таблица | Назначение |
+|-----|---------|------------|
+| `LoadStore` / `SaveStore` | `wdtt_users`, `wdtt_devices`, `wdtt_global` | пользователи и устройства |
+| `LoadRuntimeSettings` | `wdtt_inbound` | DNS, MTU, max_users, timeouts |
+| `LoadPanelServicePorts` | `panel_config` | порты панели и subscription (iptables) |
+| `UpdateLastSeen` | `wdtt_users` | last_seen_at при активности |
+
+Xray-таблицы (`xray_config`, …) сервер **не** читает — только панель.
 
 ## 3. Архитектура (потоки)
 
@@ -108,7 +160,19 @@ CLI-флаги `main()`:
 
 ---
 
-## 5. Разбор `server.go` по блокам
+## 5. Разбор `server/` по блокам
+
+| Блок | Файл(ы) |
+|------|---------|
+| БД, save/load | `server.go`, `panel_db.go`, `paneldb_store.go` |
+| WRAP / obfs | `server_wrap.go` |
+| DTLS + GETCONF + relay | `server_conn.go`, `dtls_cert.go` |
+| WireGuard | `server_wg.go` |
+| Telegram | `server_bot.go`, `wdtt_share.go` |
+| Статистика / presence | `server_stats.go`, `server_presence.go` |
+| Admin HTTP | `admin.go` |
+| Relay lifecycle | `relay_sessions.go`, `relay_fail.go` |
+| NAT, main loop | `server.go`, `server_util.go` |
 
 ### 5.1 База данных (`Database`, `initDB`, `saveDB`)
 
@@ -120,12 +184,12 @@ CLI-флаги `main()`:
 
 **Логика:**
 
-- `initDB` — загрузка users из `panel.db`; при обновлении одноразово импорт из `passwords.json`, затем файл удаляется (миграция v5 панели).
-- `saveDB` — запись только в SQLite (`panel.db`), вызывается часто под `dbMutex`.
+- `initDB` — загрузка users из `panel.db` через `paneldb.LoadStore`; одноразовый fallback из `passwords.json`.
+- `saveDB` — `paneldb.SaveStore` (PreserveSubIDs), под `dbMutex`.
 - `isPasswordExpired` / `isTrafficExceeded` — проверки доступа.
 - `addTrafficLocked` — учёт up/down, при превышении `TotalBytes` возвращает `false` → разрыв сессии.
 
-### 5.2 WRAP / obfs (`wrapKeyStore`, `obfsWrapPacket`, `listenWrapped`)
+### 5.2 WRAP / obfs (`server_wrap.go`)
 
 **Идея:** UDP-пакеты до DTLS выглядят как **RTP** (WebRTC), внутри ChaCha20-Poly1305.
 
@@ -149,7 +213,7 @@ info = "rtp-obfs/chacha20poly1305"
 
 Логи: `[WRAP] OK`, `[WRAP] Отказ: RTP AEAD auth failed`.
 
-### 5.3 DTLS (`main`, pion/dtls v3)
+### 5.3 DTLS (`server_conn.go`, pion/dtls v3)
 
 После unwrap — стандартный DTLS listener:
 
@@ -160,7 +224,7 @@ info = "rtp-obfs/chacha20poly1305"
 
 Каждое входящее соединение → goroutine `handleConn`.
 
-### 5.4 `handleConn` — сердце протокола
+### 5.4 `handleConn` — сердце протокола (`server_conn.go`)
 
 **Фаза 1 — Handshake (30 s):**
 
@@ -200,7 +264,7 @@ dtlsConn.HandshakeContext(hctx)
 - Учёт трафика по паролю, `userTouchActivity`.
 - При старте relay: `userSessionEnter` → лог `[ПОДКЛ]`.
 
-### 5.5 WireGuard userspace (`startUserspaceWG`)
+### 5.5 WireGuard userspace (`server_wg.go`)
 
 - TUN `wdtt0`, MTU 1280.
 - `wireguard-go` device + default bind на `:56001`.
@@ -208,7 +272,7 @@ dtlsConn.HandshakeContext(hctx)
 - UAPI socket для `wg` CLI.
 - `configureInterface` — `10.66.66.1/24`, link up.
 
-### 5.6 NAT (`setupFullConeNAT`)
+### 5.6 NAT (`server.go` — `setupFullConeNAT`)
 
 - `ip_forward=1`
 - FORWARD accept для `wdtt0` (iptables `-I 1`, до UFW)
@@ -216,7 +280,7 @@ dtlsConn.HandshakeContext(hctx)
 - Fallback: nftables
 - `natType` в статистике
 
-### 5.7 Telegram-бот (`botLoop`)
+### 5.7 Telegram-бот (`server_bot.go`)
 
 Long-polling `getUpdates`. Команды:
 
@@ -227,7 +291,7 @@ Long-polling `getUpdates`. Команды:
 
 Бот работает в отдельной goroutine, все изменения БД → `refreshWrapKeys` / `saveDB`.
 
-### 5.8 Статистика и presence
+### 5.8 Статистика и presence (`server_stats.go`, `server_presence.go`)
 
 | Переменная | Смысл |
 |------------|--------|
@@ -242,7 +306,7 @@ Long-polling `getUpdates`. Команды:
 - Запись `/etc/wdtt/server.log` (JSON для панели)
 - Периодический `saveDB` если `trafficDirty`
 
-### 5.9 Прочее
+### 5.9 Прочее (`server.go`, `server_util.go`)
 
 - `enableBBR` — sysctl TCP BBR при старте.
 - `expiredPasswordJanitor` — снятие peers истёкших паролей.
@@ -258,16 +322,22 @@ Long-polling `getUpdates`. Команды:
 |----------|------|-----------|
 | Учёт активных relay-сессий | `relay_sessions.go` | `relaySessionRegister/Unregister`, `touch()` на каждом пакете и keepalive |
 | Эвикция «осиротевших» | `relay_sessions.go` | `relayEvictAllIdle` каждую минуту закрывает сессии без активности > 3 мин (`[RELAY] Evicted …`) |
-| Сброс при WG-disconnect | `server.go` | при реальном разрыве WG все relay устройства device_id закрываются (`relayEvictDevice`) |
+| Сброс при WG-disconnect | `server_conn.go` | при реальном разрыве WG все relay устройства device_id закрываются (`relayEvictDevice`) |
 | Fast-fail «мёртвых» TURN | `relay_fail.go` | после 1–3 неудачных handshake с одного relay таймаут укорачивается; после успеха счётчик сбрасывается (`[RELAY] Stale TURN relay …`) |
 
 Живые сессии под эвикцию не попадают: `touch()` вызывается на каждом up/down пакете
 и на keepalive `0xFF`, поэтому 3-минутный idle срабатывает только для покинутых relay.
 
-### 5.11 `panel_db.go`
+### 5.11 `panel_db.go` и `pkg/paneldb`
 
-Чтение настроек и пользователей из общей `panel.db` (handshake timeout, online timeout,
-лимиты per-password) — сервер и панель работают с одной SQLite-базой.
+Сервер и панель используют одну SQLite-базу `/etc/wdtt/panel.db`.
+
+- **Пользователи / устройства** — `LoadStore` / `SaveStore` (с `PreserveSubIDs` на сервере).
+- **Runtime inbound** — `LoadRuntimeSettings`: DNS, MTU, `max_users`, DTLS/online timeout, `max_dtls_per_device`.
+- **Порты панели** — `LoadPanelServicePorts` для iptables (panel + subscription).
+- **Last seen** — `UpdateLastSeen` при активности пользователя.
+
+Панель дополнительно пишет `panel_config`, `xray_*`; сервер их не трогает.
 
 ---
 
@@ -340,7 +410,7 @@ Per-IP shaping на интерфейсе `wdtt0` через `tc` HTB:
 
 ## 11. Идеи улучшений (не внедрены — только предложения)
 
-Работать с копией: `server.go.backup-20260609` или отдельная ветка.
+Отдельная ветка или worktree для экспериментов.
 
 ### 11.1 Диагностика (низкий риск)
 
@@ -373,7 +443,7 @@ Per-IP shaping на интерфейсе `wdtt0` через `tc` HTB:
 | # | Идея | Зачем |
 |---|------|-------|
 | 12 | **VLESS mode** (как vk-turn-proxy `-vless`) | Альтернатива WG через Xray |
-| 13 | HTTP `/health` на localhost для панели | Быстрый probe «server alive» |
+| 13 | HTTP `/health` на localhost | **✓** — `admin.go`, `-admin-addr`, `GET /health` → `{"ok":true}` |
 | 14 | Экспорт списка VK IP для split-tunnel подсказок | Документация для клиентов |
 | 15 | Per-password custom `-listen` port из `PasswordEntry.Ports` | Уже частично в боте для deep link, не в runtime |
 
@@ -397,9 +467,20 @@ Per-IP shaping на интерфейсе `wdtt0` через `tc` HTB:
 
 ```bash
 cd /root/wdtt
-go build -o /usr/local/bin/wdtt-server .
+./build.sh                    # → wdtt-server-linux-amd64
+# или
+go build -trimpath -ldflags="-s -w" -o /usr/local/bin/wdtt-server ./server
+
 systemctl restart wdtt
 systemctl status wdtt
+curl -s http://127.0.0.1:2861/health   # {"ok":true}
+```
+
+Панель (отдельный бинарник):
+
+```bash
+cd panel && go build -o /usr/local/bin/wdtt-panel .
+systemctl restart wdtt-panel
 ```
 
 Проверка после изменений:
@@ -410,9 +491,10 @@ journalctl -u wdtt -f | grep -E 'DTLS|WRAP|ПОДКЛ|WG|СТАТ'
 
 ---
 
-## 13. Связанные репозитории
+## 13. Связанные компоненты
 
+- **Панель:** `panel/` — dashboard, users, xray, settings; API + 3x-ui совместимость
+- **Общий код:** `pkg/paneldb`, `pkg/sharelink`, `pkg/vkhash`
 - iOS клиент: `anton48/vk-turn-proxy-ios` (WRAP-A, cred pool)
 - Референс протокола: `cacggghp/vk-turn-proxy`
-- Панель: `wdtt/panel/` — читает `server.log`, users/inbound из `panel.db`
-- Probe TURN: `wdtt/tools/vk_turn_probe/`
+- Probe TURN: `wdtt/tools/vk_turn_probe/` (если есть в репо)
