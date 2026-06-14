@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	migrateToNormalizedTables()
+	ensureLegacySettingsImported()
 	ensureDefaultWdttData()
 	if _, err := loadWdttInbound(); err != nil {
 		log.Printf("panel inbound load: %v", err)

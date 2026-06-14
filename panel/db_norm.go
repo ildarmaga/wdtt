@@ -105,7 +105,7 @@ func migratePanelDBV2() error {
 	if _, err := panelDB.Exec(schemaV2DDL); err != nil {
 		return fmt.Errorf("schema v2: %w", err)
 	}
-	return migrateBlobsToNormalized()
+	return migrateLegacySettingsBlobs()
 }
 
 func migratePanelDBV3() error {
@@ -230,8 +230,13 @@ func tableHasRows(query string) bool {
 	return n > 0
 }
 
-func migrateBlobsToNormalized() error {
-	return migrateLegacySettingsBlobs()
+func ensureLegacySettingsImported() {
+	if !panelDBEnabled() {
+		return
+	}
+	if err := migrateLegacySettingsBlobs(); err != nil {
+		log.Printf("panel db: import legacy settings blobs: %v", err)
+	}
 }
 
 func loadPanelConfigNorm() (*PanelConfig, error) {
@@ -374,13 +379,4 @@ func saveXrayConfigNorm(raw string) error {
 		return nil
 	}
 	return paneldb.SaveXrayConfig(panelDB, raw)
-}
-
-func migrateToNormalizedTables() {
-	if !panelDBEnabled() {
-		return
-	}
-	if err := migrateBlobsToNormalized(); err != nil {
-		log.Printf("panel db normalize: %v", err)
-	}
 }

@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -86,7 +85,6 @@ type Database struct {
 var (
 	db           *Database
 	dbMutex      sync.Mutex
-	dbFile       string
 	trafficDirty atomic.Bool
 )
 
@@ -133,8 +131,7 @@ func getPublicIP() string {
 	return publicIP
 }
 
-func initDB(dir, mainPass, adminID, botToken string) {
-	dbFile = filepath.Join(dir, "passwords.json")
+func initDB(mainPass, adminID, botToken string) {
 	if incoming, err := loadDatabaseFromDiskSource(); err != nil {
 		log.Printf("[DB] load: %v", err)
 		db = &Database{
@@ -439,8 +436,8 @@ func main() {
 		cancel()
 	}()
 
-	initDB(*configDir, *mainPass, *adminID, *botToken)
-	loadInboundSettings(*configDir)
+	initDB(*mainPass, *adminID, *botToken)
+	loadInboundSettings()
 	log.Printf("[CFG] Admin HTTP: %s (hot-reload /health)", adminListenAddr)
 
 	keys, err := loadOrGenerateKeys(*configDir)

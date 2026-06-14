@@ -94,7 +94,7 @@ WDTT Server — VPN-бэкенд для схемы **VK TURN → WRAP → DTLS �
 | `wg-keys.dat` | Серверные/legacy WG ключи (4 строки base64) |
 | `server.log` | JSON-снимок статистики для панели (каждые 10 с) |
 
-Legacy JSON (`passwords.json`, `inbound.json`, `panel.json`) импортируется панелью при миграции и удаляется.
+Legacy JSON (`passwords.json`, `inbound.json`, `panel.json`) импортируется **панелью** при первом старте и удаляется. Сервер читает только `panel.db`.
 
 ### 2.3 `pkg/paneldb` — что читает сервер
 
@@ -194,7 +194,7 @@ CLI-флаги `main()`:
 
 **Логика:**
 
-- `initDB` — загрузка users из `panel.db` через `paneldb.LoadStore`; одноразовый fallback из `passwords.json`.
+- `initDB` — загрузка users из `panel.db` через `paneldb.LoadStore` (пустая БД → пустые users).
 - `saveDB` — `paneldb.SaveStore` (PreserveSubIDs), под `dbMutex`.
 - `isPasswordExpired` / `isTrafficExceeded` — проверки доступа.
 - `addTrafficLocked` — учёт up/down, при превышении `TotalBytes` возвращает `false` → разрыв сессии.

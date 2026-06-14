@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"path/filepath"
 
 	"golang.zx2c4.com/wireguard/device"
 )
@@ -71,10 +70,10 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 	}
 	dbMutex.Unlock()
 
-	loadInboundSettings(filepath.Dir(dbFile))
+	loadInboundSettings()
 	syncAllSpeedLimits()
 	syncVPNLocalServices(wgIfaceName)
-	log.Printf("[ADMIN] Конфиг перезагружен (sqlite/json: %s)", panelDBPath)
+	log.Printf("[ADMIN] Конфиг перезагружен из %s", panelDBPath)
 	return nil
 }
 

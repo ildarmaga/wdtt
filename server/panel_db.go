@@ -2,11 +2,8 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -82,28 +79,6 @@ func loadDatabaseFromDiskSource() (*Database, error) {
 	} else if ok {
 		return incoming, nil
 	}
-	// Одноразовый fallback: panel.db ещё пуст, passwords.json остался до миграции панели.
-	if data, err := os.ReadFile(dbFile); err == nil {
-		var incoming Database
-		if err := json.Unmarshal(data, &incoming); err != nil {
-			return nil, err
-		}
-		if incoming.Passwords == nil {
-			incoming.Passwords = make(map[string]*PasswordEntry)
-		}
-		if incoming.Devices == nil {
-			incoming.Devices = make(map[string]*ClientDevice)
-		}
-		if serverPanelDBReady() {
-			if err := saveDatabaseToSQLite(&incoming); err != nil {
-				log.Printf("[DB] migrate passwords.json to sqlite: %v", err)
-			} else {
-				_ = os.Remove(dbFile)
-				log.Printf("[DB] migrated passwords.json → %s", panelDBPath)
-			}
-		}
-		return &incoming, nil
-	}
 	return &Database{
 		Passwords: make(map[string]*PasswordEntry),
 		Devices:   make(map[string]*ClientDevice),
@@ -133,18 +108,6 @@ func loadInboundFromSQLite() (inboundRuntimeSettings, bool, error) {
 		return inboundRuntimeSettings{}, false, err
 	}
 	return paneldb.LoadRuntimeSettings(db)
-}
-
-func loadInboundFromJSONFile(configDir string) (inboundRuntimeSettings, error) {
-	data, err := os.ReadFile(filepath.Join(configDir, "inbound.json"))
-	if err != nil {
-		return inboundRuntimeSettings{}, err
-	}
-	var raw inboundRuntimeSettings
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return inboundRuntimeSettings{}, err
-	}
-	return raw, nil
 }
 
 func applyInboundRuntimeSettings(raw inboundRuntimeSettings) {
@@ -179,7 +142,7 @@ func applyInboundRuntimeSettings(raw inboundRuntimeSettings) {
 	log.Printf("[CFG] DNS клиентов: %s, MTU: %d, лимит активных: %d", clientDNS, wgMTU, maxGeneratedPasswords)
 }
 
-func loadInboundSettings(configDir string) {
+func loadInboundSettings() {
 	if raw, ok, err := loadInboundFromSQLite(); err != nil {
 		log.Printf("[DB] inbound sqlite load: %v", err)
 	} else if ok {
@@ -187,14 +150,5 @@ func loadInboundSettings(configDir string) {
 		log.Printf("[CFG] inbound loaded from %s", panelDBPath)
 		return
 	}
-	// Legacy fallback до миграции панели (v5).
-	raw, err := loadInboundFromJSONFile(configDir)
-	if err != nil {
-		log.Printf("[CFG] inbound: defaults (empty wdtt_inbound)")
-		return
-	}
-	applyInboundRuntimeSettings(raw)
-	if serverPanelDBReady() {
-		log.Printf("[CFG] inbound loaded from %s/inbound.json (migrate via panel)", configDir)
-	}
+	log.Printf("[CFG] inbound: defaults (empty wdtt_inbound in %s)", panelDBPath)
 }
