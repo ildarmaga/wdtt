@@ -20,15 +20,6 @@
 
 Установка ECC локально: skill `configure-ecc` или свой скрипт — **не коммитить**.
 
-## Как включить в Cursor
-
-1. **Open Folder** → каталог `wdtt` (или `wdtt.code-workspace`) — тогда работают hooks и `.cursor/mcp.json`.
-2. Если workspace = родительский `/root`, один раз локально:
-   ```bash
-   ./scripts/cursor-local-setup.sh
-   ```
-   Скрипт подключит **rules** и **MCP** в `~/.cursor/` (только на этой машине).
-
 ## MCP
 
 MCP-серверы настраиваются в **Cursor Settings → MCP** (user/project), не в этом репо.
