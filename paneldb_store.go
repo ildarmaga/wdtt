@@ -105,3 +105,31 @@ func userFromPaneldb(u *paneldb.User) *PasswordEntry {
 		LastSeenAt:    u.LastSeenAt,
 	}
 }
+
+func syncDeviceFields(entry *PasswordEntry, u *paneldb.User) {
+	if entry == nil || u == nil {
+		return
+	}
+	entry.DeviceID = u.DeviceID
+	entry.DeviceIDs = append([]string(nil), u.DeviceIDs...)
+	entry.MaxDevices = u.MaxDevices
+}
+
+func normalizeEntryDevices(entry *PasswordEntry) {
+	if entry == nil {
+		return
+	}
+	u := userToPaneldb(entry)
+	paneldb.NormalizeUser(u)
+	syncDeviceFields(entry, u)
+}
+
+func allEntryDeviceIDs(entry *PasswordEntry) []string {
+	if entry == nil {
+		return nil
+	}
+	u := userToPaneldb(entry)
+	ids := paneldb.AllDeviceIDs(u)
+	syncDeviceFields(entry, u)
+	return ids
+}

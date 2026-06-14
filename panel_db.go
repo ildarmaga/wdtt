@@ -54,9 +54,6 @@ func loadDatabaseFromSQLite() (*Database, bool, error) {
 		return nil, false, err
 	}
 	out := databaseFromStore(s)
-	for _, e := range out.Passwords {
-		normalizeEntryDevices(e)
-	}
 	return out, true, nil
 }
 
