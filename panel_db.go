@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	_ "modernc.org/sqlite"
 )
 
@@ -24,24 +25,8 @@ var (
 
 func openServerPanelDB() (*sql.DB, error) {
 	serverPanelDBOnce.Do(func() {
-		if _, err := os.Stat(panelDBPath); err != nil {
-			serverPanelDBErr = err
-			return
-		}
-		dsn := panelDBPath + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
-		db, err := sql.Open("sqlite", dsn)
+		db, err := paneldb.Open(panelDBPath)
 		if err != nil {
-			serverPanelDBErr = err
-			return
-		}
-		db.SetMaxOpenConns(1)
-		if err := db.Ping(); err != nil {
-			db.Close()
-			serverPanelDBErr = err
-			return
-		}
-		if err := ensureServerDBSchema(db); err != nil {
-			db.Close()
 			serverPanelDBErr = err
 			return
 		}
@@ -55,87 +40,20 @@ func serverPanelDBReady() bool {
 	return err == nil && db != nil
 }
 
-func ensureServerDBSchema(db *sql.DB) error {
-	for _, stmt := range []string{
-		`ALTER TABLE wdtt_global ADD COLUMN admin_id TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE wdtt_global ADD COLUMN bot_token TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE wdtt_users ADD COLUMN sub_id TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE wdtt_users ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE wdtt_inbound ADD COLUMN online_timeout_sec INTEGER NOT NULL DEFAULT 15`,
-	} {
-		if _, err := db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-			return err
-		}
-	}
-	return nil
-}
-
-func sqliteTableCount(db *sql.DB, table string) (int, error) {
-	var n int
-	err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n)
-	return n, err
-}
-
 func loadDatabaseFromSQLite() (*Database, bool, error) {
 	db, err := openServerPanelDB()
 	if err != nil {
 		return nil, false, err
 	}
-	n, err := sqliteTableCount(db, "wdtt_users")
-	if err != nil || n == 0 {
+	ok, err := paneldb.HasUsers(db)
+	if err != nil || !ok {
 		return nil, false, err
 	}
-
-	out := &Database{
-		Passwords: make(map[string]*PasswordEntry),
-		Devices:   make(map[string]*ClientDevice),
-	}
-	_ = db.QueryRow(`SELECT main_password, admin_id, bot_token FROM wdtt_global WHERE id = 1`).Scan(
-		&out.MainPassword, &out.AdminID, &out.BotToken,
-	)
-	rows, err := db.Query(`SELECT password, device_id, max_devices, expires_at, down_bytes, up_bytes,
-		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id, last_seen_at FROM wdtt_users`)
+	s, err := paneldb.LoadStore(db)
 	if err != nil {
 		return nil, false, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		e := &PasswordEntry{}
-		var pass string
-		var deactivated int
-		if err := rows.Scan(&pass, &e.DeviceID, &e.MaxDevices, &e.ExpiresAt, &e.DownBytes, &e.UpBytes,
-			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.SubID, &e.LastSeenAt); err != nil {
-			return nil, false, err
-		}
-		e.IsDeactivated = deactivated != 0
-		out.Passwords[pass] = e
-	}
-	drows, err := db.Query(`SELECT password, device_id FROM wdtt_user_devices ORDER BY password, sort_order`)
-	if err != nil {
-		return nil, false, err
-	}
-	defer drows.Close()
-	for drows.Next() {
-		var pass, did string
-		if err := drows.Scan(&pass, &did); err != nil {
-			return nil, false, err
-		}
-		if e := out.Passwords[pass]; e != nil {
-			e.DeviceIDs = append(e.DeviceIDs, did)
-		}
-	}
-	devRows, err := db.Query(`SELECT device_id, ip, priv_key, pub_key FROM wdtt_devices`)
-	if err != nil {
-		return nil, false, err
-	}
-	defer devRows.Close()
-	for devRows.Next() {
-		d := &ClientDevice{}
-		if err := devRows.Scan(&d.DeviceID, &d.IP, &d.PrivKey, &d.PubKey); err != nil {
-			return nil, false, err
-		}
-		out.Devices[d.DeviceID] = d
-	}
+	out := databaseFromStore(s)
 	for _, e := range out.Passwords {
 		normalizeEntryDevices(e)
 	}
@@ -150,96 +68,15 @@ func saveDatabaseToSQLite(src *Database) error {
 	if err != nil {
 		return err
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`INSERT INTO wdtt_global (id, main_password, admin_id, bot_token) VALUES (1, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			main_password=excluded.main_password,
-			admin_id=excluded.admin_id,
-			bot_token=excluded.bot_token`,
-		src.MainPassword, src.AdminID, src.BotToken); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM wdtt_user_devices`); err != nil {
-		return err
-	}
-	existingSubIDs := map[string]string{}
-	subRows, err := tx.Query(`SELECT password, sub_id FROM wdtt_users WHERE sub_id != ''`)
-	if err != nil {
-		return err
-	}
-	for subRows.Next() {
-		var pass, sid string
-		if err := subRows.Scan(&pass, &sid); err != nil {
-			subRows.Close()
-			return err
-		}
-		existingSubIDs[pass] = sid
-	}
-	if err := subRows.Close(); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM wdtt_users`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM wdtt_devices`); err != nil {
-		return err
-	}
-	for pass, entry := range src.Passwords {
-		if entry == nil {
-			continue
-		}
-		normalizeEntryDevices(entry)
-		deact := 0
-		if entry.IsDeactivated {
-			deact = 1
-		}
-		subID := strings.TrimSpace(entry.SubID)
-		if subID == "" {
-			subID = existingSubIDs[pass]
-		}
-		if _, err := tx.Exec(`INSERT INTO wdtt_users (
-			password, device_id, max_devices, expires_at, down_bytes, up_bytes, total_bytes,
-			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id, last_seen_at
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			pass, entry.DeviceID, entry.MaxDevices, entry.ExpiresAt, entry.DownBytes, entry.UpBytes,
-			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash, subID, entry.LastSeenAt,
-		); err != nil {
-			return err
-		}
-		for i, did := range allEntryDeviceIDs(entry) {
-			if _, err := tx.Exec(`INSERT INTO wdtt_user_devices (password, device_id, sort_order) VALUES (?,?,?)`,
-				pass, did, i); err != nil {
-				return err
-			}
-		}
-	}
-	for id, dev := range src.Devices {
-		if dev == nil {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT INTO wdtt_devices (device_id, ip, priv_key, pub_key) VALUES (?,?,?,?)`,
-			id, dev.IP, dev.PrivKey, dev.PubKey); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+	return paneldb.SaveStore(db, storeFromDatabase(src), paneldb.SaveOptions{PreserveSubIDs: true})
 }
 
 func updateLastSeenInSQLite(password string, ts int64) error {
-	if password == "" || ts <= 0 {
-		return nil
-	}
 	db, err := openServerPanelDB()
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(`UPDATE wdtt_users SET last_seen_at = ? WHERE password = ? AND last_seen_at < ?`, ts, password, ts)
-	return err
+	return paneldb.UpdateLastSeen(db, password, ts)
 }
 
 func loadDatabaseFromDiskSource() (*Database, error) {
@@ -321,7 +158,8 @@ func loadInboundFromSQLite() (inboundRuntimeSettings, bool, error) {
 	if err != nil {
 		return inboundRuntimeSettings{}, false, err
 	}
-	n, err := sqliteTableCount(db, "wdtt_inbound")
+	var n int
+	err = db.QueryRow(`SELECT COUNT(*) FROM wdtt_inbound`).Scan(&n)
 	if err != nil || n == 0 {
 		return inboundRuntimeSettings{}, false, err
 	}

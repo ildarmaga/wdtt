@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
 const dbSchemaVersion = 8
@@ -382,63 +384,18 @@ func savePanelConfigNorm(cfg *PanelConfig) error {
 }
 
 func loadPasswordsNorm() (*PasswordsDB, error) {
-	if !panelDBEnabled() || !tableHasRows(`SELECT COUNT(*) FROM wdtt_users`) {
+	if !panelDBEnabled() {
 		return nil, os.ErrNotExist
 	}
-	db := &PasswordsDB{
-		Passwords: map[string]*PasswordEntry{},
-		Devices:   map[string]*DeviceEntry{},
+	has, err := paneldb.HasUsers(panelDB)
+	if err != nil || !has {
+		return nil, os.ErrNotExist
 	}
-	_ = panelDB.QueryRow(`SELECT main_password, admin_id, bot_token FROM wdtt_global WHERE id = 1`).Scan(
-		&db.MainPassword, &db.AdminID, &db.BotToken,
-	)
-	rows, err := panelDB.Query(`SELECT password, device_id, max_devices, expires_at, down_bytes, up_bytes,
-		total_bytes, max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id, last_seen_at FROM wdtt_users`)
+	s, err := paneldb.LoadStore(panelDB)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		e := &PasswordEntry{}
-		var pass string
-		var deactivated int
-		if err := rows.Scan(&pass, &e.DeviceID, &e.MaxDevices, &e.ExpiresAt, &e.DownBytes, &e.UpBytes,
-			&e.TotalBytes, &e.MaxDownMBps, &e.MaxUpMBps, &deactivated, &e.Comment, &e.Ports, &e.VkHash, &e.SubID, &e.LastSeenAt); err != nil {
-			return nil, err
-		}
-		e.IsDeactivated = deactivated != 0
-		db.Passwords[pass] = e
-	}
-	drows, err := panelDB.Query(`SELECT password, device_id, sort_order FROM wdtt_user_devices ORDER BY password, sort_order`)
-	if err != nil {
-		return nil, err
-	}
-	defer drows.Close()
-	for drows.Next() {
-		var pass, did string
-		var ord int
-		if err := drows.Scan(&pass, &did, &ord); err != nil {
-			return nil, err
-		}
-		if e := db.Passwords[pass]; e != nil {
-			e.DeviceIDs = append(e.DeviceIDs, did)
-		}
-	}
-	devRows, err := panelDB.Query(`SELECT device_id, ip, priv_key, pub_key FROM wdtt_devices`)
-	if err != nil {
-		return nil, err
-	}
-	defer devRows.Close()
-	for devRows.Next() {
-		d := &DeviceEntry{}
-		if err := devRows.Scan(&d.DeviceID, &d.IP, &d.PrivKey, &d.PubKey); err != nil {
-			return nil, err
-		}
-		db.Devices[d.DeviceID] = d
-	}
-	for _, e := range db.Passwords {
-		normalizeEntryDevices(e)
-	}
+	db := passwordsDBFromStore(s)
 	dedupePasswordDeviceBindings(db)
 	return db, nil
 }
@@ -447,64 +404,7 @@ func savePasswordsNorm(db *PasswordsDB) error {
 	if !panelDBEnabled() || db == nil {
 		return nil
 	}
-	tx, err := panelDB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`INSERT INTO wdtt_global (id, main_password, admin_id, bot_token) VALUES (1, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			main_password = excluded.main_password,
-			admin_id = excluded.admin_id,
-			bot_token = excluded.bot_token`,
-		db.MainPassword, db.AdminID, db.BotToken); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM wdtt_user_devices`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM wdtt_users`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM wdtt_devices`); err != nil {
-		return err
-	}
-	for pass, entry := range db.Passwords {
-		if entry == nil {
-			continue
-		}
-		normalizeEntryDevices(entry)
-		deact := 0
-		if entry.IsDeactivated {
-			deact = 1
-		}
-		if _, err := tx.Exec(`INSERT INTO wdtt_users (
-			password, device_id, max_devices, expires_at, down_bytes, up_bytes, total_bytes,
-			max_down_mbps, max_up_mbps, is_deactivated, comment, ports, vk_hash, sub_id, last_seen_at
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			pass, entry.DeviceID, entry.MaxDevices, entry.ExpiresAt, entry.DownBytes, entry.UpBytes,
-			entry.TotalBytes, entry.MaxDownMBps, entry.MaxUpMBps, deact, entry.Comment, entry.Ports, entry.VkHash, entry.SubID, entry.LastSeenAt,
-		); err != nil {
-			return err
-		}
-		for i, did := range allEntryDeviceIDsPanel(entry) {
-			if _, err := tx.Exec(`INSERT INTO wdtt_user_devices (password, device_id, sort_order) VALUES (?,?,?)`,
-				pass, did, i); err != nil {
-				return err
-			}
-		}
-	}
-	for id, dev := range db.Devices {
-		if dev == nil {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT INTO wdtt_devices (device_id, ip, priv_key, pub_key) VALUES (?,?,?,?)`,
-			id, dev.IP, dev.PrivKey, dev.PubKey); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+	return paneldb.SaveStore(panelDB, storeFromPasswordsDB(db), paneldb.SaveOptions{})
 }
 
 func loadInboundNorm() (WdttInboundConfig, error) {

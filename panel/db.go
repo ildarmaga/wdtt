@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	_ "modernc.org/sqlite"
 )
 
@@ -37,7 +38,11 @@ func initPanelDB() error {
 		return err
 	}
 	panelDB = db
-	return migratePanelDB()
+	if err := migratePanelDB(); err != nil {
+		db.Close()
+		return err
+	}
+	return paneldb.OpenExisting(panelDB)
 }
 
 func migratePanelDB() error {
