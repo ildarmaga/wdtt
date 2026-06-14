@@ -41,6 +41,8 @@ import (
 
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	pionudp "github.com/pion/transport/v4/udp"
+
+	"github.com/ildarmaga/wdtt/pkg/vkhash"
 )
 
 const (
@@ -152,17 +154,6 @@ func getPublicIP() string {
 	}
 	publicIP = string(bytes.TrimSpace(ipBytes))
 	return publicIP
-}
-
-func stripVkUrl(url string) string {
-	url = strings.TrimSpace(url)
-	if idx := strings.LastIndex(url, "/"); idx != -1 {
-		url = url[idx+1:]
-	}
-	if idx := strings.Index(url, "?"); idx != -1 {
-		url = url[:idx]
-	}
-	return strings.TrimSpace(url)
 }
 
 type wrapKeyEntry struct {
@@ -929,13 +920,9 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 			}
 
 			if waitingForHash {
-				hash := strings.ReplaceAll(cmd, " ", "")
-				if strings.Contains(hash, "http") || strings.Contains(hash, "/") {
-					sendTelegram(token, adminID, "❌ Пожалуйста, отправьте только хеш (или несколько хешей через запятую). Ссылки не поддерживаются.", nil)
-					continue
-				}
+				hash := vkhash.Normalize(cmd)
 				if hash == "" {
-					sendTelegram(token, adminID, "❌ Хеш не должен быть пустым.", nil)
+					sendTelegram(token, adminID, "❌ Хеш не должен быть пустым. Можно bare-токен или ссылку vk.com/call/join/…", nil)
 					continue
 				}
 				waitingForHash = false
