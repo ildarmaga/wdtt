@@ -248,3 +248,47 @@ func wdttInboundFromPaneldb(in *paneldb.Inbound) WdttInboundConfig {
 		AdminAddr:           in.AdminAddr,
 	}
 }
+
+func xrayMetaToPaneldb(m panelXrayMeta) paneldb.XrayMeta {
+	return paneldb.XrayMeta{OutboundTestURL: m.OutboundTestURL, Warp: m.Warp}
+}
+
+func xrayMetaFromPaneldb(m paneldb.XrayMeta) panelXrayMeta {
+	return panelXrayMeta{OutboundTestURL: m.OutboundTestURL, Warp: m.Warp}
+}
+
+func xrayInboundMetaToPaneldb(meta map[string]PanelXrayInboundMeta) map[string]paneldb.XrayInboundMeta {
+	if meta == nil {
+		return map[string]paneldb.XrayInboundMeta{}
+	}
+	out := make(map[string]paneldb.XrayInboundMeta, len(meta))
+	for tag, m := range meta {
+		out[tag] = paneldb.XrayInboundMeta{
+			Remark: m.Remark, Enable: m.Enable, Total: m.Total,
+			ExpiryTime: m.ExpiryTime, TrafficReset: m.TrafficReset,
+		}
+	}
+	return out
+}
+
+func xrayInboundMetaFromPaneldb(meta map[string]paneldb.XrayInboundMeta) map[string]PanelXrayInboundMeta {
+	if meta == nil {
+		return map[string]PanelXrayInboundMeta{}
+	}
+	out := make(map[string]PanelXrayInboundMeta, len(meta))
+	for tag, m := range meta {
+		out[tag] = PanelXrayInboundMeta{
+			Remark: m.Remark, Enable: m.Enable, Total: m.Total,
+			ExpiryTime: m.ExpiryTime, TrafficReset: m.TrafficReset,
+		}
+	}
+	return out
+}
+
+func xrayTrafficToPaneldb(p xrayTrafficPersist) paneldb.XrayTrafficTotals {
+	return paneldb.XrayTrafficTotals{Up: p.Up, Down: p.Down}
+}
+
+func xrayTrafficFromPaneldb(p paneldb.XrayTrafficTotals) xrayTrafficPersist {
+	return xrayTrafficPersist{Up: p.Up, Down: p.Down}
+}

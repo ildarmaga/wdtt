@@ -8,7 +8,7 @@ const (
 )
 
 // Store — wdtt_users + wdtt_devices + wdtt_global (ядро VPN-данных).
-// Настройки панели — panel_config (см. panel_config.go).
+// Настройки панели — panel_config (panel_config.go), xray — xray.go.
 type Store struct {
 	MainPassword string
 	AdminID      string

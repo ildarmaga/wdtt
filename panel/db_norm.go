@@ -376,130 +376,71 @@ func saveInboundNorm(cfg WdttInboundConfig) error {
 }
 
 func loadXrayMetaNorm() (panelXrayMeta, bool, error) {
-	meta := panelXrayMeta{OutboundTestURL: "https://www.google.com/generate_204"}
-	if !panelDBEnabled() || !tableHasRows(`SELECT COUNT(*) FROM xray_panel_meta`) {
-		return meta, false, nil
+	if !panelDBEnabled() {
+		return panelXrayMeta{OutboundTestURL: paneldb.DefaultXrayOutboundTestURL}, false, nil
 	}
-	err := panelDB.QueryRow(`SELECT outbound_test_url, warp FROM xray_panel_meta WHERE id = 1`).Scan(&meta.OutboundTestURL, &meta.Warp)
-	if err == sql.ErrNoRows {
-		return meta, false, nil
-	}
+	meta, ok, err := paneldb.LoadXrayMeta(panelDB)
 	if err != nil {
-		return meta, false, err
+		return panelXrayMeta{}, false, err
 	}
-	if meta.OutboundTestURL == "" {
-		meta.OutboundTestURL = "https://www.google.com/generate_204"
-	}
-	return meta, true, nil
+	return xrayMetaFromPaneldb(meta), ok, nil
 }
 
 func saveXrayMetaNorm(meta panelXrayMeta) error {
 	if !panelDBEnabled() {
 		return nil
 	}
-	if meta.OutboundTestURL == "" {
-		meta.OutboundTestURL = "https://www.google.com/generate_204"
-	}
-	_, err := panelDB.Exec(`INSERT INTO xray_panel_meta (id, outbound_test_url, warp) VALUES (1,?,?)
-		ON CONFLICT(id) DO UPDATE SET outbound_test_url=excluded.outbound_test_url, warp=excluded.warp`,
-		meta.OutboundTestURL, meta.Warp)
-	return err
+	return paneldb.SaveXrayMeta(panelDB, xrayMetaToPaneldb(meta))
 }
 
 func loadXrayInboundMetaNorm() (map[string]PanelXrayInboundMeta, bool, error) {
-	out := map[string]PanelXrayInboundMeta{}
-	if !panelDBEnabled() || !tableHasRows(`SELECT COUNT(*) FROM xray_inbound_meta`) {
-		return out, false, nil
+	if !panelDBEnabled() {
+		return map[string]PanelXrayInboundMeta{}, false, nil
 	}
-	rows, err := panelDB.Query(`SELECT tag, remark, enable, total, expiry_time, traffic_reset FROM xray_inbound_meta`)
+	meta, ok, err := paneldb.LoadXrayInboundMeta(panelDB)
 	if err != nil {
 		return nil, false, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var tag string
-		var m PanelXrayInboundMeta
-		var en int
-		if err := rows.Scan(&tag, &m.Remark, &en, &m.Total, &m.ExpiryTime, &m.TrafficReset); err != nil {
-			return nil, false, err
-		}
-		m.Enable = en != 0
-		out[tag] = m
-	}
-	return out, true, nil
+	return xrayInboundMetaFromPaneldb(meta), ok, nil
 }
 
 func saveXrayInboundMetaNorm(meta map[string]PanelXrayInboundMeta) error {
 	if !panelDBEnabled() {
 		return nil
 	}
-	tx, err := panelDB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM xray_inbound_meta`); err != nil {
-		return err
-	}
-	for tag, m := range meta {
-		en := 0
-		if m.Enable {
-			en = 1
-		}
-		if _, err := tx.Exec(`INSERT INTO xray_inbound_meta (tag, remark, enable, total, expiry_time, traffic_reset)
-			VALUES (?,?,?,?,?,?)`, tag, m.Remark, en, m.Total, m.ExpiryTime, m.TrafficReset); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+	return paneldb.SaveXrayInboundMeta(panelDB, xrayInboundMetaToPaneldb(meta))
 }
 
 func loadXrayTrafficNorm() (xrayTrafficPersist, bool, error) {
-	var p xrayTrafficPersist
-	if !panelDBEnabled() || !tableHasRows(`SELECT COUNT(*) FROM xray_traffic_totals`) {
-		return p, false, nil
+	if !panelDBEnabled() {
+		return xrayTrafficPersist{}, false, nil
 	}
-	err := panelDB.QueryRow(`SELECT up, down FROM xray_traffic_totals WHERE id = 1`).Scan(&p.Up, &p.Down)
-	if err == sql.ErrNoRows {
-		return p, false, nil
+	p, ok, err := paneldb.LoadXrayTraffic(panelDB)
+	if err != nil {
+		return xrayTrafficPersist{}, false, err
 	}
-	return p, err == nil, err
+	return xrayTrafficFromPaneldb(p), ok, nil
 }
 
 func saveXrayTrafficNorm(p xrayTrafficPersist) error {
 	if !panelDBEnabled() {
 		return nil
 	}
-	_, err := panelDB.Exec(`INSERT INTO xray_traffic_totals (id, up, down) VALUES (1,?,?)
-		ON CONFLICT(id) DO UPDATE SET up=excluded.up, down=excluded.down`, p.Up, p.Down)
-	return err
+	return paneldb.SaveXrayTraffic(panelDB, xrayTrafficToPaneldb(p))
 }
 
 func loadXrayConfigNorm() (string, bool, error) {
-	if !panelDBEnabled() || !tableHasRows(`SELECT COUNT(*) FROM xray_config WHERE length(trim(raw_json)) > 0`) {
+	if !panelDBEnabled() {
 		return "", false, nil
 	}
-	var raw string
-	err := panelDB.QueryRow(`SELECT raw_json FROM xray_config WHERE id = 1`).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	if strings.TrimSpace(raw) == "" {
-		return "", false, nil
-	}
-	return raw, true, nil
+	return paneldb.LoadXrayConfig(panelDB)
 }
 
 func saveXrayConfigNorm(raw string) error {
 	if !panelDBEnabled() {
 		return nil
 	}
-	_, err := panelDB.Exec(`INSERT INTO xray_config (id, raw_json) VALUES (1, ?)
-		ON CONFLICT(id) DO UPDATE SET raw_json = excluded.raw_json`, raw)
-	return err
+	return paneldb.SaveXrayConfig(panelDB, raw)
 }
 
 func migrateToNormalizedTables() {
