@@ -65,9 +65,26 @@ func initTemplates() error {
 
 type pageData map[string]interface{}
 
+func (a *App) refreshCSRFForRequest(w http.ResponseWriter, r *http.Request) {
+	if sess := a.parseSession(r); sess != nil {
+		a.setCSRFCookie(w, sess)
+	}
+}
+
+func (a *App) csrfTokenFromRequest(r *http.Request) string {
+	if sess := a.parseSession(r); sess != nil {
+		return a.csrfTokenForSession(sess)
+	}
+	return ""
+}
+
 func (a *App) renderHTML(w http.ResponseWriter, r *http.Request, name, title string, extra pageData) {
 	if extra == nil {
 		extra = pageData{}
+	}
+	a.refreshCSRFForRequest(w, r)
+	if token := a.csrfTokenFromRequest(r); token != "" {
+		extra["csrf_token"] = token
 	}
 	extra["title"] = title
 	host := r.Header.Get("X-Forwarded-Host")

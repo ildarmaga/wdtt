@@ -1,4 +1,8 @@
 function wdttCsrfToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta && meta.content) {
+        return meta.content;
+    }
     const m = document.cookie.match(/(?:^|;\s*)wdtt-csrf=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : '';
 }

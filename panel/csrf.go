@@ -78,6 +78,7 @@ func (a *App) requireAuthCSRF(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
+		a.setCSRFCookie(w, sess)
 		next(w, r)
 	}
 }

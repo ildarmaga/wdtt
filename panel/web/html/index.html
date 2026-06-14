@@ -1539,7 +1539,7 @@
         this.showAlert = true;
       }
 
-      const settingsPromise = HttpUtil.post('/panel/setting/defaultSettings');
+      const settingsPromise = HttpUtil.get('/panel/setting/defaultSettings');
       await this.getStatus();
       const msg = await settingsPromise;
       if (msg.success) {
