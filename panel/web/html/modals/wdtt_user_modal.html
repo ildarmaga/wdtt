@@ -170,13 +170,17 @@
     serverIp: '',
     inbound: { dtls_port: 56000, wg_port: 56001, client_port: 9000, dns: '1.1.1.1' },
     onSaved: null,
+    mergeInbound(inbound) {
+      const base = { dtls_port: 56000, wg_port: 56001, client_port: 9000, dns: '1.1.1.1', tag: 'wdtt-in', remark: 'WDTT' };
+      return Object.assign({}, base, this.inbound || {}, inbound || {});
+    },
     showAdd(serverIp, inbound) {
       this.isEdit = false;
       this.isMain = false;
       this.activeTab = 'main';
       this.oldPassword = '';
       this.serverIp = serverIp || '';
-      this.inbound = inbound || this.inbound;
+      this.inbound = this.mergeInbound(inbound);
       this.visible = true;
       userModalApp.resetForm();
     },
@@ -186,7 +190,7 @@
       this.activeTab = 'main';
       this.oldPassword = row.password;
       this.serverIp = serverIp || '';
-      this.inbound = inbound || this.inbound;
+      this.inbound = this.mergeInbound(inbound);
       this.visible = true;
       userModalApp.loadRow(row);
     },
@@ -229,8 +233,11 @@
       },
     },
     computed: {
+      modalInbound() {
+        return this.userModal.inbound || { dtls_port: 56000, wg_port: 56001, client_port: 9000, dns: '1.1.1.1' };
+      },
       connPorts() {
-        const inbound = this.userModal.inbound || {};
+        const inbound = this.modalInbound;
         if (this.userForm.use_custom_ports) {
           return {
             dtls: Number(this.userForm.dtls_port) || inbound.dtls_port || 56000,
@@ -245,7 +252,8 @@
         };
       },
       connHost() {
-        return (this.userModal.inbound.server_host || this.userModal.inbound.default_link_host || this.userModal.serverIp || '').trim();
+        const inb = this.modalInbound;
+        return (inb.server_host || inb.default_link_host || this.userModal.serverIp || '').trim();
       },
       devicesLabel() {
         if (!this.userForm.device_ids.length) {
@@ -261,9 +269,9 @@
         const link = wdttBuildShareLink({
           host: this.connHost,
           password: this.userForm.password,
-          remark: this.userForm.comment || this.userModal.inbound.remark,
-          vpnTitle: this.userModal.inbound.sub_title,
-          tag: this.userModal.inbound.tag,
+          remark: this.userForm.comment || this.modalInbound.remark,
+          vpnTitle: this.modalInbound.sub_title,
+          tag: this.modalInbound.tag,
           dtls: p.dtls,
           wg: p.wg,
           clientPort: p.client,
@@ -415,8 +423,15 @@
       },
       genPassword() {
         const arr = new Uint32Array(16);
-        window.crypto.getRandomValues(arr);
-        return Array.from(arr, v => WDTT_PASS_CHARS[v % WDTT_PASS_CHARS.length]).join('');
+        if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+          window.crypto.getRandomValues(arr);
+          return Array.from(arr, v => WDTT_PASS_CHARS[v % WDTT_PASS_CHARS.length]).join('');
+        }
+        let out = '';
+        for (let i = 0; i < 16; i++) {
+          out += WDTT_PASS_CHARS[Math.floor(Math.random() * WDTT_PASS_CHARS.length)];
+        }
+        return out;
       },
       regenPassword() {
         this.userForm.password = this.genPassword();
@@ -455,6 +470,7 @@
           || Number(f.client_port) !== Number(s.client_port);
       },
       resetForm() {
+        const inbound = this.modalInbound;
         this.apiLink = '';
         this.linkSnapshot = null;
         this.userForm = {
@@ -473,12 +489,15 @@
           max_up_mbit: 0,
           vk_hash: '',
           use_custom_ports: false,
-          dtls_port: this.userModal.inbound.dtls_port || 56000,
-          wg_port: this.userModal.inbound.wg_port || 56001,
-          client_port: this.userModal.inbound.client_port || 9000,
+          dtls_port: inbound.dtls_port || 56000,
+          wg_port: inbound.wg_port || 56001,
+          client_port: inbound.client_port || 9000,
+          sub_id: '',
+          sub_url: '',
         };
       },
       loadRow(row) {
+        const inbound = this.modalInbound;
         this.apiLink = row.link || '';
         this.linkSnapshot = {
           password: row.password,
@@ -486,10 +505,10 @@
           device_ids: (row.device_ids && row.device_ids.length) ? row.device_ids.slice() : [],
           max_devices: Number(row.max_devices) || 1,
           vk_hash: row.vk_hash || '',
-          use_custom_ports: !!(row.ports || (row.dtls_port && row.dtls_port !== (this.userModal.inbound.dtls_port || 56000))),
-          dtls_port: Number(row.dtls_port) || this.userModal.inbound.dtls_port || 56000,
-          wg_port: Number(row.wg_port) || this.userModal.inbound.wg_port || 56001,
-          client_port: Number(row.client_port) || this.userModal.inbound.client_port || 9000,
+          use_custom_ports: !!(row.ports || (row.dtls_port && row.dtls_port !== (inbound.dtls_port || 56000))),
+          dtls_port: Number(row.dtls_port) || inbound.dtls_port || 56000,
+          wg_port: Number(row.wg_port) || inbound.wg_port || 56001,
+          client_port: Number(row.client_port) || inbound.client_port || 9000,
         };
         this.userForm = {
           password: row.password,
@@ -506,10 +525,10 @@
           max_down_mbit: this.mbitFromStoredMb(row.max_down_mbps),
           max_up_mbit: this.mbitFromStoredMb(row.max_up_mbps),
           vk_hash: row.vk_hash || '',
-          use_custom_ports: !!(row.ports || (row.dtls_port && row.dtls_port !== (this.userModal.inbound.dtls_port || 56000))),
-          dtls_port: Number(row.dtls_port) || this.userModal.inbound.dtls_port || 56000,
-          wg_port: Number(row.wg_port) || this.userModal.inbound.wg_port || 56001,
-          client_port: Number(row.client_port) || this.userModal.inbound.client_port || 9000,
+          use_custom_ports: !!(row.ports || (row.dtls_port && row.dtls_port !== (inbound.dtls_port || 56000))),
+          dtls_port: Number(row.dtls_port) || inbound.dtls_port || 56000,
+          wg_port: Number(row.wg_port) || inbound.wg_port || 56001,
+          client_port: Number(row.client_port) || inbound.client_port || 9000,
           sub_id: row.sub_id || '',
           sub_url: row.sub_url || '',
         };

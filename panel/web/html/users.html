@@ -73,7 +73,7 @@
                   </span>
                   <span slot="traffic" slot-scope="_, row">
                     <a-tag :color="trafficColor(row)" style="margin:0">[[ row.traffic_used_fmt || '0 B' ]]</a-tag>
-                    <span v-if="row.total_gb > 0" class="text-muted"> / [[ row.total_gb.toFixed(1) ]] GB</span>
+                    <span v-if="Number(row.total_gb) > 0" class="text-muted"> / [[ Number(row.total_gb).toFixed(1) ]] GB</span>
                     <span v-else class="text-muted"> / ∞</span>
                     <div class="text-muted" style="font-size:11px;margin-top:2px">
                       ↑ [[ row.up || '0 B' ]] ↓ [[ row.down || '0 B' ]]
