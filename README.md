@@ -4,9 +4,10 @@ VPN на VPS через медиарелеи ВК (TURN) с веб-панель�
 
 ```
 wdtt/
-├── server.go, devices.go, deploy.sh   # wdtt-server (DTLS + userspace WG + NAT)
-├── relay_sessions.go, relay_fail.go    # учёт/эвикция и fast-fail TURN-relay
+├── server/                             # wdtt-server (DTLS + userspace WG + NAT)
 ├── panel/                              # wdtt-panel (UI в стиле 3x-ui)
+├── pkg/                                # sharelink, vkhash, paneldb (общее)
+├── deploy.sh
 └── docs/                               # SERVER.md (разбор) + API.md (REST панели)
 ```
 

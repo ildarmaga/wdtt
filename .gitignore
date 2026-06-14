@@ -4,7 +4,6 @@ wdtt-server-*
 wdtt-panel
 wdtt-panel-*
 panel/wdtt-panel
-server
 
 # Go
 *.test
