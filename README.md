@@ -1,9 +1,6 @@
 # WDTT
 
-VPN на VPS: **VK TURN → WRAP/DTLS → WireGuard** (userspace) с веб-панелью и опциональным **Xray**-маршрутизатором.
-
-Трафик клиента идёт через медиарелеи ВК (TURN) до вашего VPS, поэтому подключение
-выглядит как обычный WebRTC-звонок и устойчиво к блокировкам.
+VPN на VPS через медиарелеи ВК (TURN) с веб-панелью и опциональным **Xray**-маршрутизатором.
 
 ```
 wdtt/
@@ -27,21 +24,16 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 
 Панель: `http://IP:2860/wdtt/` — логин `admin` / `wdtt` (смените в настройках).
 
-## Архитектура
+## Совместимые клиенты
 
-```
-[Клиент] ──TURN(VK :19302)──▶ [VK relay] ──WRAP/DTLS──▶ [wdtt-server :56000]
-                                                              │ GETCONF → WG config
-                                                              ▼
-                                              [userspace WireGuard wdtt0 10.66.66.0/24]
-                                                              │ MASQUERADE
-                                                              ▼
-                                              [Xray (опц.) → outbound] → Интернет
-```
-
-- UDP-пакеты до DTLS маскируются под **RTP** (ChaCha20-Poly1305, ключ из пароля по HKDF).
-- После DTLS-handshake клиент шлёт `GETCONF` и получает WG-конфиг; дальше — relay WG внутри DTLS.
-- Подробный разбор протокола и фаз — **[docs/SERVER.md](docs/SERVER.md)**.
+| Клиент | Платформа | Формат ссылок |
+|--------|-----------|---------------|
+| **VK Turn Proxy** | iOS | `wdtt://` (colon), bare-хеш или `VK_HASH` |
+| **WDTT** | Android | `wdtt://` (colon), bare-хеш или `VK_HASH` |
+| **PWDTT** | Desktop Win/Linux | `wdtt://` (colon), bare-хеш или `VK_HASH` |
+| **WDTT** | Windows | `wdtt://` (colon), bare-хеш или `VK_HASH` |
+| **qWDTT** | Android (fork) | `qwdtt://`, `hashes=vk.com/call/join/…` или `VK_HASH` |
+| **WDTT** (qwdtt) | Windows | `qwdtt://`, `hashes=vk.com/call/join/…` или `VK_HASH` |
 
 ## Компоненты
 
@@ -52,22 +44,6 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 | **wdtt-xray** | Redirect трафика `wdtt0` → outbound (NL, WARP…) |
 
 Конфиг: `/etc/wdtt/panel.db` (SQLite, общая для сервера и панели), `/etc/wdtt-xray/config.json`.
-
-### Устойчивость TURN-relay (v1.3.x)
-
-- `relay_sessions.go` — учёт активных relay-сессий, эвикция покинутых после 3 мин простоя.
-- `relay_fail.go` — fast-fail «мёртвых» VK relay по числу неудачных handshake.
-- Живые сессии не эвиктятся: активность обновляется на каждом пакете и keepalive.
-
-## Клиенты
-
-| Платформа | Клиент | Заметки |
-|-----------|--------|---------|
-| **Windows / Linux** | [ildarmaga/pwdtt-client](https://github.com/ildarmaga/pwdtt-client) | Десктоп (Wails), подписки и `wdtt://`, health-выбор relay |
-| **iOS** | [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) | TestFlight / IPA, поддержка `wdtt://` |
-| **Android** | [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Совместим с протоколом WDTT |
-
-Все клиенты используют единую схему DTLS + TURN relay + WireGuard и ссылки `wdtt://base64(JSON)`.
 
 ## Сборка
 
