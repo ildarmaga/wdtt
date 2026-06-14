@@ -58,7 +58,10 @@
                     <span v-else class="text-muted">—</span>
                   </span>
                   <span slot="device" slot-scope="_, row">
-                    <span v-if="row.is_main">[[ row.device_id || '—' ]]</span>
+                    <span v-if="row.is_main">
+                      [[ row.device_id || '—' ]]
+                      <span v-if="row.devices_bound" class="text-muted" style="font-size:11px"> ([[ row.devices_bound ]] устр.)</span>
+                    </span>
                     <span v-else>
                       <a-tag color="blue">[[ row.devices_bound || 0 ]]/[[ row.max_devices || 1 ]]</a-tag>
                       <div v-if="row.device_id" class="text-muted" style="font-size:11px;margin-top:2px">[[ row.device_id ]]</div>
@@ -90,7 +93,7 @@
                       <a-button size="small" icon="qrcode" @click="openShareModal(row)" style="margin-right:6px"></a-button>
                     </a-tooltip>
                     <a-button size="small" icon="edit" @click="openEditModal(row)" style="margin-right:6px"></a-button>
-                    <a-button v-if="!row.is_main" type="danger" size="small" icon="delete" @click="delUser(row.password)"></a-button>
+                    <a-button v-if="!row.is_main" type="danger" size="small" icon="delete" @click="delUser(row.password_key || row.password)"></a-button>
                   </span>
                 </a-table>
               </a-card>
@@ -174,7 +177,7 @@
     },
     methods: {
       rowKey(row) {
-        return row.is_main ? '__main__' : row.password;
+        return row.is_main ? '__main__' : (row.password_key || row.password);
       },
       formatSpeedMbit(mb) {
         const v = Number(mb) || 0;
@@ -271,10 +274,7 @@
       },
       async delUser(pass) {
         if (!confirm('Удалить пользователя ' + pass + '?')) return;
-        const res = await fetch(basePath + 'panel/api/users/delete', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: pass })
-        });
+        const res = await wdttFetchPost(basePath + 'panel/api/users/delete', { password: pass });
         const msg = await res.json();
         if (msg.success) { this.toast('Удалён', true); this.loadUsers(); }
         else this.toast(msg.msg || 'ошибка', false);

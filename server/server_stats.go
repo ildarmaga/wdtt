@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -41,11 +40,7 @@ func statsLoop(ctx context.Context, configDir string) {
 			online := snapshotOnlineUsers()
 			users := int32(len(online))
 			atomic.StoreInt32(&activeUsers, users)
-			for _, o := range online {
-				if pass := strings.TrimSpace(o["password"]); pass != "" {
-					touchUserLastSeen(pass)
-				}
-			}
+			forEachOnlinePassword(touchUserLastSeen)
 			total := atomic.LoadInt64(&totalConns)
 			uptime := time.Since(serverStartTime)
 
@@ -79,7 +74,7 @@ func statsLoop(ctx context.Context, configDir string) {
 				"online":       online,
 				"timestamp":    time.Now().Unix(),
 			})
-			os.WriteFile(statsFile, statsJSON, 0644)
+			os.WriteFile(statsFile, statsJSON, 0600)
 
 			syncTrafficFromWGPeers()
 			syncVPNLocalServices(wgIfaceName)
@@ -87,7 +82,7 @@ func statsLoop(ctx context.Context, configDir string) {
 
 			if trafficDirty.Load() {
 				dbMutex.Lock()
-				if err := saveDB(); err != nil {
+				if err := saveTrafficToSQLiteLocked(); err != nil {
 					log.Printf("[DB] save traffic: %v", err)
 				} else {
 					trafficDirty.Store(false)

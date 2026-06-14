@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
 type PasswordsDB struct {
@@ -111,6 +113,23 @@ type ServerStats struct {
 
 const passChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
 
+func ensureMainPasswordEntry(db *PasswordsDB) {
+	if db == nil || db.MainPassword == "" {
+		return
+	}
+	entry, ok := db.Passwords[db.MainPassword]
+	if !ok || entry == nil {
+		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец", MaxDevices: paneldb.MaxDevicesLimit}
+		return
+	}
+	if entry.Comment == "" {
+		entry.Comment = "Владелец"
+	}
+	if entry.MaxDevices < paneldb.MaxDevicesLimit {
+		entry.MaxDevices = paneldb.MaxDevicesLimit
+	}
+}
+
 func loadPasswords() (*PasswordsDB, error) {
 	if !panelDBEnabled() {
 		return &PasswordsDB{
@@ -120,6 +139,7 @@ func loadPasswords() (*PasswordsDB, error) {
 	}
 	db, err := loadPasswordsNorm()
 	if err == nil {
+		ensureMainPasswordEntry(db)
 		return db, nil
 	}
 	if errors.Is(err, os.ErrNotExist) {
@@ -248,9 +268,13 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 	upBytes := int64(0)
 	downBytes := int64(0)
 	deviceIDs := []string{}
+	devicesBound := 0
 	if entry, ok := db.Passwords[db.MainPassword]; ok && entry != nil {
 		upBytes = entry.UpBytes
 		downBytes = entry.DownBytes
+		normalizeEntryDevices(entry)
+		deviceIDs = append([]string(nil), entry.DeviceIDs...)
+		devicesBound = len(entry.DeviceIDs)
 	}
 	if stats != nil {
 		for _, o := range stats.Online {
@@ -259,16 +283,29 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 				continue
 			}
 			if did, _ := o["device_id"].(string); did != "" {
-				deviceIDs = append(deviceIDs, did)
+				found := false
+				for _, id := range deviceIDs {
+					if id == did {
+						found = true
+						break
+					}
+				}
+				if !found {
+					deviceIDs = append(deviceIDs, did)
+				}
 			}
 		}
 	}
 	used := upBytes + downBytes
 	dtlsPort, wgPort, clientPort := resolveUserPorts(nil, inbound)
 	return map[string]interface{}{
-		"password":         db.MainPassword,
+		"password":         maskPassword(db.MainPassword),
+		"password_key":     db.MainPassword,
 		"is_main":          true,
 		"device_id":        strings.Join(deviceIDs, ", "),
+		"device_ids":       deviceIDs,
+		"devices_bound":    devicesBound,
+		"max_devices":      0,
 		"comment":          "Владелец",
 		"expires_at":       0,
 		"expires":          "бессрочно",
@@ -447,8 +484,16 @@ func updateUser(oldPassword, newPassword string, req userAPIReq, manageDevices b
 	entry.TotalBytes = patch.TotalBytes
 	entry.MaxDownMBps = patch.MaxDownMBps
 	entry.MaxUpMBps = patch.MaxUpMBps
-	entry.Ports = patch.Ports
-	entry.VkHash = patch.VkHash
+	if req.Ports != "" || req.UseCustomPorts {
+		entry.Ports = patch.Ports
+	} else {
+		entry.Ports = cur.Ports
+	}
+	if strings.TrimSpace(req.VkHash) != "" {
+		entry.VkHash = patch.VkHash
+	} else {
+		entry.VkHash = cur.VkHash
+	}
 	if req.Active != nil {
 		entry.IsDeactivated = patch.IsDeactivated
 	}
@@ -542,6 +587,9 @@ func deleteUserPassword(pass string) error {
 	db, err := loadPasswords()
 	if err != nil {
 		return err
+	}
+	if pass == db.MainPassword {
+		return fmt.Errorf("нельзя удалить главный пароль")
 	}
 	if entry, ok := db.Passwords[pass]; ok {
 		for _, devID := range allEntryDeviceIDsPanel(entry) {

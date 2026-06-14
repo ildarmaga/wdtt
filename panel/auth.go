@@ -29,14 +29,17 @@ func (a *App) createSession(w http.ResponseWriter, username string) {
 	mac.Write([]byte(payload))
 	token := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." +
 		base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	sess := &sessionData{User: username, ExpiresAt: exp}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
 		Path:     a.cfg.basePath(),
 		HttpOnly: true,
+		Secure:   a.sessionCookieSecure(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(dur.Seconds()),
 	})
+	a.setCSRFCookie(w, sess)
 }
 
 func (a *App) clearSession(w http.ResponseWriter) {
@@ -47,6 +50,7 @@ func (a *App) clearSession(w http.ResponseWriter) {
 		HttpOnly: true,
 		MaxAge:   -1,
 	})
+	a.clearCSRFCookie(w)
 }
 
 func (a *App) parseSession(r *http.Request) *sessionData {
@@ -153,15 +157,22 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, i18nWeb("pages.login.toasts.invalidFormData"), http.StatusOK)
 		return
 	}
+	ip := clientIP(r)
+	if !panelLoginLimiter.allow(ip) {
+		jsonError(w, i18nWeb("pages.login.toasts.wrongUsernameOrPassword"), http.StatusTooManyRequests)
+		return
+	}
 	if form.Username == "" || form.Password == "" {
 		jsonError(w, i18nWeb("pages.login.toasts.emptyUsername"), http.StatusOK)
 		return
 	}
 	if form.Username != a.cfg.Username ||
 		bcrypt.CompareHashAndPassword([]byte(a.cfg.PasswordHash), []byte(form.Password)) != nil {
+		panelLoginLimiter.recordFail(ip)
 		jsonError(w, i18nWeb("pages.login.toasts.wrongUsernameOrPassword"), http.StatusOK)
 		return
 	}
+	panelLoginLimiter.reset(ip)
 	a.createSession(w, form.Username)
 	jsonOK(w, nil)
 }

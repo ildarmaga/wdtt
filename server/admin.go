@@ -2,31 +2,68 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"log"
 	"net"
 	"net/http"
+	"strings"
+	"sync/atomic"
 
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	"golang.zx2c4.com/wireguard/device"
 )
 
 var (
-	adminListenAddr  = "127.0.0.1:2861"
-	maxDTLSPerDevice int32 = 0
+	adminListenAddr   = "127.0.0.1:2861"
+	maxDTLSPerDevice  int32 = 0
+	adminReloadSecret atomic.Value // string
 )
 
-func reloadDBFromDisk(wgDev *device.Device) error {
-	if trafficDirty.Load() {
-		dbMutex.Lock()
-		saveDB()
-		dbMutex.Unlock()
-		trafficDirty.Store(false)
+func setAdminReloadSecret(key string) {
+	adminReloadSecret.Store(strings.TrimSpace(key))
+}
+
+func adminReloadAuthorized(r *http.Request) bool {
+	secret, _ := adminReloadSecret.Load().(string)
+	if secret == "" {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		return host == "127.0.0.1" || host == "::1"
 	}
+	got := strings.TrimSpace(r.Header.Get("X-WDTT-Admin-Token"))
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(secret)) == 1
+}
+
+func loadAdminReloadSecretFromDB() {
+	if !serverPanelDBReady() {
+		return
+	}
+	db, err := openServerPanelDB()
+	if err != nil {
+		log.Printf("[ADMIN] session_key load: %v", err)
+		return
+	}
+	key, err := paneldb.LoadPanelSessionKey(db)
+	if err != nil {
+		log.Printf("[ADMIN] session_key load: %v", err)
+		return
+	}
+	setAdminReloadSecret(key)
+}
+
+func reloadDBFromDisk(wgDev *device.Device) error {
+	dbMutex.Lock()
+	memTraffic := trafficSnapshotLocked()
+	dbMutex.Unlock()
 
 	data, err := loadDatabaseFromDiskSource()
 	if err != nil {
 		return err
 	}
 	incoming := *data
+	mergeTrafficIntoDatabase(&incoming, memTraffic)
 
 	dbMutex.Lock()
 	for id, dev := range db.Devices {
@@ -68,16 +105,25 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 		}
 		upsertPeerInWG(wgDev, dev)
 	}
+	if trafficDirty.Load() {
+		if err := saveTrafficToSQLiteLocked(); err != nil {
+			dbMutex.Unlock()
+			return err
+		}
+		trafficDirty.Store(false)
+	}
 	dbMutex.Unlock()
 
 	loadInboundSettings()
 	syncAllSpeedLimits()
 	syncVPNLocalServices(wgIfaceName)
+	loadAdminReloadSecretFromDB()
 	log.Printf("[ADMIN] Конфиг перезагружен из %s", panelDBPath)
 	return nil
 }
 
 func startAdminServer(ctx context.Context, wgDev *device.Device) {
+	loadAdminReloadSecretFromDB()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -86,6 +132,10 @@ func startAdminServer(ctx context.Context, wgDev *device.Device) {
 	mux.HandleFunc("/admin/reload", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !adminReloadAuthorized(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		if err := reloadDBFromDisk(wgDev); err != nil {

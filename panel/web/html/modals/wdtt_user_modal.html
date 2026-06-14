@@ -188,7 +188,7 @@
       this.isEdit = !row.is_main;
       this.isMain = !!row.is_main;
       this.activeTab = 'main';
-      this.oldPassword = row.password;
+      this.oldPassword = row.password_key || row.password;
       this.serverIp = serverIp || '';
       this.inbound = this.mergeInbound(inbound);
       this.visible = true;
@@ -500,7 +500,7 @@
         const inbound = this.modalInbound;
         this.apiLink = row.link || '';
         this.linkSnapshot = {
-          password: row.password,
+          password: row.password_key || row.password,
           comment: row.comment || '',
           device_ids: (row.device_ids && row.device_ids.length) ? row.device_ids.slice() : [],
           max_devices: Number(row.max_devices) || 1,
@@ -511,7 +511,7 @@
           client_port: Number(row.client_port) || inbound.client_port || 9000,
         };
         this.userForm = {
-          password: row.password,
+          password: row.password_key || row.password,
           device_ids: (row.device_ids && row.device_ids.length) ? row.device_ids.slice() : (row.device_id ? String(row.device_id).split(', ').filter(Boolean) : []),
           max_devices: Number(row.max_devices) || 1,
           comment: row.comment || '',
@@ -559,11 +559,7 @@
           onOk: async () => {
             self.userModal.resetting = true;
             try {
-              const res = await fetch(basePath + 'panel/api/users/reset-traffic', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: self.userForm.password }),
-              });
+              const res = await wdttFetchPost(basePath + 'panel/api/users/reset-traffic', { password: self.userForm.password });
               const msg = await res.json();
               if (msg.success) {
                 Vue.prototype.$message.success('Трафик сброшен');
@@ -590,10 +586,7 @@
         try {
           let res;
           if (this.userModal.isMain) {
-            res = await fetch(basePath + 'panel/api/password/main', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ password: this.userForm.password }),
-            });
+            res = await wdttFetchPost(basePath + 'panel/api/password/main', { password: this.userForm.password });
           } else {
             const body = {
               password: this.userForm.password,
@@ -612,15 +605,9 @@
               client_port: Number(this.userForm.client_port) || 0,
             };
             if (this.userModal.isEdit) {
-              res = await fetch(basePath + 'panel/api/users/update', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...body, old_password: this.userModal.oldPassword }),
-              });
+              res = await wdttFetchPost(basePath + 'panel/api/users/update', { ...body, old_password: this.userModal.oldPassword });
             } else {
-              res = await fetch(basePath + 'panel/api/users/add', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-              });
+              res = await wdttFetchPost(basePath + 'panel/api/users/add', body);
             }
           }
           const msg = await res.json();

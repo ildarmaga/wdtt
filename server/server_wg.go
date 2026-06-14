@@ -462,6 +462,7 @@ func removeVPNLocalPortRule(wgIface string, port int) {
 }
 
 func setupNftNAT(extIface string) {
+	exec.Command("nft", "delete", "table", "ip", "wdtt").Run()
 	exec.Command("nft", "add", "table", "ip", "wdtt").Run()
 	exec.Command("nft", "add", "chain", "ip", "wdtt", "postrouting", "{ type nat hook postrouting priority 100; }").Run()
 	exec.Command("nft", "add", "rule", "ip", "wdtt", "postrouting", "ip", "saddr", wgServerCIDR, "oifname", extIface, "masquerade").Run()
@@ -479,6 +480,7 @@ func setupForwardRules(wgIface string) {
 		return
 	}
 	if commandExists("nft") {
+		exec.Command("nft", "delete", "table", "inet", "wdtt").Run()
 		exec.Command("nft", "add", "table", "inet", "wdtt").Run()
 		exec.Command("nft", "add", "chain", "inet", "wdtt", "forward", "{ type filter hook forward priority 0; policy accept; }").Run()
 		exec.Command("nft", "add", "rule", "inet", "wdtt", "forward", "iifname", wgIface, "accept").Run()

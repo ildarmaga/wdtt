@@ -65,6 +65,61 @@ func saveDatabaseToSQLite(src *Database) error {
 	return paneldb.SaveStore(db, storeFromDatabase(src), paneldb.SaveOptions{PreserveSubIDs: true})
 }
 
+func trafficSnapshotLocked() map[string]paneldb.TrafficSnapshot {
+	out := make(map[string]paneldb.TrafficSnapshot, len(db.Passwords))
+	for pass, e := range db.Passwords {
+		if e == nil {
+			continue
+		}
+		out[pass] = paneldb.TrafficSnapshot{
+			UpBytes:       e.UpBytes,
+			DownBytes:     e.DownBytes,
+			LastSeenAt:    e.LastSeenAt,
+			IsDeactivated: e.IsDeactivated,
+		}
+	}
+	return out
+}
+
+func mergeTrafficIntoDatabase(incoming *Database, from map[string]paneldb.TrafficSnapshot) {
+	if incoming == nil || incoming.Passwords == nil || len(from) == 0 {
+		return
+	}
+	users := make(map[string]*paneldb.User, len(incoming.Passwords))
+	for pass, e := range incoming.Passwords {
+		if e == nil {
+			continue
+		}
+		users[pass] = userToPaneldb(e)
+	}
+	paneldb.MergeTrafficSnapshots(users, from)
+	for pass, u := range users {
+		if e := incoming.Passwords[pass]; e != nil && u != nil {
+			e.UpBytes = u.UpBytes
+			e.DownBytes = u.DownBytes
+			e.LastSeenAt = u.LastSeenAt
+			e.IsDeactivated = u.IsDeactivated
+		}
+	}
+}
+
+func saveTrafficToSQLiteLocked() error {
+	if !serverPanelDBReady() {
+		return fmt.Errorf("panel.db not available at %s", panelDBPath)
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	return paneldb.UpdateUsersTraffic(sqlDB, trafficSnapshotLocked())
+}
+
+func saveTrafficDB() error {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	return saveTrafficToSQLiteLocked()
+}
+
 func updateLastSeenInSQLite(password string, ts int64) error {
 	db, err := openServerPanelDB()
 	if err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -203,7 +204,6 @@ func userSessionEnter(deviceID, ip, label, password string) bool {
 	}
 	now := time.Now()
 	onlineUsersMutex.Lock()
-	defer onlineUsersMutex.Unlock()
 
 	info, exists := onlineUsers[deviceID]
 	if !exists {
@@ -211,6 +211,7 @@ func userSessionEnter(deviceID, ip, label, password string) bool {
 		onlineUsers[deviceID] = info
 	}
 	if maxDTLSPerDevice > 0 && info.Sessions >= int(maxDTLSPerDevice) {
+		onlineUsersMutex.Unlock()
 		return false
 	}
 	wasOnline := info.Sessions > 0
@@ -340,12 +341,27 @@ func snapshotOnlineUsers() []map[string]string {
 		result = append(result, map[string]string{
 			"device_id": deviceID,
 			"user":      s.label,
-			"password":  s.password,
 			"ip":        s.ip,
 			"sessions":  "1",
 		})
 	}
 	return result
+}
+
+func forEachOnlinePassword(fn func(string)) {
+	if fn == nil {
+		return
+	}
+	wgActivityMu.Lock()
+	defer wgActivityMu.Unlock()
+	for _, s := range wgActivity {
+		if s == nil {
+			continue
+		}
+		if pass := strings.TrimSpace(s.password); pass != "" {
+			fn(pass)
+		}
+	}
 }
 
 // syncTrafficFromWGPeers начисляет трафик по дельте rx/tx WireGuard-пиров.

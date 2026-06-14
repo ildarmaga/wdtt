@@ -1,16 +1,21 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 )
 
 type App struct {
-	cfg *PanelConfig
+	cfg       *PanelConfig
+	subMu     sync.Mutex
+	subCancel context.CancelFunc
+	subSrv    *http.Server
 }
 
 func main() {
@@ -52,7 +57,7 @@ func main() {
 	startStatusCollector()
 
 	app := &App{cfg: cfg}
-	startSubscriptionServer(app)
+	app.startSubscriptionServer()
 	base := cfg.basePath()
 	mux := http.NewServeMux()
 
@@ -76,55 +81,55 @@ func main() {
 	mux.HandleFunc(base+"panel/settings", app.serveSettingsPage)
 
 	// 3x-ui compatible xray API
-	mux.HandleFunc(base+"panel/xray/", app.requireAuth(app.handleXrayAPI))
-	mux.HandleFunc(base+"panel/setting/getDefaultJsonConfig", app.requireAuth(app.handleDefaultJsonConfig))
-	mux.HandleFunc(base+"panel/api/custom-geo/aliases", app.requireAuth(app.handleCustomGeoAliases))
-	mux.HandleFunc(base+"panel/api/server/", app.requireAuth(app.handleServerAPI))
-	mux.HandleFunc(base+"panel/setting/defaultSettings", app.requireAuth(app.handleDefaultSettings))
-	mux.HandleFunc(base+"panel/setting/all", app.requireAuth(app.handleSettingAll))
-	mux.HandleFunc(base+"panel/setting/update", app.requireAuth(app.handleSettingUpdate))
-	mux.HandleFunc(base+"panel/setting/ssh-port", app.requireAuth(app.handleSettingSSHPort))
-	mux.HandleFunc(base+"panel/setting/updateUser", app.requireAuth(app.handleSettingUpdateUser))
-	mux.HandleFunc(base+"panel/setting/restartPanel", app.requireAuth(app.handleSettingRestartPanel))
-	mux.HandleFunc(base+"panel/api/custom-geo/list", app.requireAuth(app.handleCustomGeoList))
+	mux.HandleFunc(base+"panel/xray/", app.requireAuthCSRF(app.handleXrayAPI))
+	mux.HandleFunc(base+"panel/setting/getDefaultJsonConfig", app.requireAuthCSRF(app.handleDefaultJsonConfig))
+	mux.HandleFunc(base+"panel/api/custom-geo/aliases", app.requireAuthCSRF(app.handleCustomGeoAliases))
+	mux.HandleFunc(base+"panel/api/server/", app.requireAuthCSRF(app.handleServerAPI))
+	mux.HandleFunc(base+"panel/setting/defaultSettings", app.requireAuthCSRF(app.handleDefaultSettings))
+	mux.HandleFunc(base+"panel/setting/all", app.requireAuthCSRF(app.handleSettingAll))
+	mux.HandleFunc(base+"panel/setting/update", app.requireAuthCSRF(app.handleSettingUpdate))
+	mux.HandleFunc(base+"panel/setting/ssh-port", app.requireAuthCSRF(app.handleSettingSSHPort))
+	mux.HandleFunc(base+"panel/setting/updateUser", app.requireAuthCSRF(app.handleSettingUpdateUser))
+	mux.HandleFunc(base+"panel/setting/restartPanel", app.requireAuthCSRF(app.handleSettingRestartPanel))
+	mux.HandleFunc(base+"panel/api/custom-geo/list", app.requireAuthCSRF(app.handleCustomGeoList))
 
 	// API (auth required)
 	api := base + "panel/api/"
-	mux.HandleFunc(api+"status", app.requireAuth(app.handleStatus))
-	mux.HandleFunc(api+"inbound", app.requireAuth(app.handleInboundGet))
-	mux.HandleFunc(api+"inbound/save", app.requireAuth(app.handleInboundSave))
-	mux.HandleFunc(api+"firewall/ports", app.requireAuth(app.handleFirewallPortsList))
-	mux.HandleFunc(api+"firewall/open", app.requireAuth(app.handleFirewallPortOpen))
-	mux.HandleFunc(api+"firewall/update", app.requireAuth(app.handleFirewallPortUpdate))
-	mux.HandleFunc(api+"firewall/close", app.requireAuth(app.handleFirewallPortClose))
-	mux.HandleFunc(api+"firewall/ufw-enable", app.requireAuth(app.handleFirewallUFWEnable))
-	mux.HandleFunc(api+"certs/list", app.requireAuth(app.handleCertsList))
-	mux.HandleFunc(api+"certs/issue", app.requireAuth(app.handleCertsIssue))
-	mux.HandleFunc(api+"certs/issue-ip", app.requireAuth(app.handleCertsIssueIP))
-	mux.HandleFunc(api+"certs/renew", app.requireAuth(app.handleCertsRenew))
-	mux.HandleFunc(api+"certs/acme-log", app.requireAuth(app.handleCertsAcmeLog))
-	mux.HandleFunc(api+"certs/renew-dtls", app.requireAuth(app.handleCertsRenewDtls))
-	mux.HandleFunc(api+"certs/revoke", app.requireAuth(app.handleCertsRevoke))
-	mux.HandleFunc(api+"certs/delete-certbot", app.requireAuth(app.handleCertsDeleteCertbot))
-	mux.HandleFunc(api+"certs/apply", app.requireAuth(app.handleCertsApply))
-	mux.HandleFunc(api+"certs/install-acme", app.requireAuth(app.handleCertsInstallAcme))
-	mux.HandleFunc(api+"certs/acme-cron", app.requireAuth(app.handleCertsAcmeCron))
-	mux.HandleFunc(api+"xray-inbounds", app.requireAuth(app.handleXrayInboundsList))
-	mux.HandleFunc(api+"xray-inbounds/save", app.requireAuth(app.handleXrayInboundSave))
-	mux.HandleFunc(api+"xray-inbounds/delete", app.requireAuth(app.handleXrayInboundDelete))
-	mux.HandleFunc(api+"users", app.requireAuth(app.handleUsersList))
-	mux.HandleFunc(api+"users/add", app.requireAuth(app.handleUserAdd))
-	mux.HandleFunc(api+"users/update", app.requireAuth(app.handleUserUpdate))
-	mux.HandleFunc(api+"users/reset-traffic", app.requireAuth(app.handleUserResetTraffic))
-	mux.HandleFunc(api+"users/delete", app.requireAuth(app.handleUserDelete))
-	mux.HandleFunc(api+"password/main", app.requireAuth(app.handleMainPassword))
-	mux.HandleFunc(api+"password/panel", app.requireAuth(app.handlePanelPassword))
-	mux.HandleFunc(api+"service/", app.requireAuth(app.handleService))
-	mux.HandleFunc(api+"xray/versions", app.requireAuth(app.handleXrayVersions))
-	mux.HandleFunc(api+"xray/install/", app.requireAuth(app.handleXrayInstall))
-	mux.HandleFunc(api+"xray/geofiles/", app.requireAuth(app.handleXrayGeofiles))
-	mux.HandleFunc(api+"xray/config", app.requireAuth(app.handleXrayConfig))
-	mux.HandleFunc(api+"logs", app.requireAuth(app.handleLogs))
+	mux.HandleFunc(api+"status", app.requireAuthCSRF(app.handleStatus))
+	mux.HandleFunc(api+"inbound", app.requireAuthCSRF(app.handleInboundGet))
+	mux.HandleFunc(api+"inbound/save", app.requireAuthCSRF(app.handleInboundSave))
+	mux.HandleFunc(api+"firewall/ports", app.requireAuthCSRF(app.handleFirewallPortsList))
+	mux.HandleFunc(api+"firewall/open", app.requireAuthCSRF(app.handleFirewallPortOpen))
+	mux.HandleFunc(api+"firewall/update", app.requireAuthCSRF(app.handleFirewallPortUpdate))
+	mux.HandleFunc(api+"firewall/close", app.requireAuthCSRF(app.handleFirewallPortClose))
+	mux.HandleFunc(api+"firewall/ufw-enable", app.requireAuthCSRF(app.handleFirewallUFWEnable))
+	mux.HandleFunc(api+"certs/list", app.requireAuthCSRF(app.handleCertsList))
+	mux.HandleFunc(api+"certs/issue", app.requireAuthCSRF(app.handleCertsIssue))
+	mux.HandleFunc(api+"certs/issue-ip", app.requireAuthCSRF(app.handleCertsIssueIP))
+	mux.HandleFunc(api+"certs/renew", app.requireAuthCSRF(app.handleCertsRenew))
+	mux.HandleFunc(api+"certs/acme-log", app.requireAuthCSRF(app.handleCertsAcmeLog))
+	mux.HandleFunc(api+"certs/renew-dtls", app.requireAuthCSRF(app.handleCertsRenewDtls))
+	mux.HandleFunc(api+"certs/revoke", app.requireAuthCSRF(app.handleCertsRevoke))
+	mux.HandleFunc(api+"certs/delete-certbot", app.requireAuthCSRF(app.handleCertsDeleteCertbot))
+	mux.HandleFunc(api+"certs/apply", app.requireAuthCSRF(app.handleCertsApply))
+	mux.HandleFunc(api+"certs/install-acme", app.requireAuthCSRF(app.handleCertsInstallAcme))
+	mux.HandleFunc(api+"certs/acme-cron", app.requireAuthCSRF(app.handleCertsAcmeCron))
+	mux.HandleFunc(api+"xray-inbounds", app.requireAuthCSRF(app.handleXrayInboundsList))
+	mux.HandleFunc(api+"xray-inbounds/save", app.requireAuthCSRF(app.handleXrayInboundSave))
+	mux.HandleFunc(api+"xray-inbounds/delete", app.requireAuthCSRF(app.handleXrayInboundDelete))
+	mux.HandleFunc(api+"users", app.requireAuthCSRF(app.handleUsersList))
+	mux.HandleFunc(api+"users/add", app.requireAuthCSRF(app.handleUserAdd))
+	mux.HandleFunc(api+"users/update", app.requireAuthCSRF(app.handleUserUpdate))
+	mux.HandleFunc(api+"users/reset-traffic", app.requireAuthCSRF(app.handleUserResetTraffic))
+	mux.HandleFunc(api+"users/delete", app.requireAuthCSRF(app.handleUserDelete))
+	mux.HandleFunc(api+"password/main", app.requireAuthCSRF(app.handleMainPassword))
+	mux.HandleFunc(api+"password/panel", app.requireAuthCSRF(app.handlePanelPassword))
+	mux.HandleFunc(api+"service/", app.requireAuthCSRF(app.handleService))
+	mux.HandleFunc(api+"xray/versions", app.requireAuthCSRF(app.handleXrayVersions))
+	mux.HandleFunc(api+"xray/install/", app.requireAuthCSRF(app.handleXrayInstall))
+	mux.HandleFunc(api+"xray/geofiles/", app.requireAuthCSRF(app.handleXrayGeofiles))
+	mux.HandleFunc(api+"xray/config", app.requireAuthCSRF(app.handleXrayConfig))
+	mux.HandleFunc(api+"logs", app.requireAuthCSRF(app.handleLogs))
 
 	log.Fatal(startPanelServer(cfg, gzipMiddleware(mux)))
 }

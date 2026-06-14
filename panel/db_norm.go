@@ -284,7 +284,51 @@ func savePasswordsNorm(db *PasswordsDB) error {
 	if !panelDBEnabled() || db == nil {
 		return nil
 	}
+	if err := mergeTrafficFromDisk(db); err != nil {
+		return err
+	}
 	return paneldb.SaveStore(panelDB, storeFromPasswordsDB(db), paneldb.SaveOptions{PreserveSubIDs: true})
+}
+
+func mergeTrafficFromDisk(db *PasswordsDB) error {
+	if !panelDBEnabled() || db == nil {
+		return nil
+	}
+	s, err := paneldb.LoadStore(panelDB)
+	if err != nil {
+		return err
+	}
+	snap := make(map[string]paneldb.TrafficSnapshot, len(s.Users))
+	for pass, u := range s.Users {
+		if u == nil {
+			continue
+		}
+		snap[pass] = paneldb.TrafficSnapshot{
+			UpBytes:       u.UpBytes,
+			DownBytes:     u.DownBytes,
+			LastSeenAt:    u.LastSeenAt,
+			IsDeactivated: u.IsDeactivated,
+		}
+	}
+	users := make(map[string]*paneldb.User, len(db.Passwords))
+	for pass, e := range db.Passwords {
+		if e == nil {
+			continue
+		}
+		users[pass] = userEntryToPaneldb(e)
+	}
+	paneldb.MergeTrafficSnapshots(users, snap)
+	for pass, u := range users {
+		if e := db.Passwords[pass]; e != nil && u != nil {
+			e.UpBytes = u.UpBytes
+			e.DownBytes = u.DownBytes
+			e.LastSeenAt = u.LastSeenAt
+			if u.IsDeactivated {
+				e.IsDeactivated = true
+			}
+		}
+	}
+	return nil
 }
 
 func loadInboundNorm() (WdttInboundConfig, error) {

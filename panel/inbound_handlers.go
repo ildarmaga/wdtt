@@ -26,7 +26,6 @@ func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
 		"default_link_host": a.defaultLinkHost(),
 		"panel_tls":        panelTLSEnabled(a.cfg),
 		"link_main":        buildWdttLink(a.resolveLinkHost(cfg), mainPass, a.cfg.SubTitle, "", &PasswordEntry{Comment: "Владелец"}, cfg, ""),
-		"main_password":    mainPass,
 		"remark":           cfg.Remark,
 		"server_host":      cfg.ServerHost,
 		"client_port":      cfg.ClientPort,

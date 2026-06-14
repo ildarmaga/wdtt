@@ -121,8 +121,18 @@ func wdttHotReload() error {
 	if !serviceActive(wdttServiceUnit) {
 		return fmt.Errorf("WDTT не запущен")
 	}
+	req, err := http.NewRequest(http.MethodPost, wdttAdminReloadURL(), strings.NewReader("{}"))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if cfg, err := loadPanelConfig(); err == nil && cfg != nil {
+		if key := strings.TrimSpace(cfg.SessionKey); key != "" {
+			req.Header.Set("X-WDTT-Admin-Token", key)
+		}
+	}
 	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Post(wdttAdminReloadURL(), "application/json", strings.NewReader("{}"))
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

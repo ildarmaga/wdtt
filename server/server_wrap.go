@@ -23,8 +23,9 @@ import (
 )
 
 type wrapKeyEntry struct {
-	id  string
-	key []byte
+	id       string
+	password string
+	key      []byte
 }
 
 type wrapKeyStore struct {
@@ -73,7 +74,7 @@ func (s *wrapKeyStore) SetPasswords(mainPassword string, generated []string) err
 		if err != nil {
 			return err
 		}
-		next = append(next, wrapKeyEntry{id: "main", key: key})
+		next = append(next, wrapKeyEntry{id: "main", password: mainPassword, key: key})
 		seen["main"] = struct{}{}
 	}
 
@@ -92,7 +93,7 @@ func (s *wrapKeyStore) SetPasswords(mainPassword string, generated []string) err
 			}
 			return err
 		}
-		next = append(next, wrapKeyEntry{id: id, key: key})
+		next = append(next, wrapKeyEntry{id: id, password: password, key: key})
 		seen[id] = struct{}{}
 	}
 
@@ -122,7 +123,7 @@ func (s *wrapKeyStore) AddPassword(password string) error {
 			return nil
 		}
 	}
-	s.entries = append(s.entries, wrapKeyEntry{id: id, key: key})
+	s.entries = append(s.entries, wrapKeyEntry{id: id, password: password, key: key})
 	return nil
 }
 
@@ -150,31 +151,32 @@ func (s *wrapKeyStore) Count() int {
 	return len(s.entries)
 }
 
-func (s *wrapKeyStore) Unwrap(raw, dst []byte) ([]byte, int, error) {
+func (s *wrapKeyStore) Unwrap(raw, dst []byte) (key []byte, m int, password string, err error) {
 	if !obfsIsRTPPacket(raw) {
-		return nil, 0, errors.New("wrap: non-obfs packet")
+		return nil, 0, "", errors.New("wrap: non-obfs packet")
 	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.entries) == 0 {
-		return nil, 0, errors.New("wrap: no active keys")
+		return nil, 0, "", errors.New("wrap: no active keys")
 	}
 	for _, entry := range s.entries {
-		m, err := obfsUnwrapPacket(entry.key, raw, dst)
-		if err == nil {
-			return append([]byte(nil), entry.key...), m, nil
+		n, uErr := obfsUnwrapPacket(entry.key, raw, dst)
+		if uErr == nil {
+			return append([]byte(nil), entry.key...), n, entry.password, nil
 		}
 	}
-	return nil, 0, errors.New("wrap: auth failed")
+	return nil, 0, "", errors.New("wrap: auth failed")
 }
 
 func refreshWrapKeysFromDBLocked() error {
 	passwords := make([]string, 0, len(db.Passwords))
 	for password, entry := range db.Passwords {
-		if !isPasswordExpired(entry) {
-			passwords = append(passwords, password)
+		if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
+			continue
 		}
+		passwords = append(passwords, password)
 	}
 	return serverWrapKeys.SetPasswords(db.MainPassword, passwords)
 }
@@ -377,13 +379,14 @@ func (l *wrapPacketListener) Close() error   { return l.inner.Close() }
 func (l *wrapPacketListener) Addr() net.Addr { return l.inner.Addr() }
 
 type wrapPacketConn struct {
-	inner     net.PacketConn
-	keys      *wrapKeyStore
-	key       []byte
-	selected  int32
-	authLog   int32
-	obfsCfg   *ObfsConfig
-	obfsWrite *ObfsState
+	inner        net.PacketConn
+	keys         *wrapKeyStore
+	key          []byte
+	authPassword string
+	selected     int32
+	authLog      int32
+	obfsCfg      *ObfsConfig
+	obfsWrite    *ObfsState
 }
 
 func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
@@ -399,7 +402,7 @@ func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	}
 
 	if atomic.LoadInt32(&c.selected) == 0 {
-		key, m, uErr := c.keys.Unwrap(raw, p)
+		key, m, pass, uErr := c.keys.Unwrap(raw, p)
 		if uErr != nil {
 			if atomic.CompareAndSwapInt32(&c.authLog, 0, 1) {
 				log.Printf("[WRAP] Отказ: RTP AEAD auth failed from %s (keys=%d)", addr.String(), c.keys.Count())
@@ -407,6 +410,8 @@ func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 			return 0, addr, uErr
 		}
 		c.key = key
+		c.authPassword = pass
+		registerWrapAuth(addr, pass)
 		c.obfsCfg = NewObfsConfig()
 		c.obfsWrite = NewObfsState()
 		atomic.StoreInt32(&c.selected, 1)

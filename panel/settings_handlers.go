@@ -226,6 +226,7 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go refreshTunnelLocalServiceRules()
+	a.restartSubscriptionServer()
 	jsonOK(w, panelSettingsMap(a.cfg))
 }
 

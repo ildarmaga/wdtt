@@ -3,12 +3,14 @@ package main
 import (
 	"crypto/rand"
 	"crypto/tls"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	"wdtt-panel/network"
@@ -158,46 +160,92 @@ func subscriptionWantsHTML(r *http.Request) bool {
 }
 
 func startSubscriptionServer(app *App) {
-	cfg := app.cfg
-	if cfg == nil || !cfg.SubEnable {
+	app.startSubscriptionServer()
+}
+
+func (a *App) stopSubscriptionServer() {
+	a.subMu.Lock()
+	defer a.subMu.Unlock()
+	if a.subCancel != nil {
+		a.subCancel()
+		a.subCancel = nil
+	}
+	if a.subSrv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = a.subSrv.Shutdown(ctx)
+		cancel()
+		a.subSrv = nil
+	}
+}
+
+func (a *App) restartSubscriptionServer() {
+	a.stopSubscriptionServer()
+	a.startSubscriptionServer()
+}
+
+func (a *App) startSubscriptionServer() {
+	a.subMu.Lock()
+	if a.cfg == nil || !a.cfg.SubEnable {
+		a.subMu.Unlock()
 		return
 	}
-	go func() {
-		mux := http.NewServeMux()
-		mux.Handle("/assets/", http.StripPrefix("/assets/", withCacheControl(assetsHandler(), "max-age=31536000, public")))
-		path := normalizeSubPath(cfg.SubPath)
-		mux.HandleFunc(path, app.handleSubscription)
-		mux.HandleFunc(strings.TrimSuffix(path, "/"), func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, path, http.StatusMovedPermanently)
-		})
+	ctx, cancel := context.WithCancel(context.Background())
+	a.subCancel = cancel
+	cfg := a.cfg
+	a.subMu.Unlock()
 
-		addr := subListenAddr(cfg)
-		listener, err := net.Listen("tcp", addr)
+	go a.runSubscriptionServer(ctx, cfg)
+}
+
+func (a *App) runSubscriptionServer(ctx context.Context, cfg *PanelConfig) {
+	mux := http.NewServeMux()
+	mux.Handle("/assets/", http.StripPrefix("/assets/", withCacheControl(assetsHandler(), "max-age=31536000, public")))
+	path := normalizeSubPath(cfg.SubPath)
+	mux.HandleFunc(path, a.handleSubscription)
+	mux.HandleFunc(strings.TrimSuffix(path, "/"), func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, path, http.StatusMovedPermanently)
+	})
+
+	addr := subListenAddr(cfg)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("subscription listen %s: %v", addr, err)
+		return
+	}
+
+	certFile := strings.TrimSpace(cfg.SubCertFile)
+	keyFile := strings.TrimSpace(cfg.SubKeyFile)
+	scheme := "http"
+	if certFile != "" && keyFile != "" {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err != nil {
-			log.Printf("subscription listen %s: %v", addr, err)
+			log.Printf("subscription TLS: %v", err)
+			listener.Close()
 			return
 		}
+		listener = network.NewMuxListener(listener, &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		})
+		scheme = "https"
+	}
 
-		certFile := strings.TrimSpace(cfg.SubCertFile)
-		keyFile := strings.TrimSpace(cfg.SubKeyFile)
-		scheme := "http"
-		if certFile != "" && keyFile != "" {
-			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-			if err != nil {
-				log.Printf("subscription TLS: %v", err)
-				return
-			}
-			listener = network.NewMuxListener(listener, &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				MinVersion:   tls.VersionTLS12,
-			})
-			scheme = "https"
-		}
-		log.Printf("WDTT Subscription: %s://%s%s", scheme, listener.Addr().String(), path)
-		if err := http.Serve(listener, mux); err != nil {
-			log.Printf("subscription server: %v", err)
-		}
+	srv := &http.Server{Handler: mux}
+	a.subMu.Lock()
+	a.subSrv = srv
+	a.subMu.Unlock()
+
+	log.Printf("WDTT Subscription: %s://%s%s", scheme, listener.Addr().String(), path)
+	go func() {
+		<-ctx.Done()
+		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shCtx)
+		listener.Close()
 	}()
+	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+		log.Printf("subscription server: %v", err)
+	}
 }
 
 func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {

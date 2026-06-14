@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	"github.com/pion/dtls/v3"
 
 	"golang.zx2c4.com/wireguard/device"
@@ -324,10 +325,18 @@ func ensureMainPasswordEntryLocked() {
 	if db.MainPassword == "" {
 		return
 	}
-	if _, ok := db.Passwords[db.MainPassword]; ok {
+	entry, ok := db.Passwords[db.MainPassword]
+	if !ok || entry == nil {
+		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец", MaxDevices: paneldb.MaxDevicesLimit}
 		return
 	}
-	db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец"}
+	if entry.Comment == "" {
+		entry.Comment = "Владелец"
+	}
+	// Главный пароль — без искусственного лимита в 1 устройство (0 в БД = default 1).
+	if entry.MaxDevices < paneldb.MaxDevicesLimit {
+		entry.MaxDevices = paneldb.MaxDevicesLimit
+	}
 }
 
 func touchUserLastSeen(password string) {
@@ -373,8 +382,12 @@ func addTrafficLocked(password string, bytes int64, isDownload bool) bool {
 	trafficDirty.Store(true)
 	if isTrafficExceeded(e) {
 		e.IsDeactivated = true
-		saveDB()
-		trafficDirty.Store(false)
+		trafficDirty.Store(true)
+		if err := saveTrafficToSQLiteLocked(); err != nil {
+			log.Printf("[DB] save traffic deactivate: %v", err)
+		} else {
+			trafficDirty.Store(false)
+		}
 	}
 	return true
 }
@@ -521,7 +534,7 @@ func main() {
 				}
 				if trafficDirty.Load() {
 					dbMutex.Lock()
-					saveDB()
+					_ = saveTrafficToSQLiteLocked()
 					trafficDirty.Store(false)
 					dbMutex.Unlock()
 				}

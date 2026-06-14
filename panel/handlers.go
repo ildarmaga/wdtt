@@ -139,7 +139,8 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		dtlsPort, wgPort, clientPort := resolveUserPorts(entry, inbound)
 		normalizeEntryDevices(entry)
 		u := map[string]interface{}{
-			"password":           pass,
+			"password":           maskPassword(pass),
+			"password_key":       pass,
 			"device_id":          deviceIDsDisplay(entry),
 			"device_ids":         entry.DeviceIDs,
 			"devices_bound":      len(entry.DeviceIDs),
@@ -180,7 +181,6 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	jsonOK(w, map[string]interface{}{
-		"main_password": db.MainPassword,
 		"users":         users,
 		"devices":       devices,
 		"inbound": map[string]interface{}{
@@ -305,7 +305,10 @@ func (a *App) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleUserResetTraffic(w http.ResponseWriter, r *http.Request) {
 	var req struct{ Password string `json:"password"` }
-	readJSON(r, &req)
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
 	if req.Password == "" {
 		jsonError(w, "пароль не указан", 400)
 		return
@@ -319,7 +322,10 @@ func (a *App) handleUserResetTraffic(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	var req struct{ Password string `json:"password"` }
-	readJSON(r, &req)
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
 	if req.Password == "" {
 		jsonError(w, "пароль не указан", 400)
 		return
@@ -333,9 +339,12 @@ func (a *App) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleMainPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct{ Password string `json:"password"` }
-	readJSON(r, &req)
-	if len(req.Password) < 1 {
-		jsonError(w, "пустой пароль", 400)
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	if !validPassword(req.Password) {
+		jsonError(w, "пароль должен быть от 1 до 128 символов", 400)
 		return
 	}
 	if err := updateWdttPassword(req.Password); err != nil {
