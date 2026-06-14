@@ -20,6 +20,7 @@ readonly WDTT_CONFIG_DIR="/etc/wdtt"
 readonly WDTT_ACCESS_DB="passwords.json"
 readonly IPT_COMMENT="WDTT_MANAGED"
 readonly IPT_MIRROR_COMMENT="WDTT_MIRRORED"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 validate_port() {
     local name="$1" value="$2"
@@ -276,40 +277,39 @@ fw_add_masquerade() {
     esac
 }
 
-fw_add_mss_clamping() {
-    local subnet="$1"
-    case "$FW_BACKEND" in
-        iptables)
-            # Применяем правило ТОЛЬКО к нашей подсети WDTT
-            iptables -t mangle -C FORWARD -s "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
-                iptables -t mangle -I FORWARD -s "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-            iptables -t mangle -C FORWARD -d "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
-                iptables -t mangle -I FORWARD -d "$subnet" -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-            ;;
-        nft)
-            nft add table inet wdtt_mangle 2>/dev/null || true
-            nft add chain inet wdtt_mangle forward '{ type filter hook forward priority -150; policy accept; }' 2>/dev/null || true
-            nft add rule inet wdtt_mangle forward ip saddr "$subnet" tcp flags syn tcp option maxseg size set rt mtu 2>/dev/null || true
-            nft add rule inet wdtt_mangle forward ip daddr "$subnet" tcp flags syn tcp option maxseg size set rt mtu 2>/dev/null || true
-            ;;
-        none) ;;
-    esac
-}
-
 fw_add_established() {
     return 0
 }
 
+install_wdtt_mtu_rules_script() {
+    local src="${SCRIPT_DIR}/wdtt-mtu-rules.sh"
+    if [ -f "$src" ]; then
+        install -m 0755 "$src" /usr/local/bin/wdtt-mtu-rules.sh
+        return 0
+    fi
+    if [ -x /usr/local/bin/wdtt-mtu-rules.sh ]; then
+        return 0
+    fi
+    log_warn "wdtt-mtu-rules.sh не найден рядом с deploy.sh — MTU правила пропущены"
+    return 1
+}
+
+apply_wdtt_mtu_rules() {
+    install_wdtt_mtu_rules_script || return 0
+    /usr/local/bin/wdtt-mtu-rules.sh up
+}
+
 fw_cleanup_wdtt_rules() {
     local iface="$1"
+    if [ -x /usr/local/bin/wdtt-mtu-rules.sh ]; then
+        /usr/local/bin/wdtt-mtu-rules.sh down 2>/dev/null || true
+    fi
     if command -v iptables >/dev/null 2>&1; then
         for i in {1..5}; do
             local nat_iface
             for nat_iface in "$iface" $(ls /sys/class/net 2>/dev/null || true); do
                 [ -n "$nat_iface" ] && iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o "$nat_iface" -m comment --comment "$IPT_COMMENT" -j MASQUERADE 2>/dev/null || true
             done
-            iptables -t mangle -D FORWARD -s 10.66.66.0/24 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-            iptables -t mangle -D FORWARD -d 10.66.66.0/24 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment "$IPT_COMMENT" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
             iptables -D INPUT -p udp --dport ${DTLS_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             iptables -D INPUT -p udp --dport ${WG_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             iptables -D INPUT -p tcp --dport ${SSH_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
@@ -321,7 +321,6 @@ fw_cleanup_wdtt_rules() {
     if command -v nft >/dev/null 2>&1; then
         nft delete table ip wdtt 2>/dev/null || true
         nft delete table inet wdtt 2>/dev/null || true
-        nft delete table inet wdtt_mangle 2>/dev/null || true
     fi
 }
 
@@ -401,9 +400,8 @@ setup_nat_and_firewall() {
 
     # === NAT: MASQUERADE для подсети WireGuard ===
     fw_add_masquerade "$iface" "10.66.66.0/24"
-    
-    # === MSS Clamping для исправления MTU (DonationAlerts / Cloudflare) ===
-    fw_add_mss_clamping "10.66.66.0/24"
+
+    apply_wdtt_mtu_rules
 
     if [ "$FW_BACKEND" = "none" ]; then
         echo "⚠ NAT не настроен автоматически: firewall-бэкенд отсутствует"
@@ -411,7 +409,7 @@ setup_nat_and_firewall() {
         echo "✓ NAT: MASQUERADE на $iface для 10.66.66.0/24"
     fi
     echo "✓ Порты: ${DTLS_PORT}/udp(DTLS), ${WG_PORT}/udp(WG), ${SSH_PORT}/tcp(SSH)"
-    echo "✓ TCP MSS Clamping включен"
+    echo "✓ MTU: MSS clamp + DF-clear (wdtt-mtu-rules.sh)"
 }
 
 # ─── Установка бинарника wdtt-server ──────────────────────────────────────────
@@ -449,6 +447,8 @@ Type=simple
 ExecStartPre=-/usr/bin/env bash -c "ip link show ${WDTT_IFACE} >/dev/null 2>&1 && ip link del ${WDTT_IFACE} 2>/dev/null || true"
 ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; fi"
 ExecStart=/usr/local/bin/wdtt-server -listen 0.0.0.0:${DTLS_PORT} -wg-port ${WG_PORT} -config-dir ${WDTT_CONFIG_DIR} ${WDTT_ARGS}
+ExecStartPost=/usr/bin/env bash -c 'for i in \$(seq 1 60); do ip addr show ${WDTT_IFACE} 2>/dev/null | grep -q "10.66.66.1" && /usr/local/bin/wdtt-mtu-rules.sh up && exit 0; sleep 0.5; done; /usr/local/bin/wdtt-mtu-rules.sh up'
+ExecStopPost=-/usr/local/bin/wdtt-mtu-rules.sh down
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
@@ -457,6 +457,7 @@ LimitNOFILE=65535
 WantedBy=multi-user.target
 WDTTSVC
 
+    install_wdtt_mtu_rules_script || true
     systemctl daemon-reload
     systemctl unmask wdtt >/dev/null 2>&1 || true
     systemctl enable wdtt >/dev/null 2>&1 || true
