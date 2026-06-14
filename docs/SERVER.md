@@ -24,11 +24,21 @@ wdtt/
 │   ├── panel_db.go      # чтение panel.db через paneldb
 │   └── …                # devices, speedlimit, relay_*, admin
 ├── panel/               # wdtt-panel (веб-UI + API)
-├── build.sh             # go build ./server
+├── build.sh             # go build ./server [./panel]
+├── go.work              # корень + server/ + panel/
 └── deploy.sh            # установщик VPS
 ```
 
-Сборка: `./build.sh` или `go build -o wdtt-server ./server` из корня репозитория.
+Сборка:
+
+```bash
+./build.sh amd64              # только server → wdtt-server-linux-amd64
+./build.sh amd64 panel          # только panel → wdtt-panel-linux-amd64
+./build.sh amd64 all            # оба бинарника
+./panel/build.sh /usr/local/bin/wdtt-panel   # установка на сервер
+```
+
+Или вручную: `go build -o wdtt-server ./server`, `cd panel && go build .`
 
 ---
 

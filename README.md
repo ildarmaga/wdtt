@@ -53,10 +53,15 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 ./build.sh amd64
 sudo install -m 0755 wdtt-server-linux-amd64 /usr/local/bin/wdtt-server
 
-# Панель (UI встроен через go:embed, нужен Go 1.21+)
-chmod +x panel/build.sh
-./panel/build.sh /usr/local/bin/wdtt-panel
+# Панель (модуль panel/, UI через go:embed)
+./build.sh amd64 panel
+sudo install -m 0755 wdtt-panel-linux-amd64 /usr/local/bin/wdtt-panel
+
+# Оба сразу
+./build.sh amd64 all
 ```
+
+Локальная разработка: `go.work` связывает корень (`pkg/`), `server/` и `panel/`.
 
 Основные флаги `wdtt-server`: `-listen`, `-wg-port`, `-config-dir`, `-password`,
 `-admin`, `-bot-token`, `-handshake-timeout`, `-admin-addr`, `-max-dtls-per-device`.

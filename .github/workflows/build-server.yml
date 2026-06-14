@@ -35,16 +35,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
-      - run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)"
-          fi
-          cd panel
-          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} \
-          go build -trimpath -ldflags="-s -w -X main.panelVersion=${VERSION}" -o "../wdtt-panel-linux-${{ matrix.goarch }}" .
-          chmod +x "../wdtt-panel-linux-${{ matrix.goarch }}"
+      - name: Panel version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "WDTT_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - run: chmod +x panel/build.sh && panel/build.sh ${{ matrix.goarch }}
       - uses: actions/upload-artifact@v4
         with:
           name: wdtt-panel-linux-${{ matrix.goarch }}

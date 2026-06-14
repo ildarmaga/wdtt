@@ -36,22 +36,18 @@ systemctl enable --now wdtt-panel.service
 
 ## Сборка
 
+Go-модуль `wdtt-panel` (зависит от `../pkg` через `replace github.com/ildarmaga/wdtt => ../`).
+
 ```bash
-go build -trimpath -ldflags="-s -w" -o wdtt-panel .
+# из корня репозитория
+../build.sh amd64 panel          # → wdtt-panel-linux-amd64
+
+# из panel/
+./build.sh amd64                 # → ../wdtt-panel-linux-amd64
+./build.sh /usr/local/bin/wdtt-panel
 ```
 
 Требуется Go 1.21+. UI встроен через `go:embed`.
-
-## GitHub Release (опционально)
-
-Для установки без Go на сервере публикуйте бинарник:
-
-```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o wdtt-panel-linux-amd64 .
-gh release create v1.0.0 wdtt-panel-linux-amd64
-```
-
-Установщик скачает `wdtt-panel-linux-amd64` из latest release.
 
 ## Конфигурация
 

@@ -16,6 +16,7 @@ panel/wdtt-panel
 # IDE / OS
 .idea/
 .vscode/
+.cursor/
 .DS_Store
 *.log
 *.tmp
