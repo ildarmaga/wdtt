@@ -12,6 +12,7 @@ import (
 )
 
 const panelIptComment = "WDTT_PANEL"
+const serverUFWComment = "WDTT_SERVER"
 const sshUFWComment = "WDTT_SSH"
 const sshConfigPath = "/etc/ssh/sshd_config"
 
@@ -101,6 +102,18 @@ func enableUFW(cfg *PanelConfig) (map[string]interface{}, error) {
 	if cfg != nil && cfg.Port >= 1 && cfg.Port <= 65535 {
 		panelRule := fmt.Sprintf("%d/tcp", cfg.Port)
 		_, _ = runCmd("ufw", "allow", panelRule, "comment", panelIptComment)
+	}
+	if inb, err := loadInboundNorm(); err == nil {
+		for _, rule := range []string{
+			fmt.Sprintf("%d/udp", inb.DtlsPort),
+			fmt.Sprintf("%d/udp", inb.WgPort),
+		} {
+			_, _ = runCmd("ufw", "allow", rule, "comment", serverUFWComment)
+		}
+	} else {
+		for _, rule := range []string{"56000/udp", "56001/udp"} {
+			_, _ = runCmd("ufw", "allow", rule, "comment", serverUFWComment)
+		}
 	}
 	if _, err := runCmd("ufw", "--force", "enable"); err != nil {
 		return nil, fmt.Errorf("ufw enable: %w", err)

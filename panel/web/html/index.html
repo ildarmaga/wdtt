@@ -227,10 +227,6 @@
                       <a-icon type="bars"></a-icon>
                       <span v-if="!isMobile">{{ i18n "pages.index.logs" }}</span>
                     </a-space>
-                    <a-space direction="horizontal" @click="stopWdttService" class="jc-center">
-                      <a-icon type="poweroff"></a-icon>
-                      <span v-if="!isMobile">Остановить</span>
-                    </a-space>
                     <a-space direction="horizontal" @click="restartWdttService" class="jc-center">
                       <a-icon type="reload"></a-icon>
                       <span v-if="!isMobile">Перезапуск</span>

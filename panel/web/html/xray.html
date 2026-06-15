@@ -37,10 +37,6 @@
                         @click="updateXraySetting">
                         {{ i18n "pages.xray.save" }}
                       </a-button>
-                      <a-button type="danger" :disabled="!saveBtnDisable"
-                        @click="restartXray">
-                        {{ i18n "pages.xray.restart" }}
-                      </a-button>
                       <a-popover v-if="restartResult"
                         :overlay-class-name="themeSwitcher.currentTheme">
                         <span slot="title">{{ i18n
