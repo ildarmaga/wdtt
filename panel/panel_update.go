@@ -28,9 +28,9 @@ func wdttGithubUser() string {
 func panelReleaseBinName() string {
 	switch runtime.GOARCH {
 	case "arm64":
-		return "wdtt-panel-linux-arm64"
+		return "wdtt-linux-arm64"
 	default:
-		return "wdtt-panel-linux-amd64"
+		return "wdtt-linux-amd64"
 	}
 }
 
@@ -38,7 +38,19 @@ func panelInstallPath() string {
 	if p := strings.TrimSpace(os.Getenv("WDTT_PANEL_BIN")); p != "" {
 		return p
 	}
-	return "/usr/local/bin/wdtt-panel"
+	if exe, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = resolved
+		}
+		base := filepath.Base(exe)
+		if base == "wdtt" || base == "wdtt-app" || base == "wdtt-panel" {
+			return exe
+		}
+	}
+	if serviceUnitExists(panelServiceUnit) {
+		return "/usr/local/bin/wdtt-panel"
+	}
+	return wdttServerBin
 }
 
 func fetchWdttPanelReleases() ([]string, error) {

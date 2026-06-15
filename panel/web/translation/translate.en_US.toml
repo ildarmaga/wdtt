@@ -153,7 +153,7 @@
 "panelUpdateDesk" = "Choose a version from GitHub Releases. The panel will restart automatically."
 "panelUpdateCurrent" = "installed"
 "panelSwitchVersionDialog" = "Update panel to #version#?"
-"panelSwitchVersionDialogDesc" = "The wdtt-panel binary will be replaced and the service restarted. This page will reload in a few seconds."
+"panelSwitchVersionDialogDesc" = "The wdtt binary will be replaced and the service restarted. This page will reload in a few seconds."
 "panelUpdateSuccess" = "Panel updated, reloading…"
 "geofileUpdateDialog" = "Do you really want to update the geofile?"
 "geofileUpdateDialogDesc" = "This will update the #filename# file."

@@ -153,7 +153,7 @@
 "panelUpdateDesk" = "Выберите версию с GitHub Releases. Панель перезапустится автоматически."
 "panelUpdateCurrent" = "установлена"
 "panelSwitchVersionDialog" = "Обновить панель до #version#?"
-"panelSwitchVersionDialogDesc" = "Бинарник wdtt-panel будет заменён и сервис перезапущен. Страница обновится через несколько секунд."
+"panelSwitchVersionDialogDesc" = "Бинарник wdtt будет заменён и сервис перезапущен. Страница обновится через несколько секунд."
 "panelUpdateSuccess" = "Панель обновлена, перезагрузка…"
 "geofileUpdateDialog" = "Вы действительно хотите обновить геофайл?"
 "geofileUpdateDialogDesc" = "Это обновит файл #filename#."
