@@ -344,32 +344,84 @@ func getWdttIface() string {
 	return ""
 }
 
+func patchWdttServicePassword(pass string) {
+	unit := "/etc/systemd/system/" + wdttServiceUnit
+	data, err := os.ReadFile(unit)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	changed := false
+	for i, line := range lines {
+		if strings.Contains(line, "ExecStart=") && strings.Contains(line, "-password") {
+			idx := strings.Index(line, "-password")
+			if idx >= 0 {
+				before := line[:idx+len("-password")+1]
+				newLine := before + pass
+				if lines[i] != newLine {
+					lines[i] = newLine
+					changed = true
+				}
+			}
+		}
+	}
+	if changed {
+		_ = os.WriteFile(unit, []byte(strings.Join(lines, "\n")), 0644)
+		runCmd("systemctl", "daemon-reload")
+	}
+}
+
+// migrateMainPasswordDB переносит запись главного пароля на новый ключ и удаляет старый.
+func migrateMainPasswordDB(db *PasswordsDB, newMain string) {
+	if db == nil || newMain == "" {
+		return
+	}
+	oldMain := db.MainPassword
+	if oldMain == newMain {
+		return
+	}
+	var carry *PasswordEntry
+	if oldMain != "" {
+		if e, ok := db.Passwords[oldMain]; ok && e != nil {
+			cp := *e
+			carry = &cp
+		}
+		delete(db.Passwords, oldMain)
+	}
+	if e, ok := db.Passwords[newMain]; ok && e != nil {
+		if carry == nil {
+			cp := *e
+			carry = &cp
+		}
+		delete(db.Passwords, newMain)
+	}
+	db.MainPassword = newMain
+	if carry == nil {
+		carry = &PasswordEntry{Comment: "Владелец"}
+	} else {
+		carry.Comment = "Владелец"
+		carry.MaxDevices = 0
+	}
+	db.Passwords[newMain] = carry
+}
+
 func updateWdttPassword(pass string) error {
+	pass = strings.TrimSpace(pass)
+	if !validPassword(pass) {
+		return fmt.Errorf("пароль должен быть от 1 до 128 символов")
+	}
 	db, err := loadPasswords()
 	if err != nil {
 		return err
 	}
-	db.MainPassword = pass
+	migrateMainPasswordDB(db, pass)
+	ensureMainPasswordEntry(db)
+	dedupePasswordDeviceBindings(db)
 	if err := savePasswords(db); err != nil {
 		return err
 	}
-	unit := "/etc/systemd/system/" + wdttServiceUnit
-	data, err := os.ReadFile(unit)
-	if err == nil {
-		lines := strings.Split(string(data), "\n")
-		for i, line := range lines {
-			if strings.Contains(line, "ExecStart=") && strings.Contains(line, "-password") {
-				idx := strings.Index(line, "-password")
-				if idx >= 0 {
-					before := line[:idx+len("-password")+1]
-					lines[i] = before + pass
-				}
-			}
-		}
-		os.WriteFile(unit, []byte(strings.Join(lines, "\n")), 0644)
-		runCmd("systemctl", "daemon-reload")
-	}
-	return restartWdttWithDeps()
+	patchWdttServicePassword(pass)
+	return applyWdttConfigChangeHotOnly()
 }
 
 func genPassword() string {
