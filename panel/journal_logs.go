@@ -17,14 +17,14 @@ var logLevelRank = map[string]int{
 	"ERROR": 3, "WARNING": 4, "NOTICE": 5, "INFO": 6, "DEBUG": 7,
 }
 
-func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool) []string {
+func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool, serviceKey string) []string {
 	level = normalizeLogLevelFilter(level)
 	args := []string{"--no-pager", "-n", strconv.Itoa(count), "-r", "-o", "json", "-p", level}
 	if !syslog && unit != "" {
 		args = append([]string{"-u", unit}, args...)
 	}
 	out, _ := runCmd("journalctl", args...)
-	source := logSourceForUnit(unit)
+	source := logSourceForService(unit, serviceKey)
 	lines := make([]string, 0, count)
 	for _, raw := range strings.Split(out, "\n") {
 		raw = strings.TrimSpace(raw)
@@ -42,7 +42,10 @@ func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool
 		}
 		priority, _ := strconv.Atoi(entry.Priority)
 		if syslog && entry.SyslogIdentifier != "" {
-			source = strings.ToUpper(entry.SyslogIdentifier)
+			source = normalizeLogSource(entry.SyslogIdentifier)
+		}
+		if serviceKey == "panel" && needsUnifiedLogFilter(serviceKey, unit) {
+			source = "WDTT Panel"
 		}
 		formatted := formatJournalLine(entry.Message, priority, entry.RealtimeTimestampUS, source)
 		if formatted == "" {
@@ -71,6 +74,13 @@ func normalizeLogLevelFilter(level string) string {
 }
 
 func logSourceForUnit(unit string) string {
+	return logSourceForService(unit, "")
+}
+
+func logSourceForService(unit, serviceKey string) string {
+	if serviceKey == "panel" {
+		return "WDTT Panel"
+	}
 	switch unit {
 	case panelServiceUnit:
 		return "WDTT Panel"
@@ -83,10 +93,50 @@ func logSourceForUnit(unit string) string {
 	}
 }
 
+func normalizeLogSource(source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "wdtt-app", "wdtt":
+		return "WDTT"
+	case "wdtt-xray", "xray":
+		return "XRAY"
+	case "wdtt-panel":
+		return "WDTT Panel"
+	default:
+		if source == "" {
+			return "SYS"
+		}
+		upper := strings.ToUpper(source)
+		if upper == "WDTT-APP" {
+			return "WDTT"
+		}
+		return upper
+	}
+}
+
+func stripServiceLogPrefix(body string) string {
+	for {
+		trimmed := strings.TrimSpace(body)
+		lower := strings.ToLower(trimmed)
+		switch {
+		case strings.HasPrefix(lower, "wdtt-app:"):
+			body = strings.TrimSpace(trimmed[len("wdtt-app:"):])
+		case strings.HasPrefix(lower, "wdtt:"):
+			body = strings.TrimSpace(trimmed[len("wdtt:"):])
+		case strings.HasPrefix(trimmed, "WDTT-APP:"):
+			body = strings.TrimSpace(trimmed[len("WDTT-APP:"):])
+		case strings.HasPrefix(trimmed, "WDTT:"):
+			body = strings.TrimSpace(trimmed[len("WDTT:"):])
+		default:
+			return trimmed
+		}
+	}
+}
+
 func formatJournalLine(message string, priority int, realtimeUS, source string) string {
 	date, clock, body := splitLogTimestamp(message, realtimeUS)
 	body = strings.TrimSpace(body)
 	body = xrayLevelTagRe.ReplaceAllString(body, "")
+	body = stripServiceLogPrefix(body)
 
 	level := inferLogLevel(body, priority)
 	if body == "" {

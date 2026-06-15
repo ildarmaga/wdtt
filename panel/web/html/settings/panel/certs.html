@@ -102,6 +102,10 @@
       <a-table v-if="certState.acme.entries && certState.acme.entries.length" :columns="acmeCols"
         :data-source="certState.acme.entries" :pagination="false" size="small" :row-key="r => r.domain"
         :style="{ marginBottom: '12px' }">
+        <template slot="acmeActions" slot-scope="_, row">
+          <a-button size="small" type="danger" icon="delete" title="Удалить из ACME"
+            @click="removeAcmeEntry(row)" :disabled="certState.busy"></a-button>
+        </template>
       </a-table>
     </template>
 

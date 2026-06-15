@@ -104,7 +104,7 @@ func installPanelVersion(tag string) error {
 	log.Printf("[PANEL] updated to %s (%s)", tag, dest)
 	go func() {
 		time.Sleep(800 * time.Millisecond)
-		if err := serviceRestart(panelServiceUnit); err != nil {
+		if err := restartPanelService(); err != nil {
 			log.Printf("[PANEL] self-restart after update: %v", err)
 		}
 	}()

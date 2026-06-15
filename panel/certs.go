@@ -92,7 +92,7 @@ func acmeInstalled() bool {
 }
 
 func panelReloadCmd() string {
-	return "systemctl restart " + panelServiceUnit
+	return "systemctl restart " + panelRestartUnit()
 }
 
 func inspectCertPair(certFile, keyFile string) (*CertInfo, error) {
@@ -661,7 +661,7 @@ func applyPanelCert(cfg *PanelConfig, certFile, keyFile string, restart bool) er
 	if restart {
 		go func() {
 			time.Sleep(400 * time.Millisecond)
-			_ = serviceRestart(panelServiceUnit)
+			_ = restartPanelService()
 		}()
 	}
 	return nil

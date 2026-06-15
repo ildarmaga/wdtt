@@ -268,6 +268,7 @@
           { title: 'Домен', dataIndex: 'domain', key: 'domain' },
           { title: 'CA', dataIndex: 'ca', key: 'ca', width: 140 },
           { title: 'Обновление', dataIndex: 'renew', key: 'renew', width: 180 },
+          { title: '', key: 'actions', scopedSlots: { customRender: 'acmeActions' }, width: 72 },
         ];
       },
     },
@@ -466,6 +467,31 @@
           { domain },
           async () => { await this.loadCerts(); },
         );
+      },
+      async removeAcmeEntry(row) {
+        const domain = (row && row.domain) ? String(row.domain).trim() : '';
+        if (!domain) return;
+        const ok = await new Promise(resolve => {
+          this.$confirm({
+            title: 'Удалить из ACME?',
+            content: domain + ' — сертификат будет отозван и удалён с сервера',
+            okType: 'danger',
+            class: themeSwitcher.currentTheme,
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!ok) return;
+        this.certState.busy = true;
+        const msg = await HttpUtil.post('/panel/api/certs/revoke', { domain });
+        this.certState.busy = false;
+        if (msg.success) {
+          this.$message.success(msg.obj.message || 'Удалено');
+          this.syncCertPanel(msg.obj);
+          await this.getAllSetting();
+        } else {
+          this.$message.error(msg.msg || 'Ошибка');
+        }
       },
       async revokeCert(row) {
         const name = row.source === 'acme' ? (row.domain || filepathBase(row)) : row.domain;

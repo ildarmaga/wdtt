@@ -3,6 +3,7 @@ package panel
 import (
 	"net/http"
 	"strings"
+	"time"
 )
 
 type certIssueReq struct {
@@ -68,12 +69,11 @@ func (a *App) handleCertsIssue(w http.ResponseWriter, r *http.Request) {
 			acmeJobFail(err)
 			return
 		}
-		if req.ApplyToPanel {
-			cfg.WebCertFile = result["certFile"].(string)
-			cfg.WebKeyFile = result["keyFile"].(string)
-			if req.RestartPanel {
-				go func() { _ = serviceRestart(panelServiceUnit) }()
-			}
+		if req.ApplyToPanel && (req.RestartPanel || !serviceUnitExists(panelServiceUnit)) {
+			go func() {
+				time.Sleep(400 * time.Millisecond)
+				_ = restartPanelService()
+			}()
 		}
 		acmeJobDone(result)
 	}()
@@ -101,12 +101,11 @@ func (a *App) handleCertsIssueIP(w http.ResponseWriter, r *http.Request) {
 			acmeJobFail(err)
 			return
 		}
-		if req.ApplyToPanel {
-			cfg.WebCertFile = result["certFile"].(string)
-			cfg.WebKeyFile = result["keyFile"].(string)
-			if req.RestartPanel {
-				go func() { _ = serviceRestart(panelServiceUnit) }()
-			}
+		if req.ApplyToPanel && (req.RestartPanel || !serviceUnitExists(panelServiceUnit)) {
+			go func() {
+				time.Sleep(400 * time.Millisecond)
+				_ = restartPanelService()
+			}()
 		}
 		acmeJobDone(result)
 	}()

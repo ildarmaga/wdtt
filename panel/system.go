@@ -58,6 +58,17 @@ func serviceRestart(name string) error {
 	return err
 }
 
+func panelRestartUnit() string {
+	if serviceUnitExists(panelServiceUnit) {
+		return panelServiceUnit
+	}
+	return wdttServiceUnit
+}
+
+func restartPanelService() error {
+	return serviceRestart(panelRestartUnit())
+}
+
 func serviceStop(name string) error {
 	_, err := runCmd("systemctl", "stop", name)
 	return err

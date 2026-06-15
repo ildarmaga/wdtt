@@ -60,22 +60,115 @@ func updateGeofilesOp(name string) (updated []string, restartXray bool, err erro
 }
 
 func fetchServiceLogLines(count int, serviceKey, level string, syslog bool) []string {
-	unit := panelServiceUnit
-	if !syslog {
-		switch serviceKey {
-		case "wdtt":
-			unit = wdttServiceUnit
-		case "xray":
-			unit = xrayServiceUnit
-		case "panel", "":
-			unit = panelServiceUnit
+	unit := resolveLogUnit(serviceKey, syslog)
+	fetchCount := count
+	if needsUnifiedLogFilter(serviceKey, unit) {
+		fetchCount = count * 20
+		if fetchCount < 200 {
+			fetchCount = 200
 		}
-	} else {
-		unit = ""
 	}
-	lines := fetchFormattedServiceLogs(unit, count, level, syslog)
+	lines := fetchFormattedServiceLogs(unit, fetchCount, level, syslog, serviceKey)
+	if needsUnifiedLogFilter(serviceKey, unit) {
+		lines = filterUnifiedLogLines(lines, serviceKey, count)
+	} else if len(lines) > count {
+		lines = lines[:count]
+	}
 	if lines == nil {
 		return []string{}
 	}
 	return lines
+}
+
+func needsUnifiedLogFilter(serviceKey, unit string) bool {
+	if serviceKey != "panel" && serviceKey != "wdtt" {
+		return false
+	}
+	return unit == wdttServiceUnit && !serviceUnitExists(panelServiceUnit)
+}
+
+func filterUnifiedLogLines(lines []string, serviceKey string, limit int) []string {
+	filtered := make([]string, 0, limit)
+	for _, line := range lines {
+		body := logLineBody(line)
+		switch serviceKey {
+		case "panel":
+			if !isPanelLogMessage(body) {
+				continue
+			}
+		case "wdtt":
+			if isPanelLogMessage(body) {
+				continue
+			}
+		}
+		filtered = append(filtered, line)
+		if len(filtered) >= limit {
+			break
+		}
+	}
+	return filtered
+}
+
+func logLineBody(line string) string {
+	_, body, ok := strings.Cut(line, " - ")
+	if !ok {
+		return line
+	}
+	_, msg, ok := strings.Cut(body, ": ")
+	if ok {
+		return msg
+	}
+	return body
+}
+
+func isPanelLogMessage(body string) bool {
+	b := strings.TrimSpace(body)
+	if b == "" {
+		return false
+	}
+	lower := strings.ToLower(b)
+	panelPrefixes := []string{
+		"[panel]", "[watchdog]",
+		"panel db:", "panel inbound",
+		"subscription listen", "subscription server:",
+		"subscription tls:", "xray hot-", "xray restart", "xray stats api",
+		"wdtt-xray.service обновлён",
+		"логин:", "error loading certificates",
+		"warning: ssl", "export db:", "restart panel:",
+	}
+	for _, p := range panelPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	for _, p := range []string{"[PANEL]", "WDTT Panel:", "WDTT Subscription:"} {
+		if strings.HasPrefix(b, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveLogUnit(serviceKey string, syslog bool) string {
+	if syslog {
+		return ""
+	}
+	switch serviceKey {
+	case "wdtt":
+		return wdttServiceUnit
+	case "xray":
+		return xrayServiceUnit
+	case "panel", "":
+		if serviceUnitExists(panelServiceUnit) {
+			return panelServiceUnit
+		}
+		return wdttServiceUnit
+	default:
+		return wdttServiceUnit
+	}
+}
+
+func serviceUnitExists(unit string) bool {
+	_, err := runCmd("systemctl", "status", unit, "--no-pager")
+	return err == nil
 }

@@ -296,7 +296,7 @@ func (a *App) handleSettingRestartPanel(w http.ResponseWriter, r *http.Request) 
 	}
 	go func() {
 		time.Sleep(400 * time.Millisecond)
-		if err := serviceRestart(panelServiceUnit); err != nil {
+		if err := restartPanelService(); err != nil {
 			log.Printf("restart panel: %v", err)
 		}
 	}()

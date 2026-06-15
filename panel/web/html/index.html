@@ -962,6 +962,7 @@
         }
 
         if (message) {
+          message = message.replace(/^(WDTT-APP|WDTT|wdtt-app|wdtt):\s*/i, "");
           if (message.startsWith("XRAY:"))
             message = "<b>XRAY:</b> " + message.substring(5).trimStart();
           else if (message.startsWith("WDTT Panel:"))
