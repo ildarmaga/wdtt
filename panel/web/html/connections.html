@@ -271,13 +271,21 @@
   }
 
   async function panelApiJson(path, options = {}) {
+    const method = String(options.method || 'GET').toUpperCase();
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      ...(options.headers || {}),
+    };
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && typeof wdttCsrfToken === 'function') {
+      const csrf = wdttCsrfToken();
+      if (csrf) {
+        headers['X-CSRF-Token'] = csrf;
+      }
+    }
     const res = await fetch(basePath + path.replace(/^\//, ''), {
       credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        ...(options.headers || {}),
-      },
+      headers,
       ...options,
     });
     if (res.status === 401) {
