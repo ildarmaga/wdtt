@@ -25,13 +25,20 @@
           </template>
           <a-input-number v-model="userForm.max_devices" :min="1" :max="20" :style="{ width: '100%' }"></a-input-number>
         </a-form-item>
-        <a-form-item v-if="!userModal.isMain && userForm.device_ids.length">
-          <template slot="label">Привязанные</template>
-          <div>
+        <a-form-item v-if="userModal.isMain || userModal.isEdit">
+          <template slot="label">Привязанные устройства</template>
+          <div v-if="!userForm.device_ids.length" class="text-muted" style="font-size:12px">
+            <span v-if="userModal.isMain">Нет привязанных устройств. Новые подключатся автоматически при входе с главным паролем.</span>
+            <span v-else>Нет привязанных устройств. Первое подключение займёт свободный слот.</span>
+          </div>
+          <div v-if="userForm.device_ids.length">
             <a-tag v-for="(devId, idx) in userForm.device_ids" :key="devId" closable @close="removeDevice(idx)" style="margin-bottom:6px">
               [[ devId.length > 12 ? devId.slice(0, 8) + '…' : devId ]]
             </a-tag>
-            <div class="text-muted" style="font-size:12px;margin-top:4px">[[ userForm.device_ids.length ]]/[[ userForm.max_devices ]] слотов занято</div>
+            <div class="text-muted" style="font-size:12px;margin-top:4px">
+              <span v-if="userModal.isMain">[[ userForm.device_ids.length ]] устр. · без лимита</span>
+              <span v-else>[[ userForm.device_ids.length ]]/[[ userForm.max_devices ]] слотов занято</span>
+            </div>
           </div>
         </a-form-item>
         <a-form-item v-if="userModal.isMain" label="Комментарий">
@@ -584,36 +591,67 @@
         }
         this.userModal.saving = true;
         try {
-          let res;
           if (this.userModal.isMain) {
-            res = await wdttFetchPost(basePath + 'panel/api/password/main', { password: this.userForm.password });
-          } else {
-            const body = {
-              password: this.userForm.password,
-              device_ids: this.userForm.device_ids,
-              max_devices: Number(this.userForm.max_devices) || 1,
-              comment: this.userForm.comment,
-              expires_at: this.userForm.unlimited ? 0 : this.userForm.expires_at,
-              total_gb: Number(this.userForm.total_gb) || 0,
-              max_down_mbps: this.mbFromMbit(this.userForm.max_down_mbit),
-              max_up_mbps: this.mbFromMbit(this.userForm.max_up_mbit),
-              vk_hash: (this.userForm.vk_hash || '').trim(),
-              active: this.userForm.active,
-              use_custom_ports: this.userForm.use_custom_ports,
-              dtls_port: Number(this.userForm.dtls_port) || 0,
-              wg_port: Number(this.userForm.wg_port) || 0,
-              client_port: Number(this.userForm.client_port) || 0,
-            };
-            if (this.userModal.isEdit) {
-              res = await wdttFetchPost(basePath + 'panel/api/users/update', { ...body, old_password: this.userModal.oldPassword });
-            } else {
-              res = await wdttFetchPost(basePath + 'panel/api/users/add', body);
+            const pwdChanged = this.userForm.password !== this.userModal.oldPassword;
+            const snapDevs = (this.linkSnapshot && this.linkSnapshot.device_ids) ? this.linkSnapshot.device_ids : [];
+            const devChanged = JSON.stringify(this.userForm.device_ids || []) !== JSON.stringify(snapDevs);
+            if (!pwdChanged && !devChanged) {
+              Vue.prototype.$message.info('Нет изменений');
+              return;
             }
+            if (devChanged) {
+              const devRes = await wdttFetchPost(basePath + 'panel/api/users/update', {
+                old_password: this.userModal.oldPassword,
+                password: this.userModal.oldPassword,
+                device_ids: this.userForm.device_ids,
+              });
+              const devMsg = await devRes.json();
+              if (!devMsg.success) {
+                Vue.prototype.$message.error(devMsg.msg || 'ошибка сохранения устройств');
+                return;
+              }
+            }
+            if (pwdChanged) {
+              const pwdRes = await wdttFetchPost(basePath + 'panel/api/password/main', { password: this.userForm.password });
+              const pwdMsg = await pwdRes.json();
+              if (!pwdMsg.success) {
+                Vue.prototype.$message.error(pwdMsg.msg || 'ошибка смены пароля');
+                return;
+              }
+            }
+            Vue.prototype.$message.success('Главный пароль сохранён');
+            this.userModal.close();
+            if (typeof this.userModal.onSaved === 'function') {
+              await this.userModal.onSaved();
+            }
+            return;
+          }
+          let res;
+          const body = {
+            password: this.userForm.password,
+            device_ids: this.userForm.device_ids,
+            max_devices: Number(this.userForm.max_devices) || 1,
+            comment: this.userForm.comment,
+            expires_at: this.userForm.unlimited ? 0 : this.userForm.expires_at,
+            total_gb: Number(this.userForm.total_gb) || 0,
+            max_down_mbps: this.mbFromMbit(this.userForm.max_down_mbit),
+            max_up_mbps: this.mbFromMbit(this.userForm.max_up_mbit),
+            vk_hash: (this.userForm.vk_hash || '').trim(),
+            active: this.userForm.active,
+            use_custom_ports: this.userForm.use_custom_ports,
+            dtls_port: Number(this.userForm.dtls_port) || 0,
+            wg_port: Number(this.userForm.wg_port) || 0,
+            client_port: Number(this.userForm.client_port) || 0,
+          };
+          if (this.userModal.isEdit) {
+            res = await wdttFetchPost(basePath + 'panel/api/users/update', { ...body, old_password: this.userModal.oldPassword });
+          } else {
+            res = await wdttFetchPost(basePath + 'panel/api/users/add', body);
           }
           const msg = await res.json();
           if (msg.success) {
-            const okText = this.userModal.isMain ? 'Главный пароль сохранён'
-              : (this.userModal.isEdit ? 'Сохранено' : ('Создан: ' + (msg.obj && msg.obj.password || this.userForm.password)));
+            const okText = this.userModal.isEdit ? 'Сохранено'
+              : ('Создан: ' + (msg.obj && msg.obj.password || this.userForm.password));
             Vue.prototype.$message.success(okText);
             this.userModal.close();
             if (typeof this.userModal.onSaved === 'function') {

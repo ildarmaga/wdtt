@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -54,12 +54,15 @@ func refreshWGActivity() {
 		if pass == "" {
 			continue
 		}
+		if pass == db.MainPassword {
+			isMain = true
+		}
 		if ip == "" {
 			ip = peer.allowedIP
 		}
-		// Только rx (приём от клиента). tx растёт от серверного PersistentKeepalive
-		// даже когда клиент уже отключился — это держало бы ложный онлайн.
-		list = append(list, resolved{id: id, ip: ip, pass: pass, isMain: isMain, bytes: peer.rx, handshake: peer.lastHandshake})
+		// Онлайн по реальному трафику: rx (от клиента, ACK/keepalive) + tx (загрузка
+		// на клиент). Счётчики берём из wg show dump если IPC userspace-WG их не отдаёт.
+		list = append(list, resolved{id: id, ip: ip, pass: pass, isMain: isMain, bytes: peer.rx + peer.tx, handshake: peer.lastHandshake})
 	}
 	dbMutex.Unlock()
 
@@ -73,11 +76,14 @@ func refreshWGActivity() {
 		label := userLabel(r.pass, r.isMain)
 		cur, ok := wgActivity[r.id]
 		if !ok {
-			// Первая выборка: точка отсчёта — момент последнего handshake (если был),
-			// чтобы старый мёртвый пир не считался онлайн после рестарта.
-			init := time.Time{}
+			// Не используем старый lastHandshake после рестарта сервера — иначе
+			// relay_evict срабатывает до первого WG-трафика клиента.
+			init := now
 			if r.handshake > 0 {
-				init = time.Unix(r.handshake, 0)
+				hs := time.Unix(r.handshake, 0)
+				if now.Sub(hs) < timeout {
+					init = hs
+				}
 			}
 			wgActivity[r.id] = &wgActivitySample{bytes: r.bytes, lastChange: init, label: label, ip: r.ip, password: r.pass}
 			continue
@@ -117,6 +123,9 @@ var (
 	wgTrafficErrOnce sync.Once
 )
 
+// DTLS keepalive клиента (PWDTT client/core/session.go).
+const clientDTLSKeepaliveSec = 15
+
 // Должен быть больше интервала DTLS keepalive клиента (15s) и запаса на jitter.
 const defaultOnlineTimeoutSec = 15
 
@@ -130,9 +139,10 @@ func userOnlineTimeoutDuration() time.Duration {
 	if sec > 600 {
 		sec = 600
 	}
-	// DTLS keepalive клиента = 15s; таймаут онлайн должен быть чуть больше, иначе ложный offline.
-	if sec < 20 {
-		sec = 20
+	// DTLS keepalive клиента = 15s; таймаут stale должен пережить 2 ping + jitter.
+	minSec := clientDTLSKeepaliveSec*2 + 10
+	if sec < minSec {
+		sec = minSec
 	}
 	return time.Duration(sec) * time.Second
 }
@@ -278,36 +288,29 @@ func userTouchActivity(deviceID string) {
 	info.LastActivity = now
 }
 
+// sessionActivityHeartbeat обновляет LastActivity пока DTLS-сессия жива (до прихода keepalive/WG).
+func sessionActivityHeartbeat(ctx context.Context, deviceID string) {
+	if deviceID == "" {
+		return
+	}
+	userTouchActivity(deviceID)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			userTouchActivity(deviceID)
+		}
+	}
+}
+
 func userPresenceSweep() {
-	now := time.Now()
-	var stale []string
-
-	onlineUsersMutex.Lock()
-	for deviceID, info := range onlineUsers {
-		if info.Sessions > 0 && now.Sub(info.LastActivity) >= userOnlineTimeoutDuration() {
-			stale = append(stale, deviceID)
-		}
-	}
-	onlineUsersMutex.Unlock()
-
-	for _, deviceID := range stale {
-		onlineUsersMutex.Lock()
-		info, exists := onlineUsers[deviceID]
-		if !exists || info.Sessions <= 0 || now.Sub(info.LastActivity) < userOnlineTimeoutDuration() {
-			onlineUsersMutex.Unlock()
-			continue
-		}
-		label, ip, sessions := info.Label, info.IP, info.Sessions
-		password := info.Password
-		delete(onlineUsers, deviceID)
-		onlineUsersMutex.Unlock()
-		atomic.AddInt32(&activeUsers, -1)
-		evicted := relayEvictDevice(deviceID)
-		log.Printf("[ОТКЛ] stale %s | %s | WG %s (sessions=%d, relay_evict=%d)", label, deviceID, ip, sessions, evicted)
-		if password != "" {
-			touchUserLastSeen(password)
-		}
-	}
+	// Не снимаем сессии по DTLS idle: keepalive клиента (15s) и heartbeat ниже
+	// обновляют LastActivity; ложный stale рвал рабочие подключения.
+	// Реальный offline — defer userSessionLeave при закрытии DTLS и wg-idle в refreshWGActivity.
+	_ = userOnlineTimeoutDuration()
 }
 
 func userPresenceLoop(ctx context.Context) {
@@ -341,6 +344,7 @@ func snapshotOnlineUsers() []map[string]string {
 		result = append(result, map[string]string{
 			"device_id": deviceID,
 			"user":      s.label,
+			"password":  s.password,
 			"ip":        s.ip,
 			"sessions":  "1",
 		})

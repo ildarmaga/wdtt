@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"bytes"
@@ -144,7 +144,7 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 			"device_id":          deviceIDsDisplay(entry),
 			"device_ids":         entry.DeviceIDs,
 			"devices_bound":      len(entry.DeviceIDs),
-			"max_devices":        entryMaxDevices(entry),
+			"max_devices":        entryMaxDevices(db, pass, entry),
 			"comment":            entry.Comment,
 			"expires_at":         entry.ExpiresAt,
 			"expires":            passwordExpiry(entry),

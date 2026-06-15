@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"database/sql"
@@ -10,7 +10,7 @@ import (
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
-const dbSchemaVersion = 9
+const dbSchemaVersion = 10
 
 const schemaV2DDL = `
 CREATE TABLE IF NOT EXISTS panel_config (
@@ -288,6 +288,13 @@ func savePasswordsNorm(db *PasswordsDB) error {
 		return err
 	}
 	return paneldb.SaveStore(panelDB, storeFromPasswordsDB(db), paneldb.SaveOptions{PreserveSubIDs: true})
+}
+
+func patchUserDeviceBindingsNorm(db *PasswordsDB, password string, entry *PasswordEntry, removeDeviceIDs []string) error {
+	if !panelDBEnabled() || db == nil || entry == nil {
+		return fmt.Errorf("panel database not available")
+	}
+	return paneldb.PatchUserDeviceBindings(panelDB, db.MainPassword, password, entry.DeviceIDs, removeDeviceIDs)
 }
 
 func mergeTrafficFromDisk(db *PasswordsDB) error {

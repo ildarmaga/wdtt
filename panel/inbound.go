@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"fmt"
@@ -95,7 +95,7 @@ func wdttServiceConfigured() bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(data), "wdtt-server")
+	return strings.Contains(string(data), "wdtt-server") || strings.Contains(string(data), "/wdtt ")
 }
 
 func (c *WdttInboundConfig) normalize() {
@@ -410,14 +410,14 @@ Wants=network-online.target
 Type=simple
 ExecStartPre=-/usr/bin/env bash -c "ip link show wdtt0 >/dev/null 2>&1 && ip link del wdtt0 2>/dev/null || true"
 %s
-ExecStart=/usr/local/bin/wdtt-server -listen %s -wg-port %d -config-dir %s%s
+ExecStart=%s -listen %s -wg-port %d -config-dir %s%s
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
-`, iptPre, cfg.listenAddr(), cfg.WgPort, wdttConfigDir, extra)
+`, iptPre, wdttServerBin, cfg.listenAddr(), cfg.WgPort, wdttConfigDir, extra)
 	return os.WriteFile(wdttServicePath, []byte(content), 0644)
 }
 

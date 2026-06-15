@@ -40,8 +40,9 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 
 | Компонент | Описание |
 |-----------|----------|
-| **wdtt-server** | DTLS `:56000`, userspace WG `wdtt0` (`10.66.66.0/24`), пароли, лимиты трафика/скорости, NAT, Telegram-бот |
-| **wdtt-panel** | Дашборд, подключения (inbound), пользователи, Xray, настройки, ссылки `wdtt://` |
+| **wdtt** | DTLS `:56000`, userspace WG `wdtt0`, панель `:2860`, NAT, Telegram-бот (единый процесс) |
+| **wdtt-server** | Только VPN-сервер (legacy, отдельный бинарник) |
+| **wdtt-panel** | Только веб-панель (legacy, отдельный бинарник) |
 | **wdtt-xray** | Redirect трафика `wdtt0` → outbound (NL, WARP…) |
 
 Конфиг: `/etc/wdtt/panel.db` (SQLite, общая для сервера и панели), `/etc/wdtt-xray/config.json`.
@@ -49,22 +50,20 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 ## Сборка
 
 ```bash
-# Сервер
-./build.sh amd64
-sudo install -m 0755 wdtt-server-linux-amd64 /usr/local/bin/wdtt-server
+# Единый бинарник server+panel (основной, systemd → /usr/local/bin/wdtt)
+./build.sh amd64 unified
+sudo ./install-local.sh amd64
 
-# Панель (модуль panel/, UI через go:embed)
-./build.sh amd64 panel
-sudo install -m 0755 wdtt-panel-linux-amd64 /usr/local/bin/wdtt-panel
-
-# Оба сразу
-./build.sh amd64 all
+# Отдельно (legacy)
+./build.sh amd64 server   # wdtt-server-linux-amd64
+./build.sh amd64 panel    # wdtt-panel-linux-amd64
+./build.sh amd64 all      # всё сразу
 ```
 
 Локальная разработка: `go.work` связывает корень (`pkg/`), `server/` и `panel/`.
 
-Основные флаги `wdtt-server`: `-listen`, `-wg-port`, `-config-dir`, `-password`,
-`-admin`, `-bot-token`, `-handshake-timeout`, `-admin-addr`, `-max-dtls-per-device`.
+Основные флаги `wdtt`: `-listen`, `-wg-port`, `-config-dir`, `-password`,
+`-admin-addr`, `-no-panel`, `-handshake-timeout`, `-max-dtls-per-device`.
 См. **[docs/SERVER.md](docs/SERVER.md)**.
 
 ## API панели

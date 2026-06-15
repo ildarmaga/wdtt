@@ -3,6 +3,7 @@ wdtt-server
 wdtt-server-*
 wdtt-panel
 wdtt-panel-*
+wdtt-linux-*
 panel/wdtt-panel
 
 # Go

@@ -9,7 +9,7 @@
 # ==============================================================================
 set -uo pipefail
 
-readonly SCRIPT_VERSION="3.2"
+readonly SCRIPT_VERSION="3.3"
 readonly LOG_FILE="/var/log/wdtt-install.log"
 readonly WG_PORT="${WDTT_WG_PORT:-56001}"
 readonly DTLS_PORT="${WDTT_DTLS_PORT:-56000}"
@@ -356,7 +356,7 @@ wdtt_cleanup() {
     systemctl disable wdtt 2>/dev/null || true
     rm -f /etc/systemd/system/wdtt.service 2>/dev/null || true
     systemctl daemon-reload 2>/dev/null || true
-    pkill -x wdtt-server 2>/dev/null || killall wdtt-server 2>/dev/null || true
+    pkill -x wdtt 2>/dev/null || pkill -x wdtt-server 2>/dev/null || killall wdtt wdtt-server 2>/dev/null || true
 
     # Удаляем только собственный интерфейс WDTT.
     ip link show "$WDTT_IFACE" >/dev/null 2>&1 && ip link del "$WDTT_IFACE" 2>/dev/null || true
@@ -364,7 +364,7 @@ wdtt_cleanup() {
     # Удаляем старые правила NAT для WDTT подсети
     fw_cleanup_wdtt_rules "$(detect_wan_interface)"
 
-    rm -f /usr/local/bin/wdtt-server 2>/dev/null || true
+    rm -f /usr/local/bin/wdtt /usr/local/bin/wdtt-server 2>/dev/null || true
     cleanup_config_dir_keep_access_db
 
     echo "✓ Очистка завершена (база доступа сохранена)"
@@ -424,20 +424,20 @@ setup_nat_and_firewall() {
     echo "✓ MTU: MSS clamp + DF-clear (wdtt-mtu-rules.sh)"
 }
 
-# ─── Установка бинарника wdtt-server ──────────────────────────────────────────
+# ─── Установка бинарника wdtt (server + panel) ────────────────────────────────
 setup_wdtt_binary() {
     prog 0.60 "Бинарник..."
-    echo "📦 Установка wdtt-server..."
+    echo "📦 Установка wdtt (unified)..."
 
-    if [ -f /tmp/wdtt-server ]; then
-        chmod +x /tmp/wdtt-server
-        install -m 0755 /tmp/wdtt-server /usr/local/bin/wdtt-server 2>/dev/null || mv /tmp/wdtt-server /usr/local/bin/wdtt-server
-        echo "✓ wdtt-server установлен"
-    elif [ -f /usr/local/bin/wdtt-server ]; then
-        echo "✓ wdtt-server уже установлен"
+    if [ -f /tmp/wdtt ]; then
+        chmod +x /tmp/wdtt
+        install -m 0755 /tmp/wdtt /usr/local/bin/wdtt 2>/dev/null || mv /tmp/wdtt /usr/local/bin/wdtt
+        echo "✓ wdtt установлен"
+    elif [ -f /usr/local/bin/wdtt ]; then
+        echo "✓ wdtt уже установлен"
     else
-        echo "⚠ wdtt-server не найден в /tmp/ — пропускаем"
-        echo "  Загрузите бинарник вручную в /usr/local/bin/wdtt-server"
+        echo "⚠ wdtt не найден в /tmp/ — пропускаем"
+        echo "  Загрузите бинарник wdtt-linux-amd64 в /usr/local/bin/wdtt"
     fi
 
     mkdir -p "$WDTT_CONFIG_DIR"
@@ -458,7 +458,7 @@ Wants=network-online.target
 Type=simple
 ExecStartPre=-/usr/bin/env bash -c "ip link show ${WDTT_IFACE} >/dev/null 2>&1 && ip link del ${WDTT_IFACE} 2>/dev/null || true"
 ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; fi"
-ExecStart=/usr/local/bin/wdtt-server -listen 0.0.0.0:${DTLS_PORT} -wg-port ${WG_PORT} -config-dir ${WDTT_CONFIG_DIR} ${WDTT_ARGS}
+ExecStart=/usr/local/bin/wdtt -listen 0.0.0.0:${DTLS_PORT} -wg-port ${WG_PORT} -config-dir ${WDTT_CONFIG_DIR} -admin-addr 127.0.0.1:2861 ${WDTT_ARGS}
 ExecStartPost=/usr/bin/env bash -c 'for i in \$(seq 1 60); do ip addr show ${WDTT_IFACE} 2>/dev/null | grep -q "10.66.66.1" && /usr/local/bin/wdtt-mtu-rules.sh up && exit 0; sleep 0.5; done; /usr/local/bin/wdtt-mtu-rules.sh up'
 ExecStopPost=-/usr/local/bin/wdtt-mtu-rules.sh down
 Restart=always
@@ -481,8 +481,8 @@ start_wdtt() {
     prog 0.90 "Запуск..."
     echo "🚀 Запуск WDTT VPN Server..."
 
-    if [ ! -f /usr/local/bin/wdtt-server ]; then
-        echo "⚠ wdtt-server не установлен — запуск пропущен"
+    if [ ! -f /usr/local/bin/wdtt ]; then
+        echo "⚠ wdtt не установлен — запуск пропущен"
         return 0
     fi
 
@@ -525,11 +525,11 @@ do_uninstall() {
     systemctl daemon-reload
 
     ip link show "$WDTT_IFACE" >/dev/null 2>&1 && ip link del "$WDTT_IFACE" 2>/dev/null || true
-    pkill -x wdtt-server 2>/dev/null || true
+    pkill -x wdtt 2>/dev/null || pkill -x wdtt-server 2>/dev/null || true
 
     fw_cleanup_wdtt_rules "$(detect_wan_interface)"
 
-    rm -f /usr/local/bin/wdtt-server
+    rm -f /usr/local/bin/wdtt /usr/local/bin/wdtt-server
     cleanup_config_dir_keep_access_db
     rm -f /etc/sysctl.d/99-wdtt.conf
     sysctl --system >/dev/null 2>&1 || true
@@ -546,8 +546,8 @@ do_status() {
     else
         log_warn "Сервис: НЕ АКТИВЕН"
     fi
-    if [ -f /usr/local/bin/wdtt-server ]; then
-        log_info "Бинарник: установлен"
+    if [ -f /usr/local/bin/wdtt ]; then
+        log_info "Бинарник: установлен (/usr/local/bin/wdtt)"
     else
         log_warn "Бинарник: НЕ найден"
     fi

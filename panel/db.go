@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"database/sql"
@@ -83,6 +83,9 @@ func migratePanelDB() error {
 		if err := migratePanelDBV9(); err != nil {
 			return err
 		}
+		if err := migratePanelDBV10(); err != nil {
+			return err
+		}
 		_, err = panelDB.Exec(`INSERT INTO schema_version (version) VALUES (?)`, dbSchemaVersion)
 		return err
 	}
@@ -126,6 +129,11 @@ func migratePanelDB() error {
 	}
 	if ver < 9 {
 		if err := migratePanelDBV9(); err != nil {
+			return err
+		}
+	}
+	if ver < 10 {
+		if err := migratePanelDBV10(); err != nil {
 			return err
 		}
 	}

@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"crypto/rand"
@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
 type PasswordsDB struct {
@@ -119,15 +117,13 @@ func ensureMainPasswordEntry(db *PasswordsDB) {
 	}
 	entry, ok := db.Passwords[db.MainPassword]
 	if !ok || entry == nil {
-		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец", MaxDevices: paneldb.MaxDevicesLimit}
+		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец"}
 		return
 	}
 	if entry.Comment == "" {
 		entry.Comment = "Владелец"
 	}
-	if entry.MaxDevices < paneldb.MaxDevicesLimit {
-		entry.MaxDevices = paneldb.MaxDevicesLimit
-	}
+	entry.MaxDevices = 0
 }
 
 func loadPasswords() (*PasswordsDB, error) {
@@ -224,7 +220,7 @@ func userOnlineFromStats(pass, deviceID string, isMain bool, stats *ServerStats)
 				}
 			}
 		}
-		if isMain && onlineUser == "main" {
+		if isMain && (onlineUser == "main" || (onlinePass != "" && onlinePass == pass)) {
 			if deviceID == "" {
 				return true
 			}
@@ -275,26 +271,6 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 		normalizeEntryDevices(entry)
 		deviceIDs = append([]string(nil), entry.DeviceIDs...)
 		devicesBound = len(entry.DeviceIDs)
-	}
-	if stats != nil {
-		for _, o := range stats.Online {
-			user, _ := o["user"].(string)
-			if user != "main" {
-				continue
-			}
-			if did, _ := o["device_id"].(string); did != "" {
-				found := false
-				for _, id := range deviceIDs {
-					if id == did {
-						found = true
-						break
-					}
-				}
-				if !found {
-					deviceIDs = append(deviceIDs, did)
-				}
-			}
-		}
 	}
 	used := upBytes + downBytes
 	dtlsPort, wgPort, clientPort := resolveUserPorts(nil, inbound)
@@ -463,103 +439,16 @@ func updateUser(oldPassword, newPassword string, req userAPIReq, manageDevices b
 	if oldPassword == "" {
 		return fmt.Errorf("пароль не указан")
 	}
-	patch := passwordEntryFromReq(req)
 	if newPassword == "" {
 		newPassword = oldPassword
 	}
 	if !validPassword(newPassword) {
 		return fmt.Errorf("пароль должен быть от 1 до 128 символов")
 	}
-	db, err := loadPasswords()
-	if err != nil {
+	if err := serverApplyUserUpdate(oldPassword, newPassword, req, manageDevices); err != nil {
 		return err
 	}
-	cur, ok := db.Passwords[oldPassword]
-	if !ok {
-		return fmt.Errorf("пользователь не найден")
-	}
-	entry := *cur
-	entry.Comment = patch.Comment
-	entry.ExpiresAt = patch.ExpiresAt
-	entry.TotalBytes = patch.TotalBytes
-	entry.MaxDownMBps = patch.MaxDownMBps
-	entry.MaxUpMBps = patch.MaxUpMBps
-	if req.Ports != "" || req.UseCustomPorts {
-		entry.Ports = patch.Ports
-	} else {
-		entry.Ports = cur.Ports
-	}
-	if strings.TrimSpace(req.VkHash) != "" {
-		entry.VkHash = patch.VkHash
-	} else {
-		entry.VkHash = cur.VkHash
-	}
-	if req.Active != nil {
-		entry.IsDeactivated = patch.IsDeactivated
-	}
-	if patch.MaxDevices > 0 {
-		entry.MaxDevices = patch.MaxDevices
-	}
-	if newPassword != oldPassword {
-		if _, exists := db.Passwords[newPassword]; exists {
-			return fmt.Errorf("пароль уже существует")
-		}
-		entry.DownBytes = cur.DownBytes
-		entry.UpBytes = cur.UpBytes
-		entry.SubID = cur.SubID
-		entry.LastSeenAt = cur.LastSeenAt
-		delete(db.Passwords, oldPassword)
-		db.Passwords[newPassword] = &entry
-	} else {
-		entry.DownBytes = cur.DownBytes
-		entry.UpBytes = cur.UpBytes
-		entry.SubID = cur.SubID
-		entry.LastSeenAt = cur.LastSeenAt
-		db.Passwords[oldPassword] = &entry
-	}
-	if strings.TrimSpace(entry.SubID) == "" {
-		subID, err := genSubID()
-		if err != nil {
-			return err
-		}
-		entry.SubID = subID
-	}
-	wasExpired := isPasswordExpired(cur)
-	nowValid := !isPasswordExpired(&entry)
-	if wasExpired && nowValid && !trafficExceeded(&entry) {
-		entry.IsDeactivated = false
-	}
-	normalizeEntryDevices(cur)
-	normalizeEntryDevices(&entry)
-	if manageDevices {
-		if req.DeviceIDs != nil {
-			entry.DeviceIDs = append([]string(nil), (*req.DeviceIDs)...)
-		} else if id := strings.TrimSpace(req.DeviceID); id != "" {
-			entry.DeviceIDs = []string{id}
-		} else {
-			entry.DeviceIDs = nil
-			entry.DeviceID = ""
-		}
-		normalizeEntryDevices(&entry)
-	} else if len(entry.DeviceIDs) == 0 && entry.DeviceID == "" {
-		entry.DeviceIDs = append([]string(nil), cur.DeviceIDs...)
-		entry.DeviceID = cur.DeviceID
-	}
-	if entry.MaxDevices <= 0 {
-		entry.MaxDevices = cur.MaxDevices
-	}
-	if len(entry.DeviceIDs) > entryMaxDevices(&entry) {
-		return fmt.Errorf("привязано %d устройств — лимит %d, сначала отвяжите лишние", len(entry.DeviceIDs), entryMaxDevices(&entry))
-	}
-	for _, devID := range cur.DeviceIDs {
-		if !entryHasDevice(&entry, devID) {
-			delete(db.Devices, devID)
-		}
-	}
-	if err := savePasswords(db); err != nil {
-		return err
-	}
-	return applyWdttConfigChange()
+	return nil
 }
 
 func resetUserTraffic(pass string) error {
@@ -584,23 +473,10 @@ func resetUserTraffic(pass string) error {
 }
 
 func deleteUserPassword(pass string) error {
-	db, err := loadPasswords()
-	if err != nil {
-		return err
+	if pass == "" {
+		return fmt.Errorf("пароль не указан")
 	}
-	if pass == db.MainPassword {
-		return fmt.Errorf("нельзя удалить главный пароль")
-	}
-	if entry, ok := db.Passwords[pass]; ok {
-		for _, devID := range allEntryDeviceIDsPanel(entry) {
-			delete(db.Devices, devID)
-		}
-	}
-	delete(db.Passwords, pass)
-	if err := savePasswords(db); err != nil {
-		return err
-	}
-	return applyWdttConfigChange()
+	return serverDeleteUser(pass)
 }
 
 func formatBytes(b int64) string {

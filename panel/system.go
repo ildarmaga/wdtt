@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"fmt"
@@ -131,7 +131,7 @@ func wdttHotReload() error {
 			req.Header.Set("X-WDTT-Admin-Token", key)
 		}
 	}
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -146,7 +146,19 @@ func wdttHotReload() error {
 
 // applyWdttConfigChange сохраняет конфиг и применяет hot-reload; при ошибке — полный restart.
 func applyWdttConfigChange() error {
+	return applyWdttConfigChangeMaybeRestart(true)
+}
+
+// applyWdttConfigChangeHotOnly — только hot-reload (без полного перезапуска WDTT).
+func applyWdttConfigChangeHotOnly() error {
+	return applyWdttConfigChangeMaybeRestart(false)
+}
+
+func applyWdttConfigChangeMaybeRestart(restartOnFail bool) error {
 	if err := wdttHotReload(); err == nil {
+		return nil
+	} else if !restartOnFail {
+		log.Printf("[panel] hot-reload не удался (%v)", err)
 		return nil
 	} else {
 		log.Printf("[panel] hot-reload не удался (%v), перезапуск WDTT", err)

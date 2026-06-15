@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"crypto/rand"
@@ -28,6 +28,21 @@ type wgPeerCounters struct {
 
 // wgPeerTrafficLast — последние rx/tx с wg show dump (учёт по пирам, не по DTLS-сессии).
 var wgPeerTrafficLast sync.Map
+
+// userspace WG device не переносит параллельный IpcGet/IpcSet — иначе stats loop зависает.
+var wgIPCMu sync.Mutex
+
+func wgIpcGet(dev *device.Device) (string, error) {
+	wgIPCMu.Lock()
+	defer wgIPCMu.Unlock()
+	return dev.IpcGet()
+}
+
+func wgIpcSet(dev *device.Device, cfg string) error {
+	wgIPCMu.Lock()
+	defer wgIPCMu.Unlock()
+	return dev.IpcSet(cfg)
+}
 
 func syncTrafficFromWGPeers() {
 	peers, err := collectWGPeerStats()
@@ -97,13 +112,12 @@ func deviceForWGPeerLocked(peer wgPeerInfo) (deviceID, userIP, password string, 
 		}
 		if peer.pubKeyB64 != "" && dev.PubKey == peer.pubKeyB64 {
 			pass := passwordForDeviceLocked(id)
-			if pass == "" {
-				continue
-			}
 			if dev.IP != "" {
 				ip = dev.IP
 			}
-			return id, ip, pass, pass == db.MainPassword
+			// Возвращаем id даже без привязки (pass==""): вызывающий код
+			// сделает orphan-резолв на главный пароль (безлимит устройств).
+			return id, ip, pass, pass != "" && pass == db.MainPassword
 		}
 	}
 	if ip != "" {
@@ -117,19 +131,61 @@ func collectWGPeerInfos() ([]wgPeerInfo, error) {
 	serverWGDevMu.RLock()
 	dev := serverWGDev
 	serverWGDevMu.RUnlock()
+	var peers []wgPeerInfo
 	if dev != nil {
-		text, err := dev.IpcGet()
+		text, err := wgIpcGet(dev)
 		if err == nil {
-			if peers := parseWGPeerInfosIpc(text); len(peers) > 0 {
-				return peers, nil
+			peers = parseWGPeerInfosIpc(text)
+		}
+	}
+	if len(peers) == 0 {
+		return collectWGPeerInfosFromDump()
+	}
+	// userspace WG IpcGet часто отдаёт пиров без rx/tx — счётчики только из wg show.
+	if !peerInfosHaveTraffic(peers) {
+		if dumpPeers, err := collectWGPeerInfosFromDump(); err == nil {
+			mergePeerTrafficInto(&peers, dumpPeers)
+		}
+	}
+	return peers, nil
+}
+
+func collectWGPeerInfosFromDump() ([]wgPeerInfo, error) {
+	out, err := exec.Command("wg", "show", wgIfaceName, "dump").Output()
+	if err != nil {
+		return nil, fmt.Errorf("wg show dump: %w", err)
+	}
+	return parseWGPeerInfosDump(string(out)), nil
+}
+
+func peerInfosHaveTraffic(peers []wgPeerInfo) bool {
+	for _, p := range peers {
+		if p.rx > 0 || p.tx > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func mergePeerTrafficInto(dst *[]wgPeerInfo, src []wgPeerInfo) {
+	byKey := make(map[string]wgPeerInfo, len(src))
+	for _, p := range src {
+		if p.pubKeyB64 != "" {
+			byKey[p.pubKeyB64] = p
+		}
+	}
+	for i := range *dst {
+		if p, ok := byKey[(*dst)[i].pubKeyB64]; ok {
+			(*dst)[i].rx = p.rx
+			(*dst)[i].tx = p.tx
+			if (*dst)[i].lastHandshake == 0 {
+				(*dst)[i].lastHandshake = p.lastHandshake
+			}
+			if (*dst)[i].endpoint == "" {
+				(*dst)[i].endpoint = p.endpoint
 			}
 		}
 	}
-	out, err := exec.Command("wg", "show", wgIfaceName, "dump").Output()
-	if err != nil {
-		return nil, fmt.Errorf("IpcGet/wg show dump: %w", err)
-	}
-	return parseWGPeerInfosDump(string(out)), nil
 }
 
 func parseWGPeerInfosIpc(text string) []wgPeerInfo {
@@ -235,6 +291,9 @@ func syncOnlineFromWGPeers() {
 		}
 		if pass == "" {
 			continue
+		}
+		if pass == db.MainPassword {
+			isMain = true
 		}
 		if ip == "" {
 			ip = peer.allowedIP
@@ -511,7 +570,7 @@ func startUserspaceWG(keys *wgKeys, wgPort int) (*device.Device, error) {
 
 	serverPrivHex, _ := b64ToHex(keys.serverPrivate)
 
-	if err := dev.IpcSet(fmt.Sprintf(
+	if err := wgIpcSet(dev, fmt.Sprintf(
 		"private_key=%s\nlisten_port=%d\n",
 		serverPrivHex, wgPort,
 	)); err != nil {
@@ -522,7 +581,7 @@ func startUserspaceWG(keys *wgKeys, wgPort int) (*device.Device, error) {
 	for _, d := range db.Devices {
 		pubHex, _ := b64ToHex(d.PubKey)
 		if pubHex != "" {
-			dev.IpcSet(fmt.Sprintf("public_key=%s\nallowed_ip=%s/32\n", pubHex, d.IP))
+			wgIpcSet(dev, fmt.Sprintf("public_key=%s\nallowed_ip=%s/32\n", pubHex, d.IP))
 		}
 	}
 

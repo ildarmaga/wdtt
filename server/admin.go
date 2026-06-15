@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
@@ -17,6 +18,7 @@ var (
 	adminListenAddr   = "127.0.0.1:2861"
 	maxDTLSPerDevice  int32 = 0
 	adminReloadSecret atomic.Value // string
+	adminReloadMu     sync.Mutex
 )
 
 func setAdminReloadSecret(key string) {
@@ -95,6 +97,10 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 	for deviceID, dev := range db.Devices {
 		pass := passwordForDeviceLocked(deviceID)
 		if pass == "" {
+			// Устройства главного пароля без привязки — резолвим к нему, пир сохраняем.
+			pass = bindOrphanDeviceToMainLocked(deviceID)
+		}
+		if pass == "" {
 			removePeerFromWG(wgDev, dev)
 			continue
 		}
@@ -118,6 +124,7 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 	syncAllSpeedLimits()
 	syncVPNLocalServices(wgIfaceName)
 	loadAdminReloadSecretFromDB()
+	rememberUsersRevFromDisk()
 	log.Printf("[ADMIN] Конфиг перезагружен из %s", panelDBPath)
 	return nil
 }
@@ -138,6 +145,8 @@ func startAdminServer(ctx context.Context, wgDev *device.Device) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		adminReloadMu.Lock()
+		defer adminReloadMu.Unlock()
 		if err := reloadDBFromDisk(wgDev); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -146,13 +155,15 @@ func startAdminServer(ctx context.Context, wgDev *device.Device) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
+	registerStoreAdminRoutes(mux, wgDev)
+
 	srv := &http.Server{Handler: mux}
 	ln, err := net.Listen("tcp", adminListenAddr)
 	if err != nil {
 		log.Printf("[ADMIN] HTTP не запущен (%s): %v", adminListenAddr, err)
 		return
 	}
-	log.Printf("[ADMIN] HTTP %s (/health, POST /admin/reload)", adminListenAddr)
+	log.Printf("[ADMIN] HTTP %s (/health, POST /admin/reload, /admin/users/update, /admin/users/delete)", adminListenAddr)
 	go func() {
 		<-ctx.Done()
 		srv.Close()

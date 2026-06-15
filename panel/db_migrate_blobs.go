@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"database/sql"
@@ -167,6 +167,13 @@ func migratePanelDBV9() error {
 		return err
 	}
 	return purgeLegacySettingsBlobs()
+}
+
+func migratePanelDBV10() error {
+	if _, err := panelDB.Exec(`ALTER TABLE wdtt_global ADD COLUMN users_rev INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		return err
+	}
+	return nil
 }
 
 func purgeLegacySettingsBlobs() error {

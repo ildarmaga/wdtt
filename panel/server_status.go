@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"bufio"
@@ -72,7 +72,6 @@ type serverStatus struct {
 		IPv6 string `json:"ipv6"`
 	} `json:"publicIP"`
 	AppStats struct {
-		Panel  serviceUsage `json:"panel"`
 		Xray   serviceUsage `json:"xray"`
 		Wdtt   serviceUsage `json:"wdtt"`
 		Uptime uint64       `json:"uptime"`
@@ -178,7 +177,6 @@ func collectServerStatus() *serverStatus {
 	}
 
 	s.AppStats.Uptime = uint64(time.Since(panelStart).Seconds())
-	s.AppStats.Panel = readServiceUsage(panelServiceUnit)
 	s.AppStats.Xray = readServiceUsage(xrayServiceUnit)
 	s.AppStats.Wdtt = readServiceUsage(wdttServiceUnit)
 

@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -37,6 +37,7 @@ func statsLoop(ctx context.Context, configDir string) {
 			toC := atomic.LoadInt64(&totalBytesToClient)
 			sessions := atomic.LoadInt32(&activeConns)
 			refreshWGActivity()
+
 			online := snapshotOnlineUsers()
 			users := int32(len(online))
 			atomic.StoreInt32(&activeUsers, users)
@@ -76,9 +77,11 @@ func statsLoop(ctx context.Context, configDir string) {
 			})
 			os.WriteFile(statsFile, statsJSON, 0600)
 
-			syncTrafficFromWGPeers()
-			syncVPNLocalServices(wgIfaceName)
-			relayEvictAllIdle(relayStaleEvictIdle)
+			go func() {
+				syncTrafficFromWGPeers()
+				syncVPNLocalServices(wgIfaceName)
+				relayEvictAllIdle(relayStaleEvictIdle)
+			}()
 
 			if trafficDirty.Load() {
 				dbMutex.Lock()

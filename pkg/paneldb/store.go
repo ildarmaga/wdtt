@@ -61,6 +61,11 @@ func LoadStore(db *sql.DB) (*Store, error) {
 	for _, u := range out.Users {
 		NormalizeUser(u)
 	}
+	for pass, u := range out.Users {
+		if pass == out.MainPassword && u != nil {
+			u.MaxDevices = 0
+		}
+	}
 	return out, nil
 }
 
@@ -81,6 +86,9 @@ func SaveStore(db *sql.DB, src *Store, opts SaveOptions) error {
 			admin_id=excluded.admin_id,
 			bot_token=excluded.bot_token`,
 		src.MainPassword, src.AdminID, src.BotToken); err != nil {
+		return err
+	}
+	if err := bumpUsersRevInTx(tx); err != nil {
 		return err
 	}
 
@@ -118,6 +126,9 @@ func SaveStore(db *sql.DB, src *Store, opts SaveOptions) error {
 			continue
 		}
 		NormalizeUser(u)
+		if pass == src.MainPassword {
+			u.MaxDevices = 0
+		}
 		deact := 0
 		if u.IsDeactivated {
 			deact = 1

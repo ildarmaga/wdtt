@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"bytes"
@@ -184,11 +184,11 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 						for _, devID := range allEntryDeviceIDs(entry) {
 							if dev, devExists := db.Devices[devID]; devExists {
 								if pubHex, err := b64ToHex(dev.PubKey); err == nil && pubHex != "" {
-									wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
+									wgIpcSet(wgDev, fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
 								}
 							}
 						}
-						saveDB()
+						saveDBLocked()
 					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("⏸ Пароль `%s` деактивирован", pass), nil)
@@ -199,7 +199,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					entry, exists := db.Passwords[pass]
 					if exists && entry != nil {
 						entry.IsDeactivated = false
-						saveDB()
+						saveDBLocked()
 					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Пароль `%s` активирован", pass), nil)
@@ -227,7 +227,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 								devID := entry.DeviceIDs[idx]
 								removeWGDeviceLocked(wgDev, devID)
 								removeDeviceFromEntry(entry, devID)
-								saveDB()
+								saveDBLocked()
 							}
 						}
 						dbMutex.Unlock()
@@ -240,7 +240,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					entry, exists := db.Passwords[pass]
 					if exists && entry != nil {
 						removeAllEntryDevicesLocked(wgDev, entry)
-						saveDB()
+						saveDBLocked()
 					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Все устройства отвязаны от `%s`", pass), nil)
@@ -256,7 +256,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					}
 					delete(db.Passwords, pass)
 					serverWrapKeys.RemovePassword(pass)
-					saveDB()
+					saveDBLocked()
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Пароль `%s` и его устройство удалены", pass), nil)
 
@@ -267,14 +267,14 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					if exists {
 						delete(db.Devices, devID)
 						pubHex, _ := b64ToHex(dev.PubKey)
-						wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
+						wgIpcSet(wgDev, fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
 						// Очищаем привязку из пароля
 						for _, entry := range db.Passwords {
 							if entry != nil {
 								removeDeviceFromEntry(entry, devID)
 							}
 						}
-						saveDB()
+						saveDBLocked()
 					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Устройство `%s` удалено", devID), nil)
@@ -402,7 +402,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					Ports:     tempPorts,
 					SubID:     subID,
 				}
-				saveDB()
+				saveDBLocked()
 				dbMutex.Unlock()
 
 				expDate := time.Unix(expiresAt, 0).Format("02.01.2006")
@@ -443,7 +443,7 @@ func removePeerFromWG(wgDev *device.Device, dev *ClientDevice) {
 	if err != nil {
 		return
 	}
-	wgDev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
+	wgIpcSet(wgDev, fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
 }
 
 func upsertPeerInWG(wgDev *device.Device, dev *ClientDevice) {
@@ -454,7 +454,7 @@ func upsertPeerInWG(wgDev *device.Device, dev *ClientDevice) {
 	if err != nil {
 		return
 	}
-	wgDev.IpcSet(fmt.Sprintf("public_key=%s\nallowed_ip=%s/32\n", pubHex, dev.IP))
+	wgIpcSet(wgDev, fmt.Sprintf("public_key=%s\nallowed_ip=%s/32\n", pubHex, dev.IP))
 }
 
 func countActivePasswordsLocked() int {
@@ -511,6 +511,10 @@ func syncPersistedPeersToWG(wgDev *device.Device) {
 	count := 0
 	for deviceID, dev := range db.Devices {
 		pass := passwordForDeviceLocked(deviceID)
+		if pass == "" {
+			// Устройства главного пароля не имеют привязки — резолвим к нему.
+			pass = bindOrphanDeviceToMainLocked(deviceID)
+		}
 		if pass == "" {
 			continue
 		}

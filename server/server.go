@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"bytes"
@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	"github.com/pion/dtls/v3"
 
 	"golang.zx2c4.com/wireguard/device"
@@ -163,7 +162,21 @@ func initDB(mainPass, adminID, botToken string) {
 }
 
 func saveDB() error {
-	return saveDatabaseDual()
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	return saveDBLocked()
+}
+
+// saveDBLocked пишет БД; вызывать только при уже удержанном dbMutex.
+func saveDBLocked() error {
+	if !serverPanelDBReady() {
+		return fmt.Errorf("panel.db not available at %s", panelDBPath)
+	}
+	err := saveDatabaseToSQLite(db)
+	if err == nil {
+		rememberUsersRevFromDisk()
+	}
+	return err
 }
 
 func isPasswordExpired(entry *PasswordEntry) bool {
@@ -215,14 +228,12 @@ func bindOrphanDeviceToMainLocked(deviceID string) string {
 		return pass
 	}
 	ensureMainPasswordEntryLocked()
-	mainEntry := db.Passwords[db.MainPassword]
-	if mainEntry == nil {
+	if db.Passwords[db.MainPassword] == nil {
 		return ""
 	}
-	if bindDeviceToEntry(mainEntry, deviceID) {
-		trafficDirty.Store(true)
-		log.Printf("[WG] Автопривязка %s к главному паролю (учёт трафика)", deviceID)
-	}
+	// Главный пароль = безлимит устройств: трафик учитываем на него,
+	// но НЕ пишем устройство в привязки (wdtt_user_devices) — иначе панель
+	// копила бы устройства владельца. Резолв чисто в памяти.
 	return db.MainPassword
 }
 
@@ -235,10 +246,7 @@ func deviceForWGIPLocked(ip string) (deviceID, password string, isMain bool) {
 			continue
 		}
 		pass := passwordForDeviceLocked(id)
-		if pass == "" {
-			continue
-		}
-		return id, pass, pass == db.MainPassword
+		return id, pass, pass != "" && pass == db.MainPassword
 	}
 	return "", "", false
 }
@@ -261,8 +269,17 @@ func resolveConnByWGLocalPort(localPort int) (deviceID, userIP, password string,
 			continue
 		}
 		id, ip, pass, main := deviceForWGPeerLocked(peer)
-		if id == "" || pass == "" {
+		if id == "" {
 			continue
+		}
+		if pass == "" {
+			pass = bindOrphanDeviceToMainLocked(id)
+		}
+		if pass == "" {
+			continue
+		}
+		if pass == db.MainPassword {
+			main = true
 		}
 		if ip == "" {
 			ip = peer.allowedIP
@@ -327,16 +344,14 @@ func ensureMainPasswordEntryLocked() {
 	}
 	entry, ok := db.Passwords[db.MainPassword]
 	if !ok || entry == nil {
-		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец", MaxDevices: paneldb.MaxDevicesLimit}
+		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец"}
 		return
 	}
 	if entry.Comment == "" {
 		entry.Comment = "Владелец"
 	}
-	// Главный пароль — без искусственного лимита в 1 устройство (0 в БД = default 1).
-	if entry.MaxDevices < paneldb.MaxDevicesLimit {
-		entry.MaxDevices = paneldb.MaxDevicesLimit
-	}
+	// Главный пароль — без лимита устройств (MaxDevices не используется).
+	entry.MaxDevices = 0
 }
 
 func touchUserLastSeen(password string) {
@@ -416,7 +431,7 @@ func getNextIP() string {
 
 // ==================== Main ====================
 
-func main() {
+func Run() {
 	listen := flag.String("listen", "0.0.0.0:56000", "DTLS адрес")
 	wgPort := flag.Int("wg-port", defaultInternalWGPort, "WireGuard UDP порт")
 	configDir := flag.String("config-dir", "/etc/wdtt", "директория конфигурации")

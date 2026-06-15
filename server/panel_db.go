@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"database/sql"
@@ -18,6 +18,7 @@ var (
 	serverPanelDB     *sql.DB
 	serverPanelDBErr  error
 	serverPanelDBOnce sync.Once
+	appliedUsersRev   int64
 )
 
 func openServerPanelDB() (*sql.DB, error) {
@@ -153,10 +154,91 @@ func loadDatabaseFromDiskSource() (*Database, error) {
 }
 
 func saveDatabaseDual() error {
-	if !serverPanelDBReady() {
-		return fmt.Errorf("panel.db not available at %s", panelDBPath)
+	return saveDB()
+}
+
+func rememberUsersRev(rev int64) {
+	if rev > appliedUsersRev {
+		appliedUsersRev = rev
 	}
-	return saveDatabaseToSQLite(db)
+}
+
+func rememberUsersRevFromDisk() {
+	if !serverPanelDBReady() {
+		return
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return
+	}
+	rev, err := paneldb.LoadUsersRev(sqlDB)
+	if err == nil {
+		rememberUsersRev(rev)
+	}
+}
+
+// syncPanelDeviceEditsLocked подтягивает пользователей/устройства из panel.db после правок панели.
+// Вызывать только при удержанном dbMutex.
+func syncPanelDeviceEditsLocked() {
+	if !serverPanelDBReady() {
+		return
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return
+	}
+	rev, err := paneldb.LoadUsersRev(sqlDB)
+	if err != nil || rev <= appliedUsersRev {
+		return
+	}
+	incoming, ok, err := loadDatabaseFromSQLite()
+	if err != nil || !ok {
+		return
+	}
+	mergeTrafficIntoDatabase(incoming, trafficSnapshotLocked())
+
+	for pass := range db.Passwords {
+		if _, ok := incoming.Passwords[pass]; !ok {
+			delete(db.Passwords, pass)
+		}
+	}
+	for pass, diskEntry := range incoming.Passwords {
+		if diskEntry == nil {
+			continue
+		}
+		cp := clonePasswordEntry(diskEntry)
+		if pass == db.MainPassword {
+			cp.MaxDevices = 0
+		}
+		db.Passwords[pass] = cp
+	}
+	if incoming.Devices != nil {
+		next := make(map[string]*ClientDevice, len(incoming.Devices))
+		for id, d := range incoming.Devices {
+			if d == nil {
+				continue
+			}
+			cp := *d
+			next[id] = &cp
+		}
+		db.Devices = next
+	} else {
+		db.Devices = make(map[string]*ClientDevice)
+	}
+	if incoming.MainPassword != "" {
+		db.MainPassword = incoming.MainPassword
+	}
+	rememberUsersRev(rev)
+	log.Printf("[DB] синхронизация из panel.db (users_rev=%d)", rev)
+}
+
+func clonePasswordEntry(e *PasswordEntry) *PasswordEntry {
+	if e == nil {
+		return nil
+	}
+	cp := *e
+	cp.DeviceIDs = append([]string(nil), e.DeviceIDs...)
+	return &cp
 }
 
 type inboundRuntimeSettings = paneldb.RuntimeSettings

@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"crypto/rand"
@@ -20,7 +20,7 @@ var (
 const (
 	// WDTT VPN-сервер
 	wdttConfigDir     = "/etc/wdtt"
-	wdttServerBin     = "/usr/local/bin/wdtt-server"
+	wdttServerBin     = "/usr/local/bin/wdtt"
 	wdttXrayRulesPath = "/usr/local/bin/wdtt-xray-rules.sh"
 	wdttServiceUnit   = "wdtt.service"
 

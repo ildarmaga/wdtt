@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -20,7 +20,6 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	var connIsMainPass bool
 	var connDeviceID string
 	var connUserIP string
-	var getconfSessionEntered bool
 
 	dtlsConn, ok := clientConn.(*dtls.Conn)
 	if !ok {
@@ -116,7 +115,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			dbMutex.Unlock()
 			return
 		}
-		if valid && isGenPass && !entryCanAcceptDevice(entry, deviceID) {
+		if valid && isGenPass && !isMainPass && !entryCanAcceptDevice(entry, deviceID) {
 			clientConn.Write([]byte("DENIED:device_mismatch"))
 			log.Printf("[WG] Отказ: пароль %s — лимит устройств %d/%d, запрос от %s",
 				maskPassword(password), len(allEntryDeviceIDs(entry)), entryMaxDevices(entry), deviceID)
@@ -132,9 +131,9 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				dbMutex.Unlock()
 			}
 
-			if isGenPass && !entryHasDevice(entry, deviceID) {
+			if isGenPass && !isMainPass && !entryHasDevice(entry, deviceID) {
 				if bindDeviceToEntry(entry, deviceID) {
-					if err := saveDB(); err != nil {
+					if err := saveDBLocked(); err != nil {
 						log.Printf("[DB] bind device save: %v", err)
 						persistFail()
 						return
@@ -144,18 +143,10 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				}
 			}
 			if isMainPass {
+				// Главный пароль = безлимит устройств: НЕ записываем устройства в
+				// привязки (wdtt_user_devices), чтобы они не копились в панели.
+				// Трафик учитывается на главный пароль в памяти (orphan-резолв).
 				ensureMainPasswordEntryLocked()
-				if mainEntry, ok := db.Passwords[db.MainPassword]; ok && mainEntry != nil && !entryHasDevice(mainEntry, deviceID) {
-					if bindDeviceToEntry(mainEntry, deviceID) {
-						if err := saveDB(); err != nil {
-							log.Printf("[DB] main bind save: %v", err)
-							persistFail()
-							return
-						}
-						log.Printf("[WG] Главный пароль привязан к %s (%d/%d)",
-							deviceID, len(mainEntry.DeviceIDs), entryMaxDevices(mainEntry))
-					}
-				}
 			}
 
 			dev, exists := db.Devices[deviceID]
@@ -166,7 +157,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 					dev.PrivKey = privB64
 					dev.PubKey = pubB64
 					db.Devices[deviceID] = dev
-					if err := saveDB(); err != nil {
+					if err := saveDBLocked(); err != nil {
 						delete(db.Devices, deviceID)
 						log.Printf("[DB] new device save: %v", err)
 						persistFail()
@@ -185,7 +176,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 						dev.IP = getNextIP()
 					}
 					db.Devices[deviceID] = dev
-					if err := saveDB(); err != nil {
+					if err := saveDBLocked(); err != nil {
 						log.Printf("[DB] regen keys save: %v", err)
 						persistFail()
 						return
@@ -202,13 +193,6 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				if isGenPass && entry != nil {
 					applySpeedLimitForEntryUnlocked(entry)
 				}
-				if !userSessionEnter(deviceID, dev.IP, userLabel(password, isMainPass), password) {
-					clientConn.Write([]byte("DENIED:too_many_sessions"))
-					log.Printf("[WG] Отказ: лимит %d DTLS-сессий для %s", maxDTLSPerDevice, deviceID)
-					dbMutex.Unlock()
-					return
-				}
-				getconfSessionEntered = true
 				clientConn.Write([]byte(buildClientConfig(keys.serverPublic, dev.PrivKey, dev.IP, clientPort)))
 				log.Printf("[WG] GETCONF OK: device=%s ip=%s from %s", deviceID, dev.IP, clientConn.RemoteAddr())
 				getconfFailReset(clientConn.RemoteAddr())
@@ -235,7 +219,6 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		if connDeviceID != "" {
 			relaySessionEvictIdle(connDeviceID, relayStaleEvictIdle)
 		}
-
 		clientConn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 		n, err = clientConn.Read(buf)
 		if err != nil {
@@ -292,7 +275,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	enterSession := func() (ok, done bool) {
 		sessionMu.Lock()
 		defer sessionMu.Unlock()
-		if sessionEntered || getconfSessionEntered {
+		if sessionEntered {
 			return true, true
 		}
 		if connDeviceID == "" {
@@ -319,7 +302,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	defer func() {
 		sessionMu.Lock()
 		id := connDeviceID
-		entered := sessionEntered || getconfSessionEntered
+		entered := sessionEntered
 		rs := relaySess
 		sessionMu.Unlock()
 		if entered && id != "" {
@@ -348,11 +331,11 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 		defer dbMutex.Unlock()
 		pass := resolveTrafficPassword(connPassword, connIsMainPass, connDeviceID)
 		if pass == "" {
-			return false
+			return true
 		}
 		e, ok := db.Passwords[pass]
 		if !ok || e == nil {
-			return false
+			return true
 		}
 		return !isTrafficExceeded(e) && !e.IsDeactivated
 	}

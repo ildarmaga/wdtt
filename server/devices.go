@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
@@ -50,7 +50,18 @@ func dedupeDeviceBindings() {
 	}
 }
 
+func entryIsMainPassword(entry *PasswordEntry) bool {
+	if entry == nil || db.MainPassword == "" {
+		return false
+	}
+	main, ok := db.Passwords[db.MainPassword]
+	return ok && main == entry
+}
+
 func entryMaxDevices(entry *PasswordEntry) int {
+	if entryIsMainPassword(entry) {
+		return paneldb.MaxDevicesLimit * 100
+	}
 	if entry == nil || entry.MaxDevices <= 0 {
 		return paneldb.DefaultMaxDevices
 	}
@@ -83,6 +94,9 @@ func entryDeviceSlotsLeft(entry *PasswordEntry) int {
 }
 
 func entryCanAcceptDevice(entry *PasswordEntry, deviceID string) bool {
+	if entryIsMainPassword(entry) {
+		return true
+	}
 	if entryHasDevice(entry, deviceID) {
 		return true
 	}
@@ -97,7 +111,7 @@ func bindDeviceToEntry(entry *PasswordEntry, deviceID string) bool {
 	if entryHasDevice(entry, deviceID) {
 		return true
 	}
-	if entryDeviceSlotsLeft(entry) <= 0 {
+	if !entryIsMainPassword(entry) && entryDeviceSlotsLeft(entry) <= 0 {
 		return false
 	}
 	unbindDeviceFromOtherEntries(deviceID, entry)

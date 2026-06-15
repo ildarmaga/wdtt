@@ -1,4 +1,4 @@
-package main
+package panel
 
 import (
 	"strings"
@@ -6,7 +6,10 @@ import (
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
-func entryMaxDevices(entry *PasswordEntry) int {
+func entryMaxDevices(db *PasswordsDB, pass string, entry *PasswordEntry) int {
+	if db != nil && pass != "" && pass == db.MainPassword {
+		return paneldb.MaxDevicesLimit * 100
+	}
 	if entry == nil || entry.MaxDevices <= 0 {
 		return paneldb.DefaultMaxDevices
 	}

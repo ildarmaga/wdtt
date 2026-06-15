@@ -1,12 +1,10 @@
-package main
+package panel
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 )
@@ -18,27 +16,21 @@ type App struct {
 	subSrv    *http.Server
 }
 
-func main() {
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
-	if *showVersion {
-		fmt.Println(formatPanelVersion())
-		os.Exit(0)
-	}
-
+// Run запускает HTTP-панель (блокирует до ошибки).
+func Run() error {
 	if err := initI18n(); err != nil {
-		log.Fatal("i18n: ", err)
+		return fmt.Errorf("i18n: %w", err)
 	}
 	if err := initTemplates(); err != nil {
-		log.Fatal("templates: ", err)
+		return fmt.Errorf("templates: %w", err)
 	}
 	if err := initPanelDB(); err != nil {
-		log.Fatal("panel db: ", err)
+		return fmt.Errorf("panel db: %w", err)
 	}
 
 	cfg, err := loadPanelConfig()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	ensureLegacySettingsImported()
 	ensureDefaultWdttData()
@@ -131,7 +123,7 @@ func main() {
 	mux.HandleFunc(api+"xray/config", app.requireAuthCSRF(app.handleXrayConfig))
 	mux.HandleFunc(api+"logs", app.requireAuthCSRF(app.handleLogs))
 
-	log.Fatal(startPanelServer(cfg, gzipMiddleware(mux)))
+	return startPanelServer(cfg, gzipMiddleware(mux))
 }
 
 func (a *App) serveLogin(w http.ResponseWriter, r *http.Request) {
