@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// minWdttReleaseWithDB — первый релиз с SQLite panel.db (v1.1.0).
-const minWdttReleaseWithDB = "v1.1.0"
+// minWdttRelease — первый релиз с unified-бинарником wdtt-linux-* (v1.4.0).
+const minWdttRelease = "v1.4.0"
 
 func normalizeReleaseTag(tag string) string {
 	tag = strings.TrimSpace(tag)
@@ -62,7 +62,7 @@ func releaseTagAtLeast(tag, min string) bool {
 func filterReleaseTagsSinceDB(tags []string) []string {
 	out := make([]string, 0, len(tags))
 	for _, t := range tags {
-		if releaseTagAtLeast(t, minWdttReleaseWithDB) {
+		if releaseTagAtLeast(t, minWdttRelease) {
 			out = append(out, t)
 		}
 	}

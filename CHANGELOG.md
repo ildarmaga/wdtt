@@ -2,6 +2,12 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.1] — 2026-06-15
+
+### Исправлено
+- **Unified `wdtt` не стартовал из systemd** — убран ранний `flag.Parse()` в `cmd/wdtt/main.go`; флаги `-listen`, `-password` и др. снова обрабатываются сервером.
+- **wdtt-install** — исправлена загрузка `wdtt-linux-amd64` из GitHub Releases (regex URL).
+
 ## [1.4.0] — 2026-06-15
 
 ### Добавлено
@@ -18,7 +24,7 @@
 - Admin API для сохранения пользователей/устройств через единую БД.
 
 ### Установка
-- **wdtt-install v1.5.0** — ставит `wdtt-linux-*` из релиза, CLI → `/usr/local/bin/wdtt-cli`.
+- **wdtt-install v1.4.0** — unified `wdtt-linux-*`, CLI → `/usr/local/bin/wdtt`, демон → `/usr/local/bin/wdtt-app`.
 - `deploy.sh` v3.3 — unified-бинарник, `-admin-addr 127.0.0.1:2861`.
 
 ### Артефакты релиза

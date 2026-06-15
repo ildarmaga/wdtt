@@ -1,12 +1,12 @@
 #!/bin/bash
 # Локальный деплой на ЭТОМ сервере.
-# systemd wdtt.service запускает /usr/local/bin/wdtt (unified), НЕ wdtt-server!
+# systemd wdtt.service запускает /usr/local/bin/wdtt-app (unified), CLI — /usr/local/bin/wdtt
 set -euo pipefail
 cd "$(dirname "$0")"
 
 ARCH="${1:-amd64}"
 OUT="wdtt-linux-${ARCH}"
-DEST="/usr/local/bin/wdtt"
+DEST="/usr/local/bin/wdtt-app"
 
 ./build.sh "$ARCH" unified
 

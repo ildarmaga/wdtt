@@ -53,7 +53,7 @@ build_unified() {
   esac
   local version="${WDTT_VERSION:-}"
   if [[ -z "$version" ]]; then
-    version="$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)"
+    version="$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo 1.4.0)"
   fi
   CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" \
     go build -trimpath -ldflags="-s -w -X wdtt-panel.panelVersion=${version}" -o "$out" ./cmd/wdtt

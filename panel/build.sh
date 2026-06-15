@@ -16,7 +16,7 @@ fi
 
 VERSION="${WDTT_VERSION:-}"
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(git -C .. describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)"
+  VERSION="$(git -C .. describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo 1.4.0)"
 fi
 
 LDFLAGS="-s -w -X wdtt-panel.panelVersion=${VERSION}"

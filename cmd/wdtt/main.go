@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -11,22 +10,20 @@ import (
 )
 
 func main() {
-	showVersion := flag.Bool("version", false, "print version and exit")
 	noPanel := false
 	filtered := make([]string, 0, len(os.Args))
 	for _, arg := range os.Args {
-		if arg == "-no-panel" {
+		switch arg {
+		case "-no-panel":
 			noPanel = true
-			continue
+		case "-version", "--version":
+			fmt.Println(panel.FormatPanelVersion())
+			os.Exit(0)
+		default:
+			filtered = append(filtered, arg)
 		}
-		filtered = append(filtered, arg)
 	}
 	os.Args = filtered
-	flag.Parse()
-	if *showVersion {
-		fmt.Println(panel.FormatPanelVersion())
-		os.Exit(0)
-	}
 
 	if !noPanel {
 		go func() {
