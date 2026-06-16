@@ -95,7 +95,8 @@ func wdttServiceConfigured() bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(data), "wdtt-server") || strings.Contains(string(data), "/wdtt ")
+	s := string(data)
+	return strings.Contains(s, "wdtt-server") || strings.Contains(s, "/wdtt-app") || strings.Contains(s, "/wdtt ")
 }
 
 func (c *WdttInboundConfig) normalize() {
@@ -365,21 +366,6 @@ func netSplitHostPortSafe(addr string) (host, port string, err error) {
 	return addr[:idx], addr[idx+1:], nil
 }
 
-func parseWdttServicePassword() string {
-	data, err := os.ReadFile(wdttServicePath)
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, "ExecStart=") && !strings.Contains(line, "ExecStartPre") {
-			if m := rePassword.FindStringSubmatch(line); len(m) == 2 {
-				return m[1]
-			}
-		}
-	}
-	return ""
-}
-
 func removeWdttFirewallPort(port int) {
 	if port <= 0 {
 		return
@@ -388,13 +374,27 @@ func removeWdttFirewallPort(port int) {
 	runCmd("iptables", "-D", "INPUT", "-p", "udp", "--dport", portStr, "-m", "comment", "--comment", wdttIptComment, "-j", "ACCEPT")
 }
 
-func writeWdttServiceFile(cfg WdttInboundConfig, password string) error {
-	cfg.normalize()
-	extra := fmt.Sprintf(" -handshake-timeout=%ds -max-dtls-per-device %d -admin-addr %s",
-		cfg.HandshakeTimeoutSec, cfg.MaxDtlsPerDevice, cfg.AdminAddr)
-	if password != "" {
-		extra += " -password " + password
+func ensureWdttFirewallPort(port int) {
+	if port <= 0 {
+		return
 	}
+	portStr := strconv.Itoa(port)
+	if _, err := runCmd("iptables", "-C", "INPUT", "-p", "udp", "--dport", portStr,
+		"-m", "comment", "--comment", wdttIptComment, "-j", "ACCEPT"); err == nil {
+		return
+	}
+	runCmd("iptables", "-I", "INPUT", "-p", "udp", "--dport", portStr,
+		"-m", "comment", "--comment", wdttIptComment, "-j", "ACCEPT")
+}
+
+func ensureWdttFirewallPorts(cfg WdttInboundConfig) {
+	ensureWdttFirewallPort(cfg.DtlsPort)
+	ensureWdttFirewallPort(cfg.WgPort)
+}
+
+// writeWdttServiceFile — минимальный unit: параметры VPN читаются из panel.db, не из ExecStart.
+func writeWdttServiceFile(cfg WdttInboundConfig) error {
+	cfg.normalize()
 	iptPre := fmt.Sprintf(
 		`ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p tcp --dport 22 -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 22 -m comment --comment %s -j ACCEPT; fi"`,
 		cfg.DtlsPort, wdttIptComment, cfg.DtlsPort, wdttIptComment,
@@ -402,22 +402,25 @@ func writeWdttServiceFile(cfg WdttInboundConfig, password string) error {
 		wdttIptComment, wdttIptComment,
 	)
 	content := fmt.Sprintf(`[Unit]
-Description=WDTT VPN Server
+Description=WDTT (panel + VPN server)
 After=network.target network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
+SyslogIdentifier=wdtt
 ExecStartPre=-/usr/bin/env bash -c "ip link show wdtt0 >/dev/null 2>&1 && ip link del wdtt0 2>/dev/null || true"
 %s
-ExecStart=%s -listen %s -wg-port %d -config-dir %s%s
+ExecStart=%s -config-dir %s
+ExecStartPost=/usr/bin/env bash -c 'for i in $(seq 1 60); do ip addr show wdtt0 2>/dev/null | grep -q "10.66.66.1" && /usr/local/bin/wdtt-mtu-rules.sh up && exit 0; sleep 0.5; done; /usr/local/bin/wdtt-mtu-rules.sh up'
+ExecStopPost=-/usr/local/bin/wdtt-mtu-rules.sh down
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
-`, iptPre, wdttServerBin, cfg.listenAddr(), cfg.WgPort, wdttConfigDir, extra)
+`, iptPre, wdttServerBin, wdttConfigDir)
 	return os.WriteFile(wdttServicePath, []byte(content), 0644)
 }
 
@@ -442,6 +445,31 @@ func inboundRequiresRestart(old, cfg WdttInboundConfig) bool {
 	return false
 }
 
+// ensureMinimalWdttServiceUnit переписывает legacy unit с -listen/-password на минимальный ExecStart.
+func ensureMinimalWdttServiceUnit() {
+	if !isUnifiedDeployment() {
+		return
+	}
+	data, err := os.ReadFile(wdttServicePath)
+	if err != nil {
+		return
+	}
+	if !strings.Contains(string(data), "-listen ") && !strings.Contains(string(data), "-password ") {
+		return
+	}
+	cfg, err := loadWdttInbound()
+	if err != nil {
+		cfg = defaultWdttInbound()
+	}
+	if err := writeWdttServiceFile(cfg); err != nil {
+		log.Printf("[panel] wdtt.service sync: %v", err)
+		return
+	}
+	ensureWdttFirewallPorts(cfg)
+	runCmd("systemctl", "daemon-reload")
+	log.Printf("[panel] wdtt.service упрощён — VPN-параметры только в panel.db")
+}
+
 func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
 	if cfg.Create && isWdttInboundConfigured() {
 		return false, fmt.Errorf("на панели допускается только одно WDTT-подключение")
@@ -455,29 +483,45 @@ func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
 	if err := saveWdttInbound(cfg); err != nil {
 		return false, err
 	}
-	password := parseWdttServicePassword()
-	if err := writeWdttServiceFile(cfg, password); err != nil {
+	if err := writeWdttServiceFile(cfg); err != nil {
 		return false, err
 	}
+	ensureWdttFirewallPorts(cfg)
+	runCmd("systemctl", "daemon-reload")
+	unified := isUnifiedDeployment()
 	if old.DtlsPort != cfg.DtlsPort {
 		removeWdttFirewallPort(old.DtlsPort)
 	}
 	if old.WgPort != cfg.WgPort {
 		removeWdttFirewallPort(old.WgPort)
 	}
-	runCmd("systemctl", "daemon-reload")
 	if !cfg.Enable {
+		if unified {
+			if err := wdttServerRestart(old.AdminAddr); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
 		runCmd("systemctl", "stop", wdttServiceUnit)
 		return false, nil
 	}
 	if inboundRequiresRestart(old, cfg) {
+		if unified {
+			if err := wdttServerRestart(old.AdminAddr); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
 		if err := restartWdttWithDeps(); err != nil {
 			return false, err
 		}
 		return true, nil
 	}
 	if err := wdttHotReload(); err != nil {
-		log.Printf("[panel] inbound hot-reload: %v — перезапуск WDTT", err)
+		log.Printf("[panel] inbound hot-reload: %v", err)
+		if unified {
+			return false, fmt.Errorf("hot-reload не удался: %v", err)
+		}
 		if err := restartWdttWithDeps(); err != nil {
 			return false, err
 		}

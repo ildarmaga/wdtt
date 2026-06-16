@@ -74,3 +74,22 @@ func TestLoadRuntimeSettings(t *testing.T) {
 		t.Fatalf("runtime: %+v", rs)
 	}
 }
+
+func TestLoadStartupSettings(t *testing.T) {
+	db := openInboundTestDB(t)
+	defer db.Close()
+
+	if err := SaveInbound(db, &Inbound{
+		ListenHost: "0.0.0.0", DtlsPort: 56002, WgPort: 56003, AdminAddr: "127.0.0.1:2862",
+		DNS: "1.0.0.1", MTU: 1280, MaxUsers: 10, HandshakeTimeoutSec: 30, OnlineTimeoutSec: 15,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, ok, err := LoadStartupSettings(db)
+	if err != nil || !ok {
+		t.Fatalf("load startup: ok=%v err=%v", ok, err)
+	}
+	if st.DtlsPort != 56002 || st.WgPort != 56003 || st.AdminAddr != "127.0.0.1:2862" {
+		t.Fatalf("startup: %+v", st)
+	}
+}

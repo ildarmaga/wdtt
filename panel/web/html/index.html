@@ -229,7 +229,7 @@
                     </a-space>
                     <a-space direction="horizontal" @click="restartWdttService" class="jc-center">
                       <a-icon type="reload"></a-icon>
-                      <span v-if="!isMobile">Перезапуск</span>
+                      <span v-if="!isMobile">Перезапуск VPN</span>
                     </a-space>
                   </template>
                 </a-card>
@@ -1406,7 +1406,10 @@
         this.loading(true);
         const msg = await HttpUtil.post('/panel/api/server/restartWdttService');
         this.loading(false);
-        if (msg.success) await this.getStatus();
+        if (msg.success) {
+          if (msg.msg) this.$message.success(msg.msg);
+          await this.getStatus();
+        }
       },
       openUsers() {
         location.href = basePath + 'panel/users';

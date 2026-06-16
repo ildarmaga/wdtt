@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -432,48 +431,68 @@ func getNextIP() string {
 // ==================== Main ====================
 
 func Run() {
-	listen := flag.String("listen", "0.0.0.0:56000", "DTLS адрес")
-	wgPort := flag.Int("wg-port", defaultInternalWGPort, "WireGuard UDP порт")
-	configDir := flag.String("config-dir", "/etc/wdtt", "директория конфигурации")
-	mainPass := flag.String("password", "", "пароль владельца")
-	adminID := flag.String("admin", "", "Telegram Admin ID")
-	botToken := flag.String("bot-token", "", "Telegram Bot Token")
-	handshakeTimeout := flag.Duration("handshake-timeout", 30*time.Second, "таймаут DTLS handshake")
-	adminAddr := flag.String("admin-addr", "127.0.0.1:2861", "HTTP admin (localhost): /health, POST /admin/reload")
-	maxDTLSPerDeviceFlag := flag.Int("max-dtls-per-device", 0, "макс. параллельных GETCONF на device_id (0 = без лимита)")
-	flag.Parse()
-	dtlsHandshakeTimeout = *handshakeTimeout
-	maxDTLSPerDevice = int32(*maxDTLSPerDeviceFlag)
-	adminListenAddr = *adminAddr
+	RunManaged()
+}
 
+func RunManaged() {
+	initServerFlags()
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.Println("══════════════════════════════════════════")
 	log.Println("   WDTT Server v2 (Multi-User)")
 	log.Println("══════════════════════════════════════════")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	cfg := baseServerConfigFromFlags()
+	cfg.mergeFromPanelDB()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		<-sig
-		log.Println("[SERVER] Shutdown signal received, draining connections...")
-		cancel()
-	}()
 
-	initDB(*mainPass, *adminID, *botToken)
-	loadInboundSettings()
-	log.Printf("[CFG] Admin HTTP: %s (hot-reload /health)", adminListenAddr)
+	for {
+		ctx, cancel := context.WithCancel(context.Background())
+		restartCh := make(chan struct{}, 1)
+		setRestartNotify(restartCh)
 
-	keys, err := loadOrGenerateKeys(*configDir)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runServerOnce(ctx, cfg)
+		}()
+
+		select {
+		case <-sig:
+			log.Println("[SERVER] Shutdown signal received, draining connections...")
+			cancel()
+			<-done
+			return
+		case <-restartCh:
+			log.Println("[SERVER] In-process restart requested (panel stays up)")
+			cancel()
+			<-done
+			cfg = baseServerConfigFromFlags()
+			cfg.mergeFromPanelDB()
+		}
+	}
+}
+
+func runServerOnce(ctx context.Context, cfg ServerConfig) {
+	if startup, ok, err := loadStartupFromSQLite(); err == nil && ok && !startup.Enable {
+		log.Println("[SERVER] WDTT отключён в panel.db — VPN не слушает (ожидание включения)")
+		<-ctx.Done()
+		return
+	}
+	cfg.applyGlobals()
+
+	initDB(cfg.MainPass, cfg.AdminID, cfg.BotToken)
+	log.Printf("[CFG] Admin HTTP: %s (hot-reload /health, restart /admin/restart)", adminListenAddr)
+
+	keys, err := loadOrGenerateKeys(cfg.ConfigDir)
 	if err != nil {
 		log.Fatalf("[WG] Ключи: %v", err)
 	}
 
 	enableBBR()
 
-	wgDev, err := startUserspaceWG(keys, *wgPort)
+	wgDev, err := startUserspaceWG(keys, cfg.WgPort)
 	if err != nil {
 		log.Fatalf("[WG] Запуск: %v", err)
 	}
@@ -491,16 +510,19 @@ func Run() {
 		runCmdSilent("ip", "link", "del", wgIfaceName)
 	}()
 
-	go statsLoop(ctx, *configDir)
+	go statsLoop(ctx, cfg.ConfigDir)
 	go userPresenceLoop(ctx)
 	go expiredPasswordJanitor(ctx, wgDev)
 	go getconfFailJanitor(ctx)
 	go relayFailJanitor(ctx)
-	go botLoop(*botToken, *adminID, wgDev)
+	go botLoop(cfg.BotToken, cfg.AdminID, wgDev)
 	startAdminServer(ctx, wgDev)
 
-	addr, _ := net.ResolveUDPAddr("udp", *listen)
-	cert, err := loadOrGenerateDTLSCert(*configDir)
+	addr, err := net.ResolveUDPAddr("udp", cfg.Listen)
+	if err != nil {
+		log.Fatalf("[DTLS] адрес %s: %v", cfg.Listen, err)
+	}
+	cert, err := loadOrGenerateDTLSCert(cfg.ConfigDir)
 	if err != nil {
 		log.Fatalf("[DTLS] Сертификат: %v", err)
 	}
@@ -525,9 +547,9 @@ func Run() {
 	}
 	context.AfterFunc(ctx, func() { listener.Close() })
 
-	wgEndpoint := fmt.Sprintf("127.0.0.1:%d", *wgPort)
+	wgEndpoint := fmt.Sprintf("127.0.0.1:%d", cfg.WgPort)
 
-	log.Printf("   DTLS: %s | WG: %s | NAT: %s", *listen, wgEndpoint, natType)
+	log.Printf("   DTLS: %s | WG: %s | NAT: %s", cfg.Listen, wgEndpoint, natType)
 	log.Printf("   WRAP: password HKDF + RTP AEAD | keys: %d", serverWrapKeys.Count())
 	log.Println("[SERVER] Готов")
 

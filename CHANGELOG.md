@@ -2,6 +2,39 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.9] — 2026-06-16
+
+### Добавлено
+- **In-process restart VPN** — `POST /admin/restart` перезапускает DTLS/WG/admin внутри unified-процесса; панель не останавливается.
+- **Inbound из panel.db** — порты, listen, MTU, admin-addr читаются из БД при старте/restart (systemd не источник правды).
+
+### Изменено
+- **wdtt.service** — `ExecStart` только `-config-dir`; без `-listen`, `-wg-port`, `-password`, `-admin-addr`.
+- **deploy.sh v3.4** — минимальный unit, `install-inbound.env` для seed портов в panel.db.
+- **Панель** — сохранение inbound без `systemctl restart`; «Перезапуск VPN» = in-process restart; CSRF в модалке inbound.
+- **install-local.sh**, README, API.md — unified-архитектура.
+
+### Исправлено
+- Unified inbound: лимит/DNS/таймауты через hot-reload; порты/MTU через in-process restart.
+- Главный пароль и пользователи больше не вызывают полный restart процесса в unified.
+
+## [1.4.8] — 2026-06-16
+
+### Добавлено
+- **In-process restart VPN** — `POST /admin/restart` перезапускает DTLS/WG/admin внутри unified-процесса; панель не останавливается.
+- **Inbound из panel.db** — порты, listen, MTU и admin-addr читаются из БД при каждом старте/restart сервера (systemd unit больше не источник правды в unified).
+
+### Исправлено
+- **Unified inbound** — смена портов, MTU, listen и admin-addr применяется через in-process restart, без `systemctl restart`.
+- **wdtt.service** — ExecStart без `-listen`, `-wg-port`, `-password`, `-admin-addr`; VPN-параметры только в panel.db.
+
+## [1.4.7] — 2026-06-15
+
+### Исправлено
+- **Unified-режим** — сохранение inbound (лимит пользователей, DNS, таймауты и т.п.) больше не переписывает `wdtt.service` и не делает `systemctl restart` (панель остаётся доступной).
+- **Unified-режим** — кнопка «Перезапуск WDTT» в API выполняет hot-reload вместо полного restart процесса.
+- **Подключения / inbound** — сохранение формы WDTT отправляет CSRF-токен (исправлен `403 invalid csrf token`).
+
 ## [1.4.6] — 2026-06-15
 
 ### Исправлено

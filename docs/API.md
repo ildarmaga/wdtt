@@ -280,5 +280,5 @@ curl -b /tmp/wdtt.cookie -X POST "$BASE/panel/api/inbound/save" \
 ## Ограничения API
 
 - Нет отдельного API-токена — только сессия панели.
-- Изменение пользователей/inbound перезапускает `wdtt.service`.
+- Unified (`wdtt-app`): изменение inbound/users применяется через hot-reload или in-process restart VPN; панель не останавливается. `wdtt.service` содержит только `-config-dir`.
 - Rate-limit на стороне API не реализован — не публикуйте панель в открытый интернет без HTTPS и смены пароля по умолчанию.

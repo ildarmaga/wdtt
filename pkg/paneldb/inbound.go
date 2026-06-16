@@ -24,7 +24,7 @@ type Inbound struct {
 	AdminAddr           string
 }
 
-// RuntimeSettings — поля inbound, которые читает wdtt-server при старте.
+// RuntimeSettings — поля inbound, которые wdtt-server может применить без rebind.
 type RuntimeSettings struct {
 	DNS                 string `json:"dns"`
 	MTU                 int    `json:"mtu"`
@@ -32,6 +32,16 @@ type RuntimeSettings struct {
 	HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
 	MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
 	OnlineTimeoutSec    int    `json:"online_timeout_sec"`
+}
+
+// StartupSettings — bind-параметры + runtime (читаются при старте / in-process restart).
+type StartupSettings struct {
+	ListenHost string
+	DtlsPort   int
+	WgPort     int
+	AdminAddr  string
+	Enable     bool
+	RuntimeSettings
 }
 
 // HasInbound — есть ли строка в wdtt_inbound.
@@ -111,4 +121,33 @@ func LoadRuntimeSettings(db *sql.DB) (RuntimeSettings, bool, error) {
 		return RuntimeSettings{}, false, err
 	}
 	return s, true, nil
+}
+
+// LoadStartupSettings — bind + runtime для старта VPN-сервера (из panel.db).
+func LoadStartupSettings(db *sql.DB) (StartupSettings, bool, error) {
+	if db == nil {
+		return StartupSettings{}, false, fmt.Errorf("nil db")
+	}
+	in, err := LoadInbound(db)
+	if err == sql.ErrNoRows {
+		return StartupSettings{}, false, nil
+	}
+	if err != nil {
+		return StartupSettings{}, false, err
+	}
+	return StartupSettings{
+		ListenHost: in.ListenHost,
+		DtlsPort:   in.DtlsPort,
+		WgPort:     in.WgPort,
+		AdminAddr:  in.AdminAddr,
+		Enable:     in.Enable,
+		RuntimeSettings: RuntimeSettings{
+			DNS:                 in.DNS,
+			MTU:                 in.MTU,
+			MaxUsers:            in.MaxUsers,
+			HandshakeTimeoutSec: in.HandshakeTimeoutSec,
+			MaxDtlsPerDevice:    in.MaxDtlsPerDevice,
+			OnlineTimeoutSec:    in.OnlineTimeoutSec,
+		},
+	}, true, nil
 }

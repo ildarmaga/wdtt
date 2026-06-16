@@ -40,12 +40,14 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 
 | Компонент | Описание |
 |-----------|----------|
-| **wdtt** | DTLS `:56000`, userspace WG `wdtt0`, панель `:2860`, NAT, Telegram-бот (единый процесс) |
-| **wdtt-server** | Только VPN-сервер (legacy, отдельный бинарник) |
-| **wdtt-panel** | Только веб-панель (legacy, отдельный бинарник) |
+| **wdtt** | Unified: DTLS + WG + панель `:2860` + подписка `:2096` (один процесс `wdtt-app`) |
+| **wdtt-server** | Только VPN (legacy) |
+| **wdtt-panel** | Только панель (legacy) |
 | **wdtt-xray** | Redirect трафика `wdtt0` → outbound (NL, WARP…) |
 
-Конфиг: `/etc/wdtt/panel.db` (SQLite, общая для сервера и панели), `/etc/wdtt-xray/config.json`.
+Конфиг VPN и панели: `/etc/wdtt/panel.db` (SQLite — inbound, users, settings).  
+Systemd `wdtt.service` запускает только `/usr/local/bin/wdtt-app -config-dir /etc/wdtt`.  
+Xray: `/etc/wdtt-xray/config.json`.
 
 ## Сборка
 
@@ -62,8 +64,8 @@ sudo ./install-local.sh amd64
 
 Локальная разработка: `go.work` связывает корень (`pkg/`), `server/` и `panel/`.
 
-Основные флаги `wdtt`: `-listen`, `-wg-port`, `-config-dir`, `-password`,
-`-admin-addr`, `-no-panel`, `-handshake-timeout`, `-max-dtls-per-device`.
+Флаги CLI (fallback; в production параметры VPN — в **panel.db** / Подключения):  
+`-config-dir`, `-no-panel`, `-listen`, `-wg-port`, `-password`, `-admin-addr`, …  
 См. **[docs/SERVER.md](docs/SERVER.md)**.
 
 ## API панели

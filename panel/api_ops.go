@@ -26,6 +26,10 @@ func controlService(name, action string) error {
 	switch action {
 	case "restart":
 		if svc == wdttServiceUnit {
+			if isUnifiedDeployment() {
+				inbound, _ := loadWdttInbound()
+				return wdttServerRestart(inbound.AdminAddr)
+			}
 			return restartWdttWithDeps()
 		}
 		if svc == xrayServiceUnit {
@@ -171,4 +175,9 @@ func resolveLogUnit(serviceKey string, syslog bool) string {
 func serviceUnitExists(unit string) bool {
 	_, err := runCmd("systemctl", "status", unit, "--no-pager")
 	return err == nil
+}
+
+// isUnifiedDeployment — один бинарник (wdtt): панель и VPN-сервер в одном процессе, без wdtt-panel.service.
+func isUnifiedDeployment() bool {
+	return !serviceUnitExists(panelServiceUnit)
 }

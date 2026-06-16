@@ -2,19 +2,19 @@
 # ==============================================================================
 #  WDTT VPN Server — Универсальный установщик для VPS
 #  Поддержка: Debian 11+, Ubuntu 20.04+, CentOS/RHEL/Fedora/AlmaLinux/Rocky
-#  Версия: 3.2  |  Дата: 2026-05-13
+#  Версия: 3.4  |  Дата: 2026-06-16
+#  Unified: panel + VPN в wdtt-app; порты/DNS/лимиты — в panel.db (не в systemd)
 #  NAT:  MASQUERADE через iptables
 #  WG:   порт 56001 (не конфликтует с существующим WG на 51820)
 #  DTLS: порт 56000
 # ==============================================================================
 set -uo pipefail
 
-readonly SCRIPT_VERSION="3.3"
+readonly SCRIPT_VERSION="3.4"
 readonly LOG_FILE="/var/log/wdtt-install.log"
 readonly WG_PORT="${WDTT_WG_PORT:-56001}"
 readonly DTLS_PORT="${WDTT_DTLS_PORT:-56000}"
 readonly SSH_PORT="${WDTT_SSH_PORT:-22}"
-readonly WDTT_ARGS="${WDTT_ARGS:-}"
 readonly WDTT_IFACE="wdtt0"
 readonly WDTT_CONFIG_DIR="/etc/wdtt"
 readonly WDTT_ACCESS_DB="passwords.json"
@@ -441,6 +441,16 @@ setup_wdtt_binary() {
     fi
 
     mkdir -p "$WDTT_CONFIG_DIR"
+    write_install_inbound_defaults
+}
+
+write_install_inbound_defaults() {
+    cat > "${WDTT_CONFIG_DIR}/install-inbound.env" << EOF
+# Порты для первого seed panel.db (deploy.sh). После установки — только через панель.
+DTLS_PORT=${DTLS_PORT}
+WG_PORT=${WG_PORT}
+EOF
+    chmod 644 "${WDTT_CONFIG_DIR}/install-inbound.env"
 }
 
 # ─── Systemd-сервис WDTT ─────────────────────────────────────────────────────
@@ -450,15 +460,16 @@ setup_wdtt_service() {
 
     cat > /etc/systemd/system/wdtt.service << WDTTSVC
 [Unit]
-Description=WDTT VPN Server
+Description=WDTT (panel + VPN server)
 After=network.target network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
+SyslogIdentifier=wdtt
 ExecStartPre=-/usr/bin/env bash -c "ip link show ${WDTT_IFACE} >/dev/null 2>&1 && ip link del ${WDTT_IFACE} 2>/dev/null || true"
 ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; fi"
-ExecStart=/usr/local/bin/wdtt-app -listen 0.0.0.0:${DTLS_PORT} -wg-port ${WG_PORT} -config-dir ${WDTT_CONFIG_DIR} -admin-addr 127.0.0.1:2861 ${WDTT_ARGS}
+ExecStart=/usr/local/bin/wdtt-app -config-dir ${WDTT_CONFIG_DIR}
 ExecStartPost=/usr/bin/env bash -c 'for i in \$(seq 1 60); do ip addr show ${WDTT_IFACE} 2>/dev/null | grep -q "10.66.66.1" && /usr/local/bin/wdtt-mtu-rules.sh up && exit 0; sleep 0.5; done; /usr/local/bin/wdtt-mtu-rules.sh up'
 ExecStopPost=-/usr/local/bin/wdtt-mtu-rules.sh down
 Restart=always
@@ -468,6 +479,8 @@ LimitNOFILE=65535
 [Install]
 WantedBy=multi-user.target
 WDTTSVC
+
+    echo "✓ unit: ExecStart только -config-dir (порты VPN → panel.db / Подключения)"
 
     install_wdtt_mtu_rules_script || true
     systemctl daemon-reload
@@ -500,9 +513,10 @@ start_wdtt() {
     if [ "$status" = "active" ]; then
         echo "✅ Деплой успешно завершён!"
         echo "   NAT:  MASQUERADE (стандартный)"
-        echo "   DTLS: порт ${DTLS_PORT}"
-        echo "   WG:   порт ${WG_PORT}"
+        echo "   DTLS: порт ${DTLS_PORT} (panel.db → Подключения)"
+        echo "   WG:   порт ${WG_PORT} (panel.db → Подключения)"
         echo "   SSH:  порт ${SSH_PORT}"
+        echo "   Панель: http://$(hostname -I 2>/dev/null | awk '{print $1}'):2860/wdtt/"
     else
         echo "⚠️ Сервис wdtt не запустился. Статус: $status"
         echo "   Последние логи:"

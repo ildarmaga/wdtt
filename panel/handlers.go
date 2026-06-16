@@ -370,6 +370,10 @@ func (a *App) handleService(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 500)
 		return
 	}
+	if parts[0] == "wdtt" && parts[1] == "restart" && isUnifiedDeployment() {
+		jsonMsg(w, "VPN-сервер перезапущен внутри процесса (панель работает)", true)
+		return
+	}
 	svcMap := map[string]string{"wdtt": wdttServiceUnit, "xray": xrayServiceUnit}
 	jsonOK(w, map[string]string{"service": svcMap[parts[0]], "action": parts[1]})
 }

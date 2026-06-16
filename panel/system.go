@@ -13,6 +13,15 @@ import (
 )
 
 const wdttAdminReloadPath = "/admin/reload"
+const wdttAdminRestartPath = "/admin/restart"
+
+func wdttAdminURL(path, adminAddr string) string {
+	addr := strings.TrimSpace(adminAddr)
+	if addr == "" {
+		addr = "127.0.0.1:2861"
+	}
+	return "http://" + addr + path
+}
 
 func wdttAdminReloadURL() string {
 	cfg, err := loadWdttInbound()
@@ -20,7 +29,7 @@ func wdttAdminReloadURL() string {
 	if err == nil && strings.TrimSpace(cfg.AdminAddr) != "" {
 		addr = strings.TrimSpace(cfg.AdminAddr)
 	}
-	return "http://" + addr + wdttAdminReloadPath
+	return wdttAdminURL(wdttAdminReloadPath, addr)
 }
 
 var xrayManuallyStopped atomic.Bool
@@ -155,6 +164,53 @@ func wdttHotReload() error {
 	return nil
 }
 
+// wdttServerRestart — in-process restart VPN-сервера (unified); панель не останавливается.
+// adminAddr — адрес admin HTTP до сохранения (если менялся admin_addr).
+func wdttServerRestart(adminAddr string) error {
+	if !serviceActive(wdttServiceUnit) {
+		return fmt.Errorf("WDTT не запущен")
+	}
+	req, err := http.NewRequest(http.MethodPost, wdttAdminURL(wdttAdminRestartPath, adminAddr), strings.NewReader("{}"))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if cfg, err := loadPanelConfig(); err == nil && cfg != nil {
+		if key := strings.TrimSpace(cfg.SessionKey); key != "" {
+			req.Header.Set("X-WDTT-Admin-Token", key)
+		}
+	}
+	client := &http.Client{Timeout: 45 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("admin restart HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	healthAddr := adminAddr
+	if cfg, err := loadWdttInbound(); err == nil && strings.TrimSpace(cfg.AdminAddr) != "" {
+		healthAddr = strings.TrimSpace(cfg.AdminAddr)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		hreq, err := http.NewRequest(http.MethodGet, wdttAdminURL("/health", healthAddr), nil)
+		if err == nil {
+			hresp, err := client.Do(hreq)
+			if err == nil {
+				hresp.Body.Close()
+				if hresp.StatusCode == http.StatusOK {
+					return nil
+				}
+			}
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return fmt.Errorf("VPN-сервер не ответил на /health после restart")
+}
+
 // applyWdttConfigChange сохраняет конфиг и применяет hot-reload; при ошибке — полный restart.
 func applyWdttConfigChange() error {
 	return applyWdttConfigChangeMaybeRestart(true)
@@ -171,6 +227,8 @@ func applyWdttConfigChangeMaybeRestart(restartOnFail bool) error {
 	} else if !restartOnFail {
 		log.Printf("[panel] hot-reload не удался (%v)", err)
 		return nil
+	} else if isUnifiedDeployment() {
+		return fmt.Errorf("hot-reload не удался: %v", err)
 	} else {
 		log.Printf("[panel] hot-reload не удался (%v), перезапуск WDTT", err)
 	}

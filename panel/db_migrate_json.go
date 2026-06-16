@@ -194,14 +194,23 @@ func ensureDefaultWdttData() {
 	}
 	if !tableHasRows(`SELECT COUNT(*) FROM wdtt_inbound`) {
 		cfg := defaultWdttInbound()
+		applyDeployInboundDefaults(&cfg)
 		if svc, err := parseWdttInboundFromService(); err == nil {
 			svc.normalize()
-			cfg = svc
+			if svc.DtlsPort > 0 {
+				cfg.DtlsPort = svc.DtlsPort
+			}
+			if svc.WgPort > 0 {
+				cfg.WgPort = svc.WgPort
+			}
+			if strings.TrimSpace(svc.AdminAddr) != "" {
+				cfg.AdminAddr = svc.AdminAddr
+			}
 		}
 		if err := saveInboundNorm(cfg); err != nil {
 			log.Printf("panel db: default inbound: %v", err)
 		} else {
-			log.Printf("panel db: seeded default wdtt_inbound")
+			log.Printf("panel db: seeded default wdtt_inbound (DTLS %d, WG %d)", cfg.DtlsPort, cfg.WgPort)
 		}
 	}
 	if tableHasRows(`SELECT COUNT(*) FROM wdtt_users`) {

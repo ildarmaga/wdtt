@@ -7,7 +7,7 @@
   cancel-text="Закрыть"
   @ok="inboundModal.save" width="720px">
   <a-alert type="warning" show-icon style="margin-bottom:16px"
-    message="Смена портов обновит systemd и firewall. Клиентам нужны новые ссылки."></a-alert>
+    message="Все настройки применяются из панели. Смена портов/MTU перезапускает VPN-сервер внутри процесса (~5 сек), панель остаётся доступной."></a-alert>
   <a-form layout="horizontal" :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
     <a-form-item label='{{ i18n "pages.inbounds.enable" }}'>
       <a-switch v-model="inboundForm.enable"></a-switch>
@@ -97,7 +97,7 @@
     </a-form-item>
     <a-form-item>
       <template slot="label">
-        <a-tooltip title="HTTP на localhost: POST /admin/reload (пользователи, лимиты) и /health. Смена порта — только после перезапуска WDTT">
+        <a-tooltip title="HTTP admin на localhost: /health, POST /admin/reload (hot-reload), POST /admin/restart (перезапуск VPN внутри процесса). Порт меняется через «Сохранить» в Подключениях">
           Admin HTTP <a-icon type="question-circle"></a-icon>
         </a-tooltip>
       </template>
@@ -147,9 +147,20 @@
       async saveInbound() {
         this.inboundModal.saving = true;
         try {
+          const headers = {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          };
+          if (typeof wdttCsrfToken === 'function') {
+            const csrf = wdttCsrfToken();
+            if (csrf) {
+              headers['X-CSRF-Token'] = csrf;
+            }
+          }
           const res = await fetch(basePath + 'panel/api/inbound/save', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            headers,
             body: JSON.stringify(this.inboundForm.payload(this.inboundModal.isCreate)),
           }).then(r => r.json()).catch(() => null);
           if (res && res.success) {

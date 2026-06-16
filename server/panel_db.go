@@ -259,6 +259,14 @@ func loadInboundFromSQLite() (inboundRuntimeSettings, bool, error) {
 	return paneldb.LoadRuntimeSettings(db)
 }
 
+func loadStartupFromSQLite() (paneldb.StartupSettings, bool, error) {
+	db, err := openServerPanelDB()
+	if err != nil {
+		return paneldb.StartupSettings{}, false, err
+	}
+	return paneldb.LoadStartupSettings(db)
+}
+
 func applyInboundRuntimeSettings(raw inboundRuntimeSettings) {
 	clientDNS = defaultClientDNS
 	maxGeneratedPasswords = defaultMaxUsers

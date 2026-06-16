@@ -5,7 +5,7 @@
 ## Возможности
 
 - **Дашборд** — CPU/RAM, статус WDTT/Xray, онлайн
-- **Подключения** — inbound (порты, DNS, лимит пользователей), статус, QR в пользователях
+- **Подключения** — inbound (порты, DNS, лимит пользователей); применение без остановки панели (hot-reload / in-process restart)
 - **Пользователи** — пароли, лимит устройств, трафик, ссылки `wdtt://`
 - **Настройки Xray** — routing, outbounds, балансеры
 - **Настройки панели** — порт, SSL, учётная запись
@@ -18,33 +18,25 @@ REST API для автоматизации: **[docs/API.md](../docs/API.md)**
 
 ## Установка
 
-Часть монорепозитория [wdtt](https://github.com/ildarmaga/wdtt). Установка:
+Часть монорепозитория [wdtt](https://github.com/ildarmaga/wdtt). Основной режим — **unified** (`wdtt-app`: панель + VPN в одном процессе):
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/install.sh) install -p PASSWORD --panel --xray
+bash deploy.sh install
+# или из репозитория после сборки:
+./build.sh amd64 unified && sudo ./install-local.sh amd64
 ```
 
-Сборка вручную:
-
-```bash
-cd panel
-./build.sh /usr/local/bin/wdtt-panel
-systemctl enable --now wdtt-panel.service
-```
-
-Панель: `http://IP:2860/wdtt/` — `admin` / `wdtt` (смените в настройках).
+Панель: `http://IP:2860/wdtt/` — `admin` / `wdtt` (смените в настройках).  
+Порты DTLS/WG и лимиты — **Подключения** в панели (`panel.db`), не в `wdtt.service`.
 
 ## Сборка
 
-Go-модуль `wdtt-panel` (зависит от `../pkg` через `replace github.com/ildarmaga/wdtt => ../`).
-
 ```bash
-# из корня репозитория
-../build.sh amd64 panel          # → wdtt-panel-linux-amd64
+# из корня репозитория (рекомендуется)
+./build.sh amd64 unified          # → wdtt-linux-amd64 → /usr/local/bin/wdtt-app
 
-# из panel/
-./build.sh amd64                 # → ../wdtt-panel-linux-amd64
-./build.sh /usr/local/bin/wdtt-panel
+# legacy — отдельные бинарники
+./build.sh amd64 panel            # → wdtt-panel-linux-amd64
 ```
 
 Требуется Go 1.21+. UI встроен через `go:embed`.
@@ -60,5 +52,5 @@ Primary — `/etc/wdtt/panel.db` (SQLite). При обновлении JSON-фа
 
 ## Зависимости
 
-- `wdtt.service` — VPN-сервер
+- `wdtt.service` — unified `wdtt-app` (панель `:2860` + VPN; ExecStart только `-config-dir`)
 - `wdtt-xray.service` — опционально, маршрутизация

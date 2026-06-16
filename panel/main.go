@@ -37,6 +37,7 @@ func Run() error {
 	if _, err := loadWdttInbound(); err != nil {
 		log.Printf("panel inbound load: %v", err)
 	}
+	ensureMinimalWdttServiceUnit()
 	initAssetsVer()
 	if acmeCronInstalled() {
 		_ = ensureAcmeCron()

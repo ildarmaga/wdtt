@@ -344,33 +344,6 @@ func getWdttIface() string {
 	return ""
 }
 
-func patchWdttServicePassword(pass string) {
-	unit := "/etc/systemd/system/" + wdttServiceUnit
-	data, err := os.ReadFile(unit)
-	if err != nil {
-		return
-	}
-	lines := strings.Split(string(data), "\n")
-	changed := false
-	for i, line := range lines {
-		if strings.Contains(line, "ExecStart=") && strings.Contains(line, "-password") {
-			idx := strings.Index(line, "-password")
-			if idx >= 0 {
-				before := line[:idx+len("-password")+1]
-				newLine := before + pass
-				if lines[i] != newLine {
-					lines[i] = newLine
-					changed = true
-				}
-			}
-		}
-	}
-	if changed {
-		_ = os.WriteFile(unit, []byte(strings.Join(lines, "\n")), 0644)
-		runCmd("systemctl", "daemon-reload")
-	}
-}
-
 // migrateMainPasswordDB переносит запись главного пароля на новый ключ и удаляет старый.
 func migrateMainPasswordDB(db *PasswordsDB, newMain string) {
 	if db == nil || newMain == "" {
@@ -420,7 +393,6 @@ func updateWdttPassword(pass string) error {
 	if err := savePasswords(db); err != nil {
 		return err
 	}
-	patchWdttServicePassword(pass)
 	return applyWdttConfigChangeHotOnly()
 }
 

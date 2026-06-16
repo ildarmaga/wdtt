@@ -537,8 +537,10 @@
       },
       async restartWdtt() {
         const res = await HttpUtil.post('/panel/api/service/wdtt/restart').catch(() => null);
-        if (res && res.success) { this.toast('WDTT перезапущен', true); await this.loadWdtt(); }
-        else this.toast((res && res.msg) || 'ошибка', false);
+        if (res && res.success) {
+          this.toast(res.msg || 'VPN-сервер перезапущен', true);
+          await this.loadWdtt();
+        } else this.toast((res && res.msg) || 'ошибка', false);
       },
       async startDataRefreshLoop() {
         while (this.isRefreshEnabled) {

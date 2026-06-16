@@ -83,6 +83,10 @@ func (a *App) handleRestartWdttService(w http.ResponseWriter, r *http.Request) {
 		jsonMsg(w, "WDTT restart error: "+err.Error(), false)
 		return
 	}
+	if isUnifiedDeployment() {
+		jsonMsg(w, "VPN-сервер перезапущен внутри процесса (панель работает)", true)
+		return
+	}
 	jsonMsg(w, "WDTT restarted", true)
 }
 

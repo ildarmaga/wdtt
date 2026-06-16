@@ -154,6 +154,26 @@ func startAdminServer(ctx context.Context, wgDev *device.Device) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
+	mux.HandleFunc("/admin/restart", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !adminReloadAuthorized(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		adminReloadMu.Lock()
+		if err := reloadDBFromDisk(wgDev); err != nil {
+			adminReloadMu.Unlock()
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		adminReloadMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"restarting":true}`))
+		go notifyRestartRequested()
+	})
 
 	registerStoreAdminRoutes(mux, wgDev)
 
@@ -163,7 +183,7 @@ func startAdminServer(ctx context.Context, wgDev *device.Device) {
 		log.Printf("[ADMIN] HTTP не запущен (%s): %v", adminListenAddr, err)
 		return
 	}
-	log.Printf("[ADMIN] HTTP %s (/health, POST /admin/reload, /admin/users/update, /admin/users/delete)", adminListenAddr)
+	log.Printf("[ADMIN] HTTP %s (/health, POST /admin/reload, POST /admin/restart, /admin/users/update, /admin/users/delete)", adminListenAddr)
 	go func() {
 		<-ctx.Done()
 		srv.Close()
