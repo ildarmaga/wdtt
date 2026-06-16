@@ -120,6 +120,13 @@ func Run() error {
 	mux.HandleFunc(api+"xray/geofiles/", app.requireAuthCSRF(app.handleXrayGeofiles))
 	mux.HandleFunc(api+"xray/config", app.requireAuthCSRF(app.handleXrayConfig))
 	mux.HandleFunc(api+"logs", app.requireAuthCSRF(app.handleLogs))
+	mux.HandleFunc(api+"vk/status", app.requireAuthCSRF(app.handleVKCreatorStatus))
+	mux.HandleFunc(api+"vk/cookies", app.requireAuthCSRF(app.handleVKCreatorSaveCookies))
+	mux.HandleFunc(api+"vk/cookies/clear", app.requireAuthCSRF(app.handleVKCreatorClearCookies))
+	mux.HandleFunc(api+"vk/cookies/template", app.requireAuthCSRF(app.handleVKCreatorExportCookiesTemplate))
+	mux.HandleFunc(api+"vk/install", app.requireAuthCSRF(app.handleVKCreatorInstallBinary))
+	mux.HandleFunc(api+"vk/call/create", app.requireAuthCSRF(app.handleVKCreatorCreateCall))
+	mux.HandleFunc(api+"vk/call/stop", app.requireAuthCSRF(app.handleVKCreatorStopCall))
 
 	return startPanelServer(cfg, gzipMiddleware(mux))
 }

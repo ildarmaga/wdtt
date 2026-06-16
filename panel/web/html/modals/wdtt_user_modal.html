@@ -53,6 +53,11 @@
             :auto-size="{ minRows: 1, maxRows: 4 }"
             placeholder="Один или несколько хешей (до 4): через запятую или с новой строки. Ссылка vk.com/call/join/… тоже подойдёт."
           ></a-textarea>
+          <div style="margin-top:8px">
+            <a-button size="small" type="primary" icon="phone" :loading="userModal.vkCreating"
+              @click="createVkHashFromCreator">Создать VK hash (Creator)</a-button>
+            <span class="text-muted" style="font-size:11px;margin-left:8px">Нужны cookies в Настройки → VK Creator</span>
+          </div>
           <div v-if="connVkHashCount > 0" class="text-muted" style="font-size:11px;margin-top:4px">
             Задано хешей: [[ connVkHashCount ]] · iOS возьмёт первый, остальные клиенты — все
           </div>
@@ -170,6 +175,7 @@
     visible: false,
     saving: false,
     resetting: false,
+    vkCreating: false,
     isEdit: false,
     isMain: false,
     activeTab: 'main',
@@ -442,6 +448,35 @@
       },
       regenPassword() {
         this.userForm.password = this.genPassword();
+      },
+      async createVkHashFromCreator() {
+        if (this.userModal.isMain) return;
+        const password = (this.userModal.isEdit ? this.userModal.oldPassword : this.userForm.password || '').trim();
+        if (!password) {
+          this.$message.warning('Сначала задайте пароль пользователя');
+          return;
+        }
+        this.userModal.vkCreating = true;
+        try {
+          const msg = await HttpUtil.post('/panel/api/vk/call/create', {
+            password: password,
+            apply: this.userModal.isEdit,
+          });
+          if (!msg.success) {
+            this.$message.error(msg.msg || 'Не удалось создать VK hash');
+            return;
+          }
+          const hash = (msg.obj && msg.obj.vk_hash) || '';
+          const link = (msg.obj && msg.obj.join_link) || '';
+          if (hash) {
+            this.userForm.vk_hash = this.userModal.isEdit
+              ? hash
+              : (this.userForm.vk_hash ? (this.userForm.vk_hash + ',' + hash) : hash);
+          }
+          this.$message.success(link ? ('VK hash: ' + hash) : 'VK hash создан');
+        } finally {
+          this.userModal.vkCreating = false;
+        }
       },
       removeDevice(idx) {
         this.userForm.device_ids.splice(idx, 1);

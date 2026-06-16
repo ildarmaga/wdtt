@@ -65,6 +65,13 @@
                   </template>
                   {{ template "settings/panel/subscription" . }}
                 </a-tab-pane>
+                <a-tab-pane key="4" :style="{ paddingTop: '20px' }">
+                  <template #tab>
+                    <a-icon type="phone"></a-icon>
+                    <span>VK Creator</span>
+                  </template>
+                  {{ template "settings/panel/vk_creator" . }}
+                </a-tab-pane>
               </a-tabs>
             </a-col>
           </a-row>
@@ -216,6 +223,15 @@
       sshForm: {
         port: null,
         busy: false,
+      },
+      vkCreator: {
+        cookies_ok: false,
+        cookies_hint: '',
+        binary_ok: false,
+        sessions: [],
+        cookiesText: '',
+        saving: false,
+        installing: false,
       },
       lang: LanguageManager.getLanguage(),
       remarkModels: { i: 'Inbound', e: 'Email', o: 'Other' },
@@ -649,10 +665,69 @@
           this.$message.error(msg.msg || 'ошибка перезапуска');
         }
       },
+      async loadVkCreator() {
+        const msg = await HttpUtil.get('/panel/api/vk/status');
+        if (msg && msg.success && msg.obj) {
+          Object.assign(this.vkCreator, msg.obj, { cookiesText: this.vkCreator.cookiesText });
+        }
+      },
+      async saveVkCookies() {
+        this.vkCreator.saving = true;
+        const msg = await HttpUtil.post('/panel/api/vk/cookies', { cookies_json: this.vkCreator.cookiesText || '' });
+        this.vkCreator.saving = false;
+        if (msg.success) {
+          this.$message.success('VK cookies сохранены');
+          Object.assign(this.vkCreator, msg.obj || {}, { cookiesText: this.vkCreator.cookiesText });
+        } else {
+          this.$message.error(msg.msg || 'ошибка');
+        }
+      },
+      beforeVkCookiesUpload(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => { this.vkCreator.cookiesText = e.target.result || ''; };
+        reader.readAsText(file);
+        return false;
+      },
+      async clearVkCookies() {
+        this.vkCreator.saving = true;
+        const msg = await HttpUtil.post('/panel/api/vk/cookies/clear', {});
+        this.vkCreator.saving = false;
+        if (msg.success) {
+          this.vkCreator.cookiesText = '';
+          Object.assign(this.vkCreator, msg.obj || {});
+          this.$message.success('Cookies удалены');
+        } else {
+          this.$message.error(msg.msg || 'ошибка');
+        }
+      },
+      async installVkCreator() {
+        this.vkCreator.installing = true;
+        const msg = await HttpUtil.post('/panel/api/vk/install', {});
+        this.vkCreator.installing = false;
+        if (msg.success) {
+          this.$message.success('headless-vk-creator установлен');
+          Object.assign(this.vkCreator, msg.obj || {});
+        } else {
+          this.$message.error(msg.msg || 'ошибка установки');
+        }
+      },
+      downloadVkCookieTemplate() {
+        window.location = basePath + 'panel/api/vk/cookies/template';
+      },
+      async stopVkSession(password) {
+        const msg = await HttpUtil.post('/panel/api/vk/call/stop', { password: password || '' });
+        if (msg.success) {
+          Object.assign(this.vkCreator, msg.obj || {});
+          this.$message.success('Creator остановлен');
+        } else {
+          this.$message.error(msg.msg || 'ошибка');
+        }
+      },
     },
     async mounted() {
       await this.getAllSetting();
       await this.loadCerts();
+      await this.loadVkCreator();
       while (true) {
         await PromiseUtil.sleep(500);
         this.saveBtnDisable = this.oldAllSetting.equals(this.allSetting);
