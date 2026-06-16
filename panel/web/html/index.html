@@ -75,6 +75,14 @@
   .xray-log-table table th {
     padding: 2px 15px;
   }
+  #panel-version-modal .panel-version-list-wrap {
+    max-height: 420px;
+    overflow: auto;
+    border-radius: 8px;
+  }
+  #panel-version-modal .panel-version-list-wrap .ant-list {
+    border-radius: 8px;
+  }
 </style>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' index-page'">
   <wdtt-sidebar></wdtt-sidebar>
@@ -387,17 +395,19 @@
       <a-tag color="green">v{{ .cur_ver }}</a-tag>
       <span class="ml-8">{{ i18n "pages.index.panelUpdateCurrent" }}</span>
     </div>
-    <a-list class="ant-version-list w-100" bordered :loading="panelVersionModal.loading">
-      <a-list-item class="ant-version-list-item" v-for="version, index in panelVersionModal.versions" :key="version">
-        <a-space>
-          <a-tag :color="index === 0 ? 'cyan' : (index % 2 === 0 ? 'purple' : 'green')">[[ version ]]</a-tag>
-          <a-tag v-if="index === 0" color="blue">latest</a-tag>
-          <a-tag v-if="isCurrentPanelVersion(version)" color="green">●</a-tag>
-        </a-space>
-        <a-radio :class="themeSwitcher.currentTheme" :checked="isCurrentPanelVersion(version)"
-          @click="switchPanelVersion(version)"></a-radio>
-      </a-list-item>
-    </a-list>
+    <div class="panel-version-list-wrap">
+      <a-list class="ant-version-list w-100" bordered :loading="panelVersionModal.loading">
+        <a-list-item class="ant-version-list-item" v-for="version, index in panelVersionModal.versions" :key="version">
+          <a-space>
+            <a-tag :color="index === 0 ? 'cyan' : (index % 2 === 0 ? 'purple' : 'green')">[[ version ]]</a-tag>
+            <a-tag v-if="index === 0" color="blue">latest</a-tag>
+            <a-tag v-if="isCurrentPanelVersion(version)" color="green">●</a-tag>
+          </a-space>
+          <a-radio :class="themeSwitcher.currentTheme" :checked="isCurrentPanelVersion(version)"
+            @click="switchPanelVersion(version)"></a-radio>
+        </a-list-item>
+      </a-list>
+    </div>
   </a-modal>
   <a-modal id="version-modal" v-model="versionModal.visible" title='{{ i18n "pages.index.xraySwitch" }}'
     :closable="true" @ok="() => versionModal.visible = false" :class="themeSwitcher.currentTheme" footer="">
