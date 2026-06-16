@@ -57,7 +57,6 @@ type PanelConfig struct {
 	SubCertFile   string `json:"subCertFile,omitempty"`
 	SubKeyFile    string `json:"subKeyFile,omitempty"`
 	SubEncrypt    bool   `json:"subEncrypt,omitempty"`
-	SubUpdates    int    `json:"subUpdates,omitempty"`
 	SubTitle      string `json:"subTitle,omitempty"`
 	SubSupportURL string `json:"subSupportUrl,omitempty"`
 	SubProfileURL string `json:"subProfileUrl,omitempty"`
@@ -146,9 +145,6 @@ func normalizeSubConfig(cfg *PanelConfig) {
 	cfg.SubPath = normalizeSubPath(cfg.SubPath)
 	if cfg.SubPort <= 0 {
 		cfg.SubPort = 2096
-	}
-	if cfg.SubUpdates <= 0 {
-		cfg.SubUpdates = 12
 	}
 }
 
@@ -258,7 +254,6 @@ func createDefaultPanelConfig() (*PanelConfig, error) {
 		SubPath:       "/sub/",
 		SubEncrypt:    true,
 		SubShowInfo:   true,
-		SubUpdates:    12,
 		DashboardPollSec:   defaultDashboardPollSec,
 		UsersPollSec:       defaultUsersPollSec,
 		ConnectionsPollSec: defaultConnectionsPollSec,

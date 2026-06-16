@@ -454,8 +454,6 @@
 "subPathDesc" = "Abonelik hizmeti için URI yolu. ('/' ile başlar ve '/' ile biter)"
 "subDomain" = "Dinleme Alan Adı"
 "subDomainDesc" = "Abonelik hizmeti için alan adı. (tüm alan adlarını ve IP'leri dinlemek için boş bırakın)"
-"subUpdates" = "Güncelleme Aralıkları"
-"subUpdatesDesc" = "Müşteri uygulamalarındaki abonelik URL'sinin güncelleme aralıkları. (birim: saat)"
 "subEncrypt" = "Şifrele"
 "subEncryptDesc" = "Abonelik hizmetinin döndürülen içeriği Base64 ile şifrelenir."
 "subShowInfo" = "Kullanım Bilgisini Göster"

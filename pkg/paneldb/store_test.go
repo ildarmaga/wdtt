@@ -56,7 +56,7 @@ func openTestDB(t *testing.T) *sql.DB {
 	if _, err := db.Exec(testWDTTDDL); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO wdtt_global (id, main_password) VALUES (1, 'main')`); err != nil {
+	if _, err := db.Exec(`INSERT OR IGNORE INTO wdtt_global (id, main_password) VALUES (1, 'main')`); err != nil {
 		t.Fatal(err)
 	}
 	return db
@@ -113,5 +113,23 @@ func TestSavePreserveSubID(t *testing.T) {
 	got, _ := LoadStore(db)
 	if got.Users["u1"].SubID != "keep-me" {
 		t.Fatalf("sub_id lost: %q", got.Users["u1"].SubID)
+	}
+}
+
+func TestUpsertDevice(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	if err := UpsertDevice(db, &Device{DeviceID: "dev1", IP: "10.66.66.2", PrivKey: "p", PubKey: "k"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertDevice(db, &Device{DeviceID: "dev1", IP: "10.66.66.3", PrivKey: "p2", PubKey: "k2"}); err != nil {
+		t.Fatal(err)
+	}
+	var ip string
+	if err := db.QueryRow(`SELECT ip FROM wdtt_devices WHERE device_id = 'dev1'`).Scan(&ip); err != nil {
+		t.Fatal(err)
+	}
+	if ip != "10.66.66.3" {
+		t.Fatalf("ip = %q", ip)
 	}
 }

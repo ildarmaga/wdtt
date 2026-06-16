@@ -29,7 +29,6 @@ CREATE TABLE panel_config (
 	sub_cert_file TEXT NOT NULL DEFAULT '',
 	sub_key_file TEXT NOT NULL DEFAULT '',
 	sub_encrypt INTEGER NOT NULL DEFAULT 1,
-	sub_updates INTEGER NOT NULL DEFAULT 12,
 	sub_title TEXT NOT NULL DEFAULT '',
 	sub_support_url TEXT NOT NULL DEFAULT '',
 	sub_profile_url TEXT NOT NULL DEFAULT '',
@@ -61,7 +60,7 @@ func TestPanelConfigLoadSave(t *testing.T) {
 	cfg := &PanelConfig{
 		Username: "admin", PasswordHash: "hash", Port: 3000, WebBasePath: "/wdtt/",
 		SessionKey: "key", SubEnable: true, SubPort: 2097, SubPath: "/sub/",
-		SubEncrypt: true, SubShowInfo: true, SubUpdates: 12,
+		SubEncrypt: true, SubShowInfo: true,
 	}
 	if err := SavePanelConfig(db, cfg); err != nil {
 		t.Fatal(err)

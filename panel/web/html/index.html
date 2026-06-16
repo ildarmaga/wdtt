@@ -1553,7 +1553,16 @@
         this.dashboardPollMs = Math.max(2000, (Number(msg.obj.dashboardPollSec) || 2) * 1000);
       }
 
-      // Как 3x-ui: опрос кэшированного статуса раз в 2 сек (сервер обновляет фоном)
+      if (window.wsClient) {
+        window.wsClient.connect();
+        window.wsClient.on('status', (payload) => {
+          if (payload && payload.status) {
+            this.setStatus(payload.status);
+          }
+        });
+      }
+
+      // Опрос кэшированного статуса (fallback если SSE недоступен)
       this.startPolling();
     },
   });

@@ -454,8 +454,6 @@
 "subPathDesc" = "URI path untuk layanan langganan. (dimulai dengan ‘/‘ dan diakhiri dengan ‘/‘)"
 "subDomain" = "Domain Pendengar"
 "subDomainDesc" = "Nama domain untuk layanan langganan. (biarkan kosong untuk mendengarkan semua domain dan IP)"
-"subUpdates" = "Interval Pembaruan"
-"subUpdatesDesc" = "Interval pembaruan URL langganan dalam aplikasi klien. (unit: jam)"
 "subEncrypt" = "Encode"
 "subEncryptDesc" = "Konten yang dikembalikan dari layanan langganan akan dienkripsi Base64."
 "subShowInfo" = "Tampilkan Info Penggunaan"

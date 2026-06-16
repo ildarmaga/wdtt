@@ -454,8 +454,6 @@
 "subPathDesc" = "サブスクリプションサービスで使用するURIパス（'/'で始まり、'/'で終わる）"
 "subDomain" = "監視ドメイン"
 "subDomainDesc" = "サブスクリプションサービスが監視するドメイン（空白にするとすべてのドメインとIPを監視）"
-"subUpdates" = "更新間隔"
-"subUpdatesDesc" = "クライアントアプリケーションでサブスクリプションURLの更新間隔（単位：時間）"
 "subEncrypt" = "エンコード"
 "subEncryptDesc" = "サブスクリプションサービスが返す内容をBase64エンコードする"
 "subShowInfo" = "利用情報を表示"

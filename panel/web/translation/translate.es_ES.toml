@@ -454,8 +454,6 @@
 "subPathDesc" = "Debe empezar con '/' y terminar con '/'"
 "subDomain" = "Dominio de Escucha"
 "subDomainDesc" = "Dejar en blanco por defecto para monitorear todos los dominios e IPs."
-"subUpdates" = "Intervalos de Actualización de Suscripción"
-"subUpdatesDesc" = "Horas de intervalo entre actualizaciones en la aplicación del cliente."
 "subEncrypt" = "Encriptar configuraciones"
 "subEncryptDesc" = "Encriptar las configuraciones devueltas en la suscripción."
 "subShowInfo" = "Mostrar información de uso"

@@ -133,7 +133,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 
 			if isGenPass && !isMainPass && !entryHasDevice(entry, deviceID) {
 				if bindDeviceToEntry(entry, deviceID) {
-					if err := saveDBLocked(); err != nil {
+					if err := persistUserBindingsSQLiteLocked(password, entry); err != nil {
 						log.Printf("[DB] bind device save: %v", err)
 						persistFail()
 						return
@@ -157,7 +157,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 					dev.PrivKey = privB64
 					dev.PubKey = pubB64
 					db.Devices[deviceID] = dev
-					if err := saveDBLocked(); err != nil {
+					if err := persistDeviceSQLiteLocked(dev); err != nil {
 						delete(db.Devices, deviceID)
 						log.Printf("[DB] new device save: %v", err)
 						persistFail()
@@ -176,7 +176,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 						dev.IP = getNextIP()
 					}
 					db.Devices[deviceID] = dev
-					if err := saveDBLocked(); err != nil {
+					if err := persistDeviceSQLiteLocked(dev); err != nil {
 						log.Printf("[DB] regen keys save: %v", err)
 						persistFail()
 						return

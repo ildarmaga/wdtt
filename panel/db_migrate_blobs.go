@@ -191,6 +191,14 @@ func migratePanelDBV11() error {
 	return nil
 }
 
+func migratePanelDBV12() error {
+	_, err := panelDB.Exec(`ALTER TABLE panel_config DROP COLUMN sub_updates`)
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such column") {
+		return err
+	}
+	return nil
+}
+
 func purgeLegacySettingsBlobs() error {
 	var removed int
 	for _, key := range legacySettingKeys {

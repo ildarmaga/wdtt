@@ -66,6 +66,37 @@ func saveDatabaseToSQLite(src *Database) error {
 	return paneldb.SaveStore(db, storeFromDatabase(src), paneldb.SaveOptions{PreserveSubIDs: true})
 }
 
+func persistDeviceSQLiteLocked(dev *ClientDevice) error {
+	if dev == nil || !serverPanelDBReady() {
+		return fmt.Errorf("device or panel.db unavailable")
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	return paneldb.UpsertDevice(sqlDB, &paneldb.Device{
+		DeviceID: dev.DeviceID,
+		IP:       dev.IP,
+		PrivKey:  dev.PrivKey,
+		PubKey:   dev.PubKey,
+	})
+}
+
+func persistUserBindingsSQLiteLocked(password string, entry *PasswordEntry) error {
+	if entry == nil || !serverPanelDBReady() {
+		return fmt.Errorf("entry or panel.db unavailable")
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	if err := paneldb.PatchUserDeviceBindings(sqlDB, db.MainPassword, password, entry.DeviceIDs, nil); err != nil {
+		return err
+	}
+	rememberUsersRevFromDisk()
+	return nil
+}
+
 func trafficSnapshotLocked() map[string]paneldb.TrafficSnapshot {
 	out := make(map[string]paneldb.TrafficSnapshot, len(db.Passwords))
 	for pass, e := range db.Passwords {

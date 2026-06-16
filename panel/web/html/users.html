@@ -151,6 +151,7 @@
       isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true",
       refreshing: false,
       refreshInterval: Number(localStorage.getItem("refreshInterval")) || 5000,
+      usersRev: 0,
       userCols: [
         { title: 'Пароль', dataIndex: 'password', scopedSlots: { customRender: 'password' } },
         { title: 'Комментарий', dataIndex: 'comment', scopedSlots: { customRender: 'comment' } },
@@ -175,6 +176,17 @@
         }
       } catch (e) {}
       await this.loadServerIp();
+      if (window.wsClient) {
+        window.wsClient.connect();
+        window.wsClient.on('status', (payload) => {
+          if (!payload || payload.usersRev === undefined) return;
+          const rev = Number(payload.usersRev) || 0;
+          if (this.usersRev && rev > this.usersRev) {
+            this.loadUsers().catch(console.error);
+          }
+          this.usersRev = rev;
+        });
+      }
       if (this.isRefreshEnabled) {
         this.startDataRefreshLoop();
       } else {

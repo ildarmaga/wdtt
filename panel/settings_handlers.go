@@ -118,9 +118,6 @@ func parsePanelSettingsReq(r *http.Request) (panelSettingsReq, error) {
 	if p := values.Get("subPort"); p != "" {
 		req.SubPort, _ = strconv.Atoi(p)
 	}
-	if p := values.Get("subUpdates"); p != "" {
-		_, _ = strconv.Atoi(p) // legacy column kept in DB; UI removed
-	}
 	req.SubEncrypt = values.Get("subEncrypt") == "true" || values.Get("subEncrypt") == "1"
 	req.SubShowInfo = values.Get("subShowInfo") == "true" || values.Get("subShowInfo") == "1"
 	return req, nil

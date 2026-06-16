@@ -2,6 +2,20 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.15] — 2026-06-16
+
+### Добавлено
+- **SSE `/panel/api/server/events`** — push статуса дашборда (fallback на poll если EventSource недоступен).
+- **Prometheus `/panel/api/server/metrics`** — `wdtt_active_users`, `wdtt_sessions`, uptime gauges.
+- **Row-level SQLite на GETCONF** — `UpsertDevice` + `PatchUserDeviceBindings` вместо полного `SaveStore`.
+
+### Изменено
+- **Status collector** — кэш `loadPasswords` по `users_rev`; интервал из `dashboard_poll_sec`.
+- **Users page** — автообновление по `users_rev` через SSE.
+
+### Удалено
+- **`subUpdates`** — колонка `sub_updates` (schema v12), поле из API/конфига и переводов.
+
 ## [1.4.14] — 2026-06-16
 
 ### Добавлено

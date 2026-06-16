@@ -454,8 +454,6 @@
 "subPathDesc" = "订阅服务使用的 URI 路径（以 '/' 开头，以 '/' 结尾）"
 "subDomain" = "监听域名"
 "subDomainDesc" = "订阅服务监听的域名（留空表示监听所有域名和 IP）"
-"subUpdates" = "更新间隔"
-"subUpdatesDesc" = "客户端应用中订阅 URL 的更新间隔（单位：小时）"
 "subEncrypt" = "编码"
 "subEncryptDesc" = "订阅服务返回的内容将采用 Base64 编码"
 "subShowInfo" = "显示使用信息"

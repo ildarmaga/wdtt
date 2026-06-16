@@ -227,6 +227,10 @@ func (a *App) handleServerAPI(w http.ResponseWriter, r *http.Request) {
 	switch parts[0] {
 	case "status":
 		a.handleServerStatus(w, r)
+	case "events":
+		a.handleServerEvents(w, r)
+	case "metrics":
+		a.handleServerMetrics(w, r)
 	case "cpuHistory":
 		a.handleCPUHistory(w, r)
 	case "getXrayVersion":

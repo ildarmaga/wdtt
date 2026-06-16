@@ -105,10 +105,16 @@ var (
 func startStatusCollector() {
 	refreshCachedStatus()
 	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		for range ticker.C {
+		for {
 			ensureXrayFollowsWdtt()
 			refreshCachedStatus()
+			pollDefaultsMu.RLock()
+			sec := dashboardPollSec
+			pollDefaultsMu.RUnlock()
+			if sec < minDashboardPollSec {
+				sec = minDashboardPollSec
+			}
+			time.Sleep(time.Duration(sec) * time.Second)
 		}
 	}()
 	go func() {
@@ -135,6 +141,7 @@ func refreshCachedStatus() {
 	statusMu.Lock()
 	cachedStatus = s
 	statusMu.Unlock()
+	broadcastServerStatusEvent()
 }
 
 func collectServerStatus() *serverStatus {
@@ -163,7 +170,7 @@ func collectServerStatus() *serverStatus {
 	s.Uptime = readOSUptime()
 	s.TCPCount, s.UDPCount = readConnCounts()
 	s.NetIO.Up, s.NetIO.Down = vpnTrafficSpeed()
-	if db, err := loadPasswords(); err == nil && db != nil {
+	if db, err := loadPasswordsCached(); err == nil && db != nil {
 		s.NetTraffic.Sent, s.NetTraffic.Recv = combinedTrafficTotals(db)
 	} else {
 		s.NetTraffic.Sent, s.NetTraffic.Recv = combinedTrafficTotals(nil)
@@ -207,7 +214,7 @@ func fillXrayStatus(s *serverStatus) {
 
 func fillWdttStatus(s *serverStatus) {
 	stats := loadServerStats()
-	db, _ := loadPasswords()
+	db, _ := loadPasswordsCached()
 	if serviceActive(wdttServiceUnit) {
 		s.Wdtt.State = stateRunning
 	} else {
