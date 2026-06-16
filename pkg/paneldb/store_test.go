@@ -170,3 +170,39 @@ func TestUserPatchIncremental(t *testing.T) {
 		t.Fatalf("users left: %d", len(got.Users))
 	}
 }
+
+func TestSetMainPasswordAndResetTraffic(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	if err := UpsertUser(db, "main", "main", &User{Comment: "owner", UpBytes: 100, DownBytes: 200}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenameUserPassword(db, "main", "newmain"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMainPassword(db, "newmain"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MainPassword != "newmain" {
+		t.Fatalf("main password: %q", got.MainPassword)
+	}
+	if got.Users["newmain"] == nil {
+		t.Fatal("main user row missing after rename")
+	}
+	if err := ResetUserTraffic(db, "newmain"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = LoadStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := got.Users["newmain"]
+	if u == nil || u.UpBytes != 0 || u.DownBytes != 0 || u.IsDeactivated {
+		t.Fatalf("after reset: %+v", u)
+	}
+}

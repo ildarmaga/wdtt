@@ -415,10 +415,12 @@ func updateWdttPassword(pass string) error {
 	if err != nil {
 		return err
 	}
+	oldMain := db.MainPassword
 	migrateMainPasswordDB(db, pass)
 	ensureMainPasswordEntry(db)
 	dedupePasswordDeviceBindings(db)
-	if err := savePasswords(db); err != nil {
+	entry := db.Passwords[db.MainPassword]
+	if err := updateMainPasswordNorm(db, oldMain, db.MainPassword, entry); err != nil {
 		return err
 	}
 	return applyWdttConfigChangeHotOnly()
@@ -468,8 +470,14 @@ func createUser(password string, entry *PasswordEntry) (string, error) {
 		entry.SubID = subID
 	}
 	db.Passwords[password] = entry
-	if err := savePasswords(db); err != nil {
+	if err := upsertUserNorm(db, password, entry); err != nil {
 		return "", err
+	}
+	if ids := allEntryDeviceIDsPanel(entry); len(ids) > 0 {
+		entry.DeviceIDs = ids
+		if err := patchUserDeviceBindingsNorm(db, password, entry, nil); err != nil {
+			return "", err
+		}
 	}
 	applyWdttConfigChange()
 	return password, nil
@@ -508,17 +516,10 @@ func resetUserTraffic(pass string) error {
 	if err != nil {
 		return err
 	}
-	entry, ok := db.Passwords[pass]
-	if !ok {
+	if _, ok := db.Passwords[pass]; !ok {
 		return fmt.Errorf("пользователь не найден")
 	}
-	entry.UpBytes = 0
-	entry.DownBytes = 0
-	// Сброс квоты: сервер ставит IsDeactivated при исчерпании GB — снимаем блокировку
-	if !trafficExceeded(entry) {
-		entry.IsDeactivated = false
-	}
-	if err := savePasswords(db); err != nil {
+	if err := resetUserTrafficNorm(pass); err != nil {
 		return err
 	}
 	return applyWdttConfigChange()

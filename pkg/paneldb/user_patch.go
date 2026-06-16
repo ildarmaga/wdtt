@@ -141,6 +141,54 @@ func DeleteUser(db *sql.DB, password string, deviceIDs []string) error {
 	return tx.Commit()
 }
 
+// SetMainPassword updates wdtt_global.main_password without rewriting users.
+func SetMainPassword(db *sql.DB, mainPassword string) error {
+	mainPassword = strings.TrimSpace(mainPassword)
+	if mainPassword == "" {
+		return fmt.Errorf("main password required")
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE wdtt_global SET main_password = ? WHERE id = 1`, mainPassword); err != nil {
+		return err
+	}
+	if err := bumpUsersRevInTx(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ResetUserTraffic zeroes traffic counters and clears quota deactivation for one user.
+func ResetUserTraffic(db *sql.DB, password string) error {
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return fmt.Errorf("password required")
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE wdtt_users SET up_bytes = 0, down_bytes = 0, is_deactivated = 0 WHERE password = ?`, password)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("user not found")
+	}
+	if err := bumpUsersRevInTx(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // DeleteDevice removes device row and all user bindings referencing it.
 func DeleteDevice(db *sql.DB, deviceID string) error {
 	deviceID = strings.TrimSpace(deviceID)

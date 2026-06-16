@@ -304,6 +304,65 @@ func patchUserDeviceBindingsNorm(db *PasswordsDB, password string, entry *Passwo
 	return err
 }
 
+func upsertUserNorm(db *PasswordsDB, password string, entry *PasswordEntry) error {
+	if !panelDBEnabled() || db == nil || entry == nil {
+		return fmt.Errorf("panel database not available")
+	}
+	if err := mergeTrafficFromDisk(db); err != nil {
+		return err
+	}
+	err := paneldb.UpsertUser(panelDB, db.MainPassword, password, userEntryToPaneldb(entry))
+	if err == nil {
+		invalidatePasswordsCache()
+	}
+	return err
+}
+
+func updateMainPasswordNorm(db *PasswordsDB, oldMain, newMain string, entry *PasswordEntry) error {
+	if !panelDBEnabled() || db == nil || entry == nil {
+		return fmt.Errorf("panel database not available")
+	}
+	if err := mergeTrafficFromDisk(db); err != nil {
+		return err
+	}
+	if e, ok := db.Passwords[newMain]; ok && e != nil {
+		entry = e
+	}
+	oldMain = strings.TrimSpace(oldMain)
+	newMain = strings.TrimSpace(newMain)
+	if oldMain != "" && oldMain != newMain {
+		if err := paneldb.RenameUserPassword(panelDB, oldMain, newMain); err != nil {
+			return err
+		}
+	}
+	if err := paneldb.SetMainPassword(panelDB, newMain); err != nil {
+		return err
+	}
+	if err := paneldb.UpsertUser(panelDB, newMain, newMain, userEntryToPaneldb(entry)); err != nil {
+		return err
+	}
+	ids := allEntryDeviceIDsPanel(entry)
+	if len(ids) > 0 {
+		entry.DeviceIDs = ids
+		if err := paneldb.PatchUserDeviceBindings(panelDB, newMain, newMain, ids, nil); err != nil {
+			return err
+		}
+	}
+	invalidatePasswordsCache()
+	return nil
+}
+
+func resetUserTrafficNorm(password string) error {
+	if !panelDBEnabled() {
+		return fmt.Errorf("panel database not available")
+	}
+	err := paneldb.ResetUserTraffic(panelDB, password)
+	if err == nil {
+		invalidatePasswordsCache()
+	}
+	return err
+}
+
 func mergeTrafficFromDisk(db *PasswordsDB) error {
 	if !panelDBEnabled() || db == nil {
 		return nil
