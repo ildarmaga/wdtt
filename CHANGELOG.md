@@ -4,49 +4,53 @@
 
 ## [1.4.17] — 2026-06-16
 
+### Сводка с v1.4.13
+Четыре релиза подряд (1.4.14 → 1.4.17): производительность stats/poll, SSE и метрики, точечные записи в SQLite вместо полного `SaveStore`, удаление `subUpdates`, исправление `blockPing`, бандл panel JS.
+
 ### Изменено
-- **`blockPing`** — в API отдаётся значение из БД; `blockPingLive` показывает фактическое состояние UFW; при открытии настроек UFW синхронизируется с БД.
-- **Panel JS bundle** — `csrf.js`, `axios-init.js`, `util/index.js`, `websocket.js` → один `panel-core.min.js` (esbuild, сборка в `build.sh`).
-- **API restart** — страница подключений использует `/panel/api/server/restartWdttService` (как дашборд).
+- **`blockPing`** — в API отдаётся значение из БД (`blockPing`); фактическое состояние UFW — в `blockPingLive`; при GET `/panel/setting/all` UFW синхронизируется с БД при расхождении; предупреждение в UI если live ≠ сохранённое.
+- **Panel JS bundle** — `csrf.js`, `axios-init.js`, `util/index.js`, `websocket.js` → один `panel-core.min.js` (~16 KB, esbuild); скрипт `scripts/bundle-panel-core.sh`, вызов из `build.sh`; `assets_ver` хэширует бандл.
+- **API restart** — страница «Подключения» вызывает `/panel/api/server/restartWdttService` (как дашборд), вместо legacy `/panel/api/service/wdtt/restart`.
 
 ## [1.4.16] — 2026-06-16
 
 ### Изменено
-- **Row-level SQLite (bot/admin)** — Telegram-бот и `/admin/users/*` пишут точечно (`UpsertUser`, `PatchUserDeviceBindings`, `DeleteUser`, `DeleteDevice`) вместо полного `SaveStore`.
-- **Cache-bust assets** — `assets_ver` хэширует ключевые custom JS/CSS, не только `custom.min.css`.
+- **Row-level SQLite (bot/admin)** — Telegram-бот и `/admin/users/*` пишут точечно через `pkg/paneldb`: `UpsertUser`, `RenameUserPassword`, `SetUserDeactivated`, `DeleteUser`, `DeleteDevice`, `PatchUserDeviceBindings` — вместо полного `SaveStore` на каждое действие.
+- **Cache-bust assets** — `assets_ver` хэширует `custom.min.css`, `panel-core.min.js`, `wdtt-share.js`.
 
 ## [1.4.15] — 2026-06-16
 
 ### Добавлено
-- **SSE `/panel/api/server/events`** — push статуса дашборда (fallback на poll если EventSource недоступен).
-- **Prometheus `/panel/api/server/metrics`** — `wdtt_active_users`, `wdtt_sessions`, uptime gauges.
+- **SSE `/panel/api/server/events`** — push событий `status` (дашборд) и `users_rev` (страница пользователей); клиент `PanelEventsClient` в `websocket.js` как `window.wsClient`; poll остаётся fallback.
+- **Prometheus `/panel/api/server/metrics`** — gauges `wdtt_active_users`, `wdtt_sessions`, uptime panel/VPN.
 - **Row-level SQLite на GETCONF** — `UpsertDevice` + `PatchUserDeviceBindings` вместо полного `SaveStore`.
+- **Кэш паролей** — `loadPasswordsCached()` по `users_rev` в status collector.
 
 ### Изменено
-- **Status collector** — кэш `loadPasswords` по `users_rev`; интервал из `dashboard_poll_sec`.
-- **Users page** — автообновление по `users_rev` через SSE.
+- **Status collector** — интервал из `dashboard_poll_sec`; меньше обращений к SQLite.
+- **Users page** — автообновление списка по SSE `users_rev`.
 
 ### Удалено
-- **`subUpdates`** — колонка `sub_updates` (schema v12), поле из API/конфига и переводов.
+- **`subUpdates`** — колонка `sub_updates` (миграция schema **v12**), поле из API/конфига, UI и всех файлов переводов.
 
 ## [1.4.14] — 2026-06-16
 
 ### Добавлено
-- **Schema v11** — `wg_keepalive_sec`, `stats_interval_sec`, `dashboard_poll_sec`, `users_poll_sec`, `connections_poll_sec`.
-- **Inbound advanced** — WG keepalive и интервал stats в модалке подключений.
-- **Настройки → Общие** — интервалы опроса дашборда, пользователей и подключений.
-- **Подписка** — заголовок `Profile-Home-Page-Url` для `subProfileUrl`.
-- **Lazy CodeMirror** — редактор xray грузится только на странице xray.
+- **Schema v11** — поля `wg_keepalive_sec`, `stats_interval_sec`, `dashboard_poll_sec`, `users_poll_sec`, `connections_poll_sec` в `panel_config` / inbound.
+- **Inbound advanced** — WG PersistentKeepalive и интервал stats в модалке подключений.
+- **Настройки → Общие** — интервалы опроса дашборда, пользователей и подключений (секунды).
+- **Подписка** — HTTP-заголовок `Profile-Home-Page-Url` из `subProfileUrl`.
+- **Lazy CodeMirror** — `codemirror-loader.js`; редактор xray/config грузится только на странице xray.
 
 ### Изменено
-- **Stats loop** — один WG dump за тик, batch `last_seen`, `[СТАТ]` по интервалу stats (не каждые 2 с).
-- **Poll** — пауза при скрытой вкладке (`PagePollUtil`).
-- **Подключения** — отдельные поля DTLS handshake и online timeout.
-- **Синхронизация panel.db** — server подтягивает правки пользователей/устройств по `users_rev` в stats loop.
+- **Stats loop** — один `wg show` dump за тик; batch-обновление `last_seen`; лог `[СТАТ]` по `stats_interval_sec`, не каждые 2 с.
+- **Poll** — пауза опроса при скрытой вкладке (`PagePollUtil.visibilityPause`).
+- **Подключения** — раздельные поля `online_timeout_sec` и `handshake_timeout_sec` (DTLS handshake vs online TTL).
+- **Синхронизация panel.db** — server в stats loop вызывает `syncPanelDeviceEditsLocked()` по `users_rev` (правки из панели → WG peers).
 
 ### Исправлено
-- **Онлайн** — динамический TTL `server.log`; после рестарта нет «призраков» и ложных online из offline WG-пиров.
-- **Admin reload** — авторизация через `X-WDTT-Admin-Token` (session key панели); без токена — только localhost.
+- **Онлайн** — динамический TTL записей `server.log`; после рестарта нет «призраков» и ложного online у offline WG-пиров; удалён мёртвый `syncOnlineFromWGPeers()`.
+- **Admin reload** — `POST /admin/reload` требует `X-WDTT-Admin-Token` (session key панели); без токена — только с localhost.
 
 ## [1.4.13] — 2026-06-16
 
