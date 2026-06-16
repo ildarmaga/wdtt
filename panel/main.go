@@ -117,7 +117,6 @@ func Run() error {
 	mux.HandleFunc(api+"users/delete", app.requireAuthCSRF(app.handleUserDelete))
 	mux.HandleFunc(api+"password/main", app.requireAuthCSRF(app.handleMainPassword))
 	mux.HandleFunc(api+"password/panel", app.requireAuthCSRF(app.handlePanelPassword))
-	mux.HandleFunc(api+"service/", app.requireAuthCSRF(app.handleService))
 	mux.HandleFunc(api+"xray/versions", app.requireAuthCSRF(app.handleXrayVersions))
 	mux.HandleFunc(api+"xray/install/", app.requireAuthCSRF(app.handleXrayInstall))
 	mux.HandleFunc(api+"xray/geofiles/", app.requireAuthCSRF(app.handleXrayGeofiles))

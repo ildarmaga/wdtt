@@ -1,7 +1,11 @@
 # WDTT Server — полный разбор
 
-Документ описывает бинарник `wdtt-server` — Go-модуль `server/` (~4300 строк в 18 файлах).
+Документ описывает VPN-бэкенд — Go-модуль `server/` (~4300 строк в 18 файлах).
 Общая SQLite-логика с панелью вынесена в `pkg/paneldb/`.
+
+> **Production (unified):** systemd `wdtt.service` запускает **`/usr/local/bin/wdtt-app`** (`cmd/wdtt`, сборка `./build.sh amd64 unified`). В одном процессе — панель (HTTP) + VPN server + admin API на `:2861`. Отдельные `wdtt-server` / `wdtt-panel` — legacy, только для отладки.
+>
+> Деплой: `sudo ./install-local.sh amd64` или `./build.sh amd64 unified && sudo install -m 0755 wdtt-linux-amd64 /usr/local/bin/wdtt-app && sudo systemctl restart wdtt`
 
 ---
 
@@ -24,7 +28,8 @@ wdtt/
 │   ├── panel_db.go      # чтение panel.db через paneldb
 │   └── …                # devices, speedlimit, relay_*, admin
 ├── panel/               # wdtt-panel (веб-UI + API)
-├── build.sh             # go build ./server [./panel]
+├── cmd/wdtt/            # unified binary (panel + server)
+├── build.sh             # ./build.sh amd64 unified | server | panel | all
 ├── go.work              # корень + server/ + panel/
 └── deploy.sh            # установщик VPS
 ```
@@ -32,13 +37,14 @@ wdtt/
 Сборка:
 
 ```bash
-./build.sh amd64              # только server → wdtt-server-linux-amd64
-./build.sh amd64 panel          # только panel → wdtt-panel-linux-amd64
-./build.sh amd64 all            # оба бинарника
-./panel/build.sh /usr/local/bin/wdtt-panel   # установка на сервер
+./build.sh amd64 unified      # основной → wdtt-linux-amd64 (panel + server)
+./build.sh amd64 server       # legacy → wdtt-server-linux-amd64
+./build.sh amd64 panel        # legacy → wdtt-panel-linux-amd64
+./build.sh amd64 all          # все варианты
+sudo ./install-local.sh amd64 # install wdtt-app + systemd
 ```
 
-Или вручную: `go build -o wdtt-server ./server`, `cd panel && go build .`
+Legacy вручную: `go build -o wdtt-server ./server`, `cd panel && go build .`
 
 ---
 
@@ -90,7 +96,7 @@ WDTT Server — VPN-бэкенд для схемы **VK TURN → WRAP → DTLS �
 
 | Файл | Назначение |
 |------|------------|
-| `panel.db` | **Primary:** SQLite — панель + VPN-данные (schema v9). Таблицы: `panel_config`, `wdtt_*`, `xray_*` |
+| `panel.db` | **Primary:** SQLite — панель + VPN-данные (schema v12). Таблицы: `panel_config`, `wdtt_*`, `xray_*` |
 | `wg-keys.dat` | Серверные/legacy WG ключи (4 строки base64) |
 | `server.log` | JSON-снимок статистики для панели (каждые 10 с) |
 
@@ -477,18 +483,20 @@ Per-IP shaping на интерфейсе `wdtt0` через `tc` HTB:
 
 ```bash
 cd /root/wdtt
-./build.sh                    # → wdtt-server-linux-amd64
-# или
-go build -trimpath -ldflags="-s -w" -o /usr/local/bin/wdtt-server ./server
-
-systemctl restart wdtt
-systemctl status wdtt
+./build.sh amd64 unified
+sudo install -m 0755 wdtt-linux-amd64 /usr/local/bin/wdtt-app
+sudo systemctl restart wdtt
+systemctl show wdtt -p ExecStart   # path=/usr/local/bin/wdtt-app
 curl -s http://127.0.0.1:2861/health   # {"ok":true}
 ```
 
-Панель (отдельный бинарник):
+Legacy (отдельные бинарники):
 
 ```bash
+./build.sh amd64 server
+go build -trimpath -ldflags="-s -w" -o /usr/local/bin/wdtt-server ./server
+systemctl restart wdtt-server
+
 cd panel && go build -o /usr/local/bin/wdtt-panel .
 systemctl restart wdtt-panel
 ```

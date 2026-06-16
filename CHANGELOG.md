@@ -2,6 +2,15 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.21] — 2026-06-16
+
+### Удалено
+- **Legacy API** — `POST /panel/api/service/{wdtt|xray}/{restart|stop|start}`; мёртвая страница `panel.html`.
+
+### Изменено
+- **docs/SERVER.md** — unified `wdtt-app`, актуальная сборка и schema v12.
+- **docs/API.md** — restart через `/panel/api/server/restartWdttService` и `restartXrayService`.
+
 ## [1.4.20] — 2026-06-16
 
 ### Изменено

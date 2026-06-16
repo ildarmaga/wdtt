@@ -190,16 +190,21 @@ curl -b /tmp/wdtt.cookie "$BASE/panel/api/status"
 
 ## Сервисы
 
-### `POST /panel/api/service/{wdtt|xray}/{restart|stop|start}`
+### `POST /panel/api/server/restartWdttService`
 
-Примеры:
+Перезапуск VPN (unified: in-process restart; legacy: `systemctl restart wdtt`).
 
 ```bash
-curl -b cookie -X POST "$BASE/panel/api/service/wdtt/restart"
-curl -b cookie -X POST "$BASE/panel/api/service/xray/stop"
+curl -b cookie -X POST "$BASE/panel/api/server/restartWdttService"
 ```
 
-Перезапуск WDTT автоматически поднимает Xray, если он был включён.
+### `POST /panel/api/server/restartXrayService`
+
+```bash
+curl -b cookie -X POST "$BASE/panel/api/server/restartXrayService"
+```
+
+Legacy `POST /panel/api/service/{wdtt|xray}/{restart|stop|start}` удалён с v1.4.21.
 
 ---
 

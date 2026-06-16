@@ -354,30 +354,6 @@ func (a *App) handleMainPassword(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, nil)
 }
 
-func (a *App) handleService(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		jsonError(w, "POST only", 405)
-		return
-	}
-	// /panel/api/service/wdtt/restart
-	path := strings.TrimPrefix(r.URL.Path, a.cfg.basePath()+"panel/api/service/")
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 2 {
-		jsonError(w, "неверный запрос", 400)
-		return
-	}
-	if err := controlService(parts[0], parts[1]); err != nil {
-		jsonError(w, err.Error(), 500)
-		return
-	}
-	if parts[0] == "wdtt" && parts[1] == "restart" && isUnifiedDeployment() {
-		jsonMsg(w, "VPN-сервер перезапущен", true)
-		return
-	}
-	svcMap := map[string]string{"wdtt": wdttServiceUnit, "xray": xrayServiceUnit}
-	jsonOK(w, map[string]string{"service": svcMap[parts[0]], "action": parts[1]})
-}
-
 func (a *App) handleXrayVersions(w http.ResponseWriter, r *http.Request) {
 	tags, err := xrayVersionTagList()
 	if err != nil {
