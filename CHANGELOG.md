@@ -2,6 +2,9 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+### Исправлено
+- **wdtt-install v1.4.28** — если pinned release ещё не на GitHub, сборка из git tag (не fallback на older `latest`).
+
 ## [1.4.27] — 2026-06-16
 
 ### Исправлено
