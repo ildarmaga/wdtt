@@ -36,6 +36,14 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 | **qWDTT** | Android (fork) | `qwdtt://`, `hashes=h1,h2,…` (bare, до 4) или `VK_HASH` |
 | **WDTT** (qwdtt) | Windows | `qwdtt://`, `hashes=h1,h2,…` (bare, до 4) или `VK_HASH` |
 
+## VK hash из панели
+
+В **Настройки → VK Creator** можно создать VK hash (join link) и сразу записать его пользователю — без отдельного сервера creator на VPS.
+
+**Нужны VK cookies** (минимум `remixsid`). Получить удобнее всего через десктопное приложение **[WhitelistBypass.Creator](https://github.com/kulikov0/whitelist-bypass/releases)** из репозитория [kulikov0/whitelist-bypass](https://github.com/kulikov0/whitelist-bypass/releases): войти в VK, экспортировать cookies и вставить в панель (или только значение `remixsid` из DevTools).
+
+В панели также доступны: вход по паролю VK, загрузка `cookies-vk.json`, таблица активных звонков (живой / завершается / мёртвый), кнопка «Завершить» (`forceFinish`, строка удаляется после смерти звонка). Данные хранятся в `/etc/wdtt/panel.db` (`vk_cookies`, `vk_calls`).
+
 ## Компоненты
 
 | Компонент | Описание |
@@ -80,6 +88,7 @@ sudo ./install-local.sh amd64
 | [ildarmaga/wdtt-install](https://github.com/ildarmaga/wdtt-install) | Установщик одной строкой |
 | [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) | iOS-клиент |
 | [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Android-клиент / исходный VPN-протокол |
+| [kulikov0/whitelist-bypass](https://github.com/kulikov0/whitelist-bypass) | WhitelistBypass.Creator — получение VK cookies для панели |
 
 ## Лицензия
 

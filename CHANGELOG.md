@@ -2,6 +2,25 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.36] — 2026-06-16
+
+### Добавлено
+- **VK Creator в панели (нативно)** — создание VK hash / join link без отдельного `headless-vk-creator`: вкладка **Настройки → VK Creator**, выбор пользователя, кнопка «Создать звонок», hash сразу записывается в профиль.
+- **Cookies и звонки в `panel.db`** — `vk_cookies`, `vk_calls` (SQLite v13–v14); импорт из legacy `cookies-vk.json` / `vk-creator-sessions.json`.
+- **Вход VK в панели** — логин/пароль VK, вставка `remixsid`, загрузка `cookies-vk.json`.
+- **Завершение звонка** — `calls.forceFinish`; строка в таблице исчезает только когда звонок перестаёт быть «живым» (статус «завершается»).
+
+### Изменено
+- Убрана установка внешнего бинарника creator из UI; достаточно HTTP API VK и cookies.
+
+### Исправлено
+- Сохранение cookies из формы (`ParseForm` вместо `ParseMultipartForm` на urlencoded).
+- «hash получен, но не сохранён: пользователь не найден» — в API уходит `password_key`, не маскированный пароль.
+- Очистка битых `call_id` в БД; валидация UUID из `calls.start`.
+
+### Cookies для VK Creator
+Для создания звонков нужны VK cookies (`remixsid`). Удобно получить через **[WhitelistBypass.Creator](https://github.com/kulikov0/whitelist-bypass/releases)** (релизы [whitelist-bypass](https://github.com/kulikov0/whitelist-bypass/releases)), затем вставить `remixsid` или экспортированный JSON в панель.
+
 ## [1.4.35] — 2026-06-16
 
 ### Добавлено

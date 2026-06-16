@@ -53,10 +53,8 @@
             :auto-size="{ minRows: 1, maxRows: 4 }"
             placeholder="Один или несколько хешей (до 4): через запятую или с новой строки. Ссылка vk.com/call/join/… тоже подойдёт."
           ></a-textarea>
-          <div style="margin-top:8px">
-            <a-button size="small" type="primary" icon="phone" :loading="userModal.vkCreating"
-              @click="createVkHashFromCreator">Создать VK hash (Creator)</a-button>
-            <span class="text-muted" style="font-size:11px;margin-left:8px">Нужны cookies в Настройки → VK Creator</span>
+          <div class="text-muted" style="font-size:11px;margin-top:6px">
+            Создавать звонки и следить за их состоянием — в Настройки → VK Creator.
           </div>
           <div v-if="connVkHashCount > 0" class="text-muted" style="font-size:11px;margin-top:4px">
             Задано хешей: [[ connVkHashCount ]] · iOS возьмёт первый, остальные клиенты — все

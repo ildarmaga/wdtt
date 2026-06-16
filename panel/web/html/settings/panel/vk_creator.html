@@ -1,24 +1,34 @@
 {{define "settings/panel/vk_creator"}}
-<a-card title="VK Creator (Whitelist Bypass)" hoverable>
-  <a-alert type="info" show-icon style="margin-bottom:16px"
-    message="Cookies и hash через headless-vk-creator"
-    description="1) На ПК откройте WhitelistBypass Creator, войдите в VK, нажмите Export Cookies и возьмите cookies-vk.json. 2) Загрузите файл сюда. 3) Создайте VK hash для пользователя — панель запустит headless-vk-creator на сервере. Creator должен работать, пока клиенты используют звонок.">
-  </a-alert>
+<a-card title="VK Creator" hoverable>
   <a-row :gutter="[16,16]">
     <a-col :xs="24" :md="12">
       <div class="text-muted" style="margin-bottom:8px">Статус</div>
       <a-tag :color="vkCreator.cookies_ok ? 'green' : 'orange'">Cookies: [[ vkCreator.cookies_ok ? 'OK' : 'нет' ]]</a-tag>
-      <a-tag :color="vkCreator.binary_ok ? 'green' : 'orange'" style="margin-left:8px">Binary: [[ vkCreator.binary_ok ? 'OK' : 'нет' ]]</a-tag>
+      <a-tag v-if="vkCreator.auth_logged_in" color="blue" style="margin-left:8px">VK login: OK</a-tag>
       <div style="margin-top:8px;font-size:12px;color:#888">[[ vkCreator.cookies_hint || '' ]]</div>
-      <div style="margin-top:12px">
-        <a-button size="small" :loading="vkCreator.installing" @click="installVkCreator" v-if="!vkCreator.binary_ok">Установить headless-vk-creator</a-button>
-        <a-button size="small" style="margin-left:8px" @click="downloadVkCookieTemplate">Пример cookies-vk.json</a-button>
-      </div>
     </a-col>
     <a-col :xs="24" :md="12">
-      <div class="text-muted" style="margin-bottom:8px">Загрузка cookies</div>
+      <div class="text-muted" style="margin-bottom:8px">Вход по паролю (рекомендуется)</div>
+      <a-input v-model="vkCreator.authLogin" placeholder="Телефон или email" style="margin-bottom:8px"></a-input>
+      <a-input-password v-model="vkCreator.authPassword" placeholder="Пароль VK" style="margin-bottom:8px"></a-input-password>
+      <a-input v-if="vkCreator.authNeed2fa || vkCreator.authNeedCaptcha" v-model="vkCreator.authCode" placeholder="Код 2FA или текст капчи" style="margin-bottom:8px"></a-input>
+      <div v-if="vkCreator.authCaptchaImg" style="margin-bottom:8px">
+        <img :src="vkCreator.authCaptchaImg" alt="captcha" style="max-width:100%;border:1px solid #ddd">
+      </div>
+      <a-space>
+        <a-button type="primary" icon="login" :loading="vkCreator.authLoggingIn" @click="submitVkPasswordLogin">Войти</a-button>
+        <a-button :loading="vkCreator.authLoggingIn" @click="clearVkAuthSession">Сбросить сессию</a-button>
+      </a-space>
+      <div v-if="vkCreator.authLoginMessage" style="margin-top:8px;font-size:12px;color:#888">[[ vkCreator.authLoginMessage ]]</div>
+    </a-col>
+  </a-row>
+  <a-divider></a-divider>
+  <a-row :gutter="[16,16]">
+    <a-col :xs="24" :md="12">
+      <div class="text-muted" style="margin-bottom:8px">Вставка remixsid (надёжный способ)</div>
+      <div style="font-size:12px;color:#888;margin-bottom:8px">Chrome → vk.com (где вы вошли) → F12 → Application → Cookies → vk.com → скопируйте значение <code>remixsid</code> и вставьте ниже.</div>
       <a-textarea v-model="vkCreator.cookiesText" :rows="4"
-        placeholder='[{"name":"remixsid","value":"..."}] или remixsid=...; remixlang=0'></a-textarea>
+        placeholder='remixsid=ЗНАЧЕНИЕ   или   [{"name":"remixsid","value":"..."}]'></a-textarea>
       <a-space style="margin-top:8px">
         <a-upload :before-upload="beforeVkCookiesUpload" :show-upload-list="false" accept=".json,application/json">
           <a-button icon="upload">Файл cookies-vk.json</a-button>
@@ -29,29 +39,63 @@
     </a-col>
   </a-row>
   <a-divider></a-divider>
-  <div class="text-muted" style="margin-bottom:8px">Активные VK creator-процессы</div>
-  <a-table size="small" :pagination="false" :data-source="vkCreator.sessions" :row-key="r => r.pid + '-' + r.started_at"
+
+  <div class="text-muted" style="margin-bottom:8px">Звонки</div>
+  <a-row :gutter="[8,8]" type="flex" align="middle" style="margin-bottom:12px">
+    <a-col flex="auto" :xs="24" :md="14">
+      <a-select
+        show-search
+        v-model="vkCreator.selectedUser"
+        option-filter-prop="children"
+        placeholder="Выберите пользователя (профиль)"
+        style="width:100%"
+        :disabled="!vkCreator.cookies_ok">
+        <a-select-option v-for="u in vkCreator.users" :key="u.password_key || u.password" :value="u.password_key || u.password">
+          [[ u.comment ? (u.comment + ' — ' + u.password) : u.password ]]
+        </a-select-option>
+      </a-select>
+    </a-col>
+    <a-col :xs="24" :md="10">
+      <a-button type="primary" icon="phone"
+        :loading="vkCreator.creatingCall"
+        :disabled="!vkCreator.cookies_ok || !vkCreator.selectedUser"
+        @click="createVkCallForUser">Создать звонок</a-button>
+      <a-button icon="reload" style="margin-left:8px" :loading="vkCreator.sessionsLoading" @click="refreshVkSessions"></a-button>
+    </a-col>
+  </a-row>
+  <div v-if="!vkCreator.cookies_ok" class="text-muted" style="font-size:12px;margin-bottom:12px">
+    Сначала получите cookies (статус «Cookies: OK»), затем создавайте звонки.
+  </div>
+
+  <a-table size="small" :pagination="false" :data-source="vkCreator.sessions" :row-key="r => (r.call_id || r.vk_hash) + '-' + r.started_at"
     v-if="vkCreator.sessions && vkCreator.sessions.length">
-    <a-table-column title="Пользователь" key="password">
-      <template slot-scope="text, row">[[ row.password || '—' ]]</template>
+    <a-table-column title="Профиль" key="password">
+      <template slot-scope="text, row">[[ vkUserLabel(row.password) ]]</template>
     </a-table-column>
     <a-table-column title="VK hash" key="vk_hash">
       <template slot-scope="text, row"><code style="font-size:11px">[[ row.vk_hash ]]</code></template>
     </a-table-column>
-    <a-table-column title="PID" key="pid" width="80">
-      <template slot-scope="text, row">[[ row.pid ]]</template>
-    </a-table-column>
-    <a-table-column title="Статус" key="running" width="90">
+    <a-table-column title="Состояние" key="running" width="140">
       <template slot-scope="text, row">
-        <a-tag :color="row.running ? 'green' : 'red'">[[ row.running ? 'run' : 'stop' ]]</a-tag>
+        <span class="vk-dot" :class="row.finishing && row.running ? 'vk-dot-finishing' : (row.running ? 'vk-dot-alive' : 'vk-dot-dead')"></span>
+        <span :style="{ color: row.finishing && row.running ? '#fa8c16' : (row.running ? '#52c41a' : '#ff4d4f') }">
+          [[ row.finishing && row.running ? 'завершается' : (row.running ? 'живой' : 'мёртвый') ]]
+        </span>
       </template>
     </a-table-column>
     <a-table-column title="" key="action" width="90">
       <template slot-scope="text, row">
-        <a-button size="small" type="danger" @click="stopVkSession(row.password)">Stop</a-button>
+        <a-button size="small" type="danger" :disabled="row.finishing" @click="stopVkSession(row.password, row.call_id)">Завершить</a-button>
       </template>
     </a-table-column>
   </a-table>
-  <div v-else class="text-muted" style="font-size:12px">Нет активных creator-сессий</div>
+  <div v-else class="text-muted" style="font-size:12px">Звонков пока нет</div>
 </a-card>
+<style>
+  .vk-dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .vk-dot-alive { background:#52c41a; animation: vkBlink 1s ease-in-out infinite; box-shadow:0 0 4px #52c41a; }
+  .vk-dot-finishing { background:#fa8c16; animation: vkBlink 1.5s ease-in-out infinite; box-shadow:0 0 4px #fa8c16; }
+  .vk-dot-dead { background:#ff4d4f; }
+  @keyframes vkBlink { 0%,100% { opacity:1; } 50% { opacity:0.2; } }
+</style>
 {{end}}

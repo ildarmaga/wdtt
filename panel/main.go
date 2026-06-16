@@ -124,9 +124,17 @@ func Run() error {
 	mux.HandleFunc(api+"vk/cookies", app.requireAuthCSRF(app.handleVKCreatorSaveCookies))
 	mux.HandleFunc(api+"vk/cookies/clear", app.requireAuthCSRF(app.handleVKCreatorClearCookies))
 	mux.HandleFunc(api+"vk/cookies/template", app.requireAuthCSRF(app.handleVKCreatorExportCookiesTemplate))
-	mux.HandleFunc(api+"vk/install", app.requireAuthCSRF(app.handleVKCreatorInstallBinary))
 	mux.HandleFunc(api+"vk/call/create", app.requireAuthCSRF(app.handleVKCreatorCreateCall))
 	mux.HandleFunc(api+"vk/call/stop", app.requireAuthCSRF(app.handleVKCreatorStopCall))
+	mux.HandleFunc(api+"vk/auth/status", app.requireAuthCSRF(app.handleVKAuthStatus))
+	mux.HandleFunc(api+"vk/auth/login", app.requireAuthCSRF(app.handleVKAuthLogin))
+	mux.HandleFunc(api+"vk/auth/save", app.requireAuthCSRF(app.handleVKAuthSave))
+	mux.HandleFunc(api+"vk/auth/clear", app.requireAuthCSRF(app.handleVKAuthClear))
+	mux.HandleFunc(base+"panel/vk/login", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, base+"panel/vk/login/", http.StatusFound)
+	})
+	mux.HandleFunc(base+"panel/vk/login/", app.handleVKLoginProxy)
+	registerVKLoginAssetFallbacks(mux, app)
 
 	return startPanelServer(cfg, gzipMiddleware(mux))
 }

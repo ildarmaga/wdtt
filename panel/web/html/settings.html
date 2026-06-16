@@ -227,11 +227,27 @@
       vkCreator: {
         cookies_ok: false,
         cookies_hint: '',
-        binary_ok: false,
         sessions: [],
         cookiesText: '',
         saving: false,
-        installing: false,
+        auth_logged_in: false,
+        authSaving: false,
+        authPoll: null,
+        authLogin: '',
+        authPassword: '',
+        authCode: '',
+        authCaptchaSid: '',
+        authCaptchaImg: '',
+        authValidationSid: '',
+        authNeed2fa: false,
+        authNeedCaptcha: false,
+        authLoggingIn: false,
+        authLoginMessage: '',
+        users: [],
+        selectedUser: undefined,
+        creatingCall: false,
+        sessionsLoading: false,
+        sessionsPoll: null,
       },
       lang: LanguageManager.getLanguage(),
       remarkModels: { i: 'Inbound', e: 'Email', o: 'Other' },
@@ -670,6 +686,142 @@
         if (msg && msg.success && msg.obj) {
           Object.assign(this.vkCreator, msg.obj, { cookiesText: this.vkCreator.cookiesText });
         }
+        await this.pollVkAuthStatus();
+        await this.loadVkUsers();
+        if (this.vkCreator.sessionsPoll) clearInterval(this.vkCreator.sessionsPoll);
+        this.vkCreator.sessionsPoll = setInterval(() => this.refreshVkSessions(true), 5000);
+      },
+      async loadVkUsers() {
+        const msg = await axios.get('panel/api/users').then(r => r.data).catch(() => null);
+        if (msg && msg.success && msg.obj) {
+          this.vkCreator.users = (msg.obj.users || []).filter(u => u && u.password);
+        }
+      },
+      vkUserLabel(password) {
+        if (!password) return '—';
+        const u = (this.vkCreator.users || []).find(x => x.password_key === password || x.password === password);
+        return u && u.comment ? (u.comment + ' — ' + u.password) : (u ? u.password : password);
+      },
+      async refreshVkSessions(silent) {
+        if (!silent) this.vkCreator.sessionsLoading = true;
+        const msg = await HttpUtil.get('/panel/api/vk/status');
+        if (msg && msg.success && msg.obj) {
+          this.vkCreator.sessions = msg.obj.sessions || [];
+          this.vkCreator.cookies_ok = msg.obj.cookies_ok;
+          this.vkCreator.cookies_hint = msg.obj.cookies_hint;
+        }
+        if (!silent) this.vkCreator.sessionsLoading = false;
+      },
+      async createVkCallForUser() {
+        const password = (this.vkCreator.selectedUser || '').trim();
+        if (!password) { this.$message.warning('Выберите пользователя'); return; }
+        this.vkCreator.creatingCall = true;
+        try {
+          const msg = await HttpUtil.post('/panel/api/vk/call/create', { password, apply: true });
+          if (!msg || !msg.success) {
+            this.$message.error((msg && msg.msg) || 'Не удалось создать звонок');
+            return;
+          }
+          const hash = (msg.obj && msg.obj.vk_hash) || '';
+          this.$message.success(hash ? ('Звонок создан: ' + hash) : 'Звонок создан');
+          if (msg.obj && msg.obj.sessions) {
+            this.vkCreator.sessions = msg.obj.sessions;
+            this.vkCreator.cookies_ok = msg.obj.cookies_ok;
+          } else {
+            await this.refreshVkSessions();
+          }
+          await this.loadVkUsers();
+        } finally {
+          this.vkCreator.creatingCall = false;
+        }
+      },
+      async submitVkPasswordLogin() {
+        this.vkCreator.authLoggingIn = true;
+        const payload = {
+          login: this.vkCreator.authLogin || '',
+          password: this.vkCreator.authPassword || '',
+        };
+        if (this.vkCreator.authNeedCaptcha) {
+          payload.captcha_sid = this.vkCreator.authCaptchaSid || '';
+          payload.captcha_key = this.vkCreator.authCode || '';
+        }
+        if (this.vkCreator.authNeed2fa) {
+          payload.code = this.vkCreator.authCode || '';
+          payload.validation_sid = this.vkCreator.authValidationSid || '';
+        }
+        const msg = await HttpUtil.post('/panel/api/vk/auth/login', payload);
+        this.vkCreator.authLoggingIn = false;
+        if (!msg || !msg.success) {
+          this.$message.error((msg && msg.msg) || 'ошибка входа');
+          return;
+        }
+        const o = msg.obj || {};
+        this.vkCreator.authLoginMessage = o.login_message || '';
+        if (o.login_status === 'ok') {
+          this.vkCreator.authNeed2fa = false;
+          this.vkCreator.authNeedCaptcha = false;
+          this.vkCreator.authCaptchaImg = '';
+          this.vkCreator.authCode = '';
+          this.vkCreator.auth_logged_in = true;
+          Object.assign(this.vkCreator, o, {
+            authLogin: this.vkCreator.authLogin,
+            authPassword: '',
+            authCode: '',
+          });
+          this.$message.success(o.login_message || 'VK cookies сохранены');
+          return;
+        }
+        if (o.login_status === 'need_captcha') {
+          this.vkCreator.authNeedCaptcha = true;
+          this.vkCreator.authNeed2fa = false;
+          this.vkCreator.authCaptchaSid = o.captcha_sid || '';
+          this.vkCreator.authCaptchaImg = o.captcha_img || '';
+          this.vkCreator.authCode = '';
+          this.$message.warning(o.login_message || 'Введите капчу');
+          return;
+        }
+        if (o.login_status === 'need_2fa') {
+          this.vkCreator.authNeed2fa = true;
+          this.vkCreator.authNeedCaptcha = false;
+          this.vkCreator.authValidationSid = o.validation_sid || '';
+          this.vkCreator.authCode = '';
+          this.$message.warning(o.login_message || 'Введите код 2FA');
+          return;
+        }
+        this.$message.error(o.login_message || 'не удалось войти');
+      },
+      async clearVkAuthSession() {
+        const msg = await HttpUtil.post('/panel/api/vk/auth/clear', {});
+        if (msg && msg.success) {
+          this.vkCreator.auth_logged_in = false;
+          this.vkCreator.authNeed2fa = false;
+          this.vkCreator.authNeedCaptcha = false;
+          this.vkCreator.authCaptchaImg = '';
+          this.vkCreator.authCode = '';
+          this.vkCreator.authLoginMessage = '';
+          this.$message.success('Сессия VK login сброшена');
+        }
+      },
+      async pollVkAuthStatus() {
+        const msg = await HttpUtil.get('/panel/api/vk/auth/status');
+        if (msg && msg.success && msg.obj) {
+          this.vkCreator.auth_logged_in = !!msg.obj.logged_in;
+          if (msg.obj.logged_in && this.vkCreator.authPoll) {
+            clearInterval(this.vkCreator.authPoll);
+            this.vkCreator.authPoll = null;
+          }
+        }
+      },
+      async saveVkAuthCookies() {
+        this.vkCreator.authSaving = true;
+        const msg = await HttpUtil.post('/panel/api/vk/auth/save', {});
+        this.vkCreator.authSaving = false;
+        if (msg.success) {
+          this.$message.success('VK cookies сохранены из сессии входа');
+          Object.assign(this.vkCreator, msg.obj || {}, { cookiesText: this.vkCreator.cookiesText });
+        } else {
+          this.$message.error(msg.msg || 'ошибка');
+        }
       },
       async saveVkCookies() {
         this.vkCreator.saving = true;
@@ -700,25 +852,16 @@
           this.$message.error(msg.msg || 'ошибка');
         }
       },
-      async installVkCreator() {
-        this.vkCreator.installing = true;
-        const msg = await HttpUtil.post('/panel/api/vk/install', {});
-        this.vkCreator.installing = false;
+      async stopVkSession(password, callId) {
+        const msg = await HttpUtil.post('/panel/api/vk/call/stop', {
+          password: password || '',
+          call_id: callId || '',
+        });
         if (msg.success) {
-          this.$message.success('headless-vk-creator установлен');
-          Object.assign(this.vkCreator, msg.obj || {});
-        } else {
-          this.$message.error(msg.msg || 'ошибка установки');
-        }
-      },
-      downloadVkCookieTemplate() {
-        window.location = basePath + 'panel/api/vk/cookies/template';
-      },
-      async stopVkSession(password) {
-        const msg = await HttpUtil.post('/panel/api/vk/call/stop', { password: password || '' });
-        if (msg.success) {
-          Object.assign(this.vkCreator, msg.obj || {});
-          this.$message.success('Creator остановлен');
+          this.vkCreator.sessions = (msg.obj && msg.obj.sessions) || [];
+          this.vkCreator.cookies_ok = msg.obj && msg.obj.cookies_ok;
+          this.vkCreator.cookies_hint = msg.obj && msg.obj.cookies_hint;
+          this.$message.success('Запрос на завершение отправлен');
         } else {
           this.$message.error(msg.msg || 'ошибка');
         }

@@ -5,6 +5,7 @@ wdtt-panel
 wdtt-panel-*
 wdtt-linux-*
 panel/wdtt-panel
+panel/bundled/
 
 # Go
 *.test
