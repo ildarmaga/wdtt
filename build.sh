@@ -53,7 +53,11 @@ build_unified() {
     arm64) out=wdtt-linux-arm64 ;;
   esac
   chmod +x scripts/bundle-panel-core.sh
-  scripts/bundle-panel-core.sh
+  if [[ "${WDTT_SKIP_BUNDLE:-}" == "1" && -f panel/web/assets/js/panel-core.min.js ]]; then
+    echo "SKIP: panel-core.min.js (WDTT_SKIP_BUNDLE=1)"
+  else
+    scripts/bundle-panel-core.sh
+  fi
   local version="${WDTT_VERSION:-}"
   if [[ -z "$version" ]]; then
     version="$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo 1.4.0)"

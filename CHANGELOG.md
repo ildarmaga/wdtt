@@ -2,6 +2,12 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.23] — 2026-06-16
+
+### Исправлено
+- **bundle-panel-core.sh** — без `esbuild`/`npx` использует уже закоммиченный `panel-core.min.js` (install на чистом VPS не падает).
+- **wdtt-install v1.4.23** — предупреждение при неудачном download; fallback-сборка с `WDTT_SKIP_BUNDLE=1`; portable парсинг GitHub API без `grep -P`.
+
 ## [1.4.22] — 2026-06-16
 
 ### Изменено

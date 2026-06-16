@@ -16,8 +16,14 @@ cat \
 
 if command -v esbuild >/dev/null 2>&1; then
   esbuild "$TMP" --minify --outfile="$OUT" --allow-overwrite
-else
+elif command -v npx >/dev/null 2>&1; then
   npx --yes esbuild "$TMP" --minify --outfile="$OUT" --allow-overwrite
+elif [[ -f "$OUT" ]]; then
+  echo "SKIP: panel-core.min.js (no esbuild/npx, using committed bundle)"
+  exit 0
+else
+  cp "$TMP" "$OUT"
+  echo "WARN: panel-core.min.js unminified (no esbuild/npx)"
 fi
 
 echo "OK: panel-core.min.js ($(wc -c < "$OUT") bytes)"
