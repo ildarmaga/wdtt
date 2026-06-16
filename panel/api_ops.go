@@ -99,12 +99,12 @@ func fetchServiceLogLines(count int, serviceKey, level string, syslog bool) []st
 				fetchCount = 250
 			}
 		} else {
-			fetchCount = count * 2
-			if fetchCount < 60 {
-				fetchCount = 60
+			fetchCount = count * 8
+			if fetchCount < 200 {
+				fetchCount = 200
 			}
-			if fetchCount > 150 {
-				fetchCount = 150
+			if fetchCount > 500 {
+				fetchCount = 500
 			}
 		}
 	}

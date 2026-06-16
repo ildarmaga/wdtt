@@ -423,13 +423,15 @@
       <a-collapse-panel key="1" header='Xray'>
         <a-alert type="warning" class="mb-12 w-100" message='{{ i18n "pages.index.xraySwitchClickDesk" }}'
           show-icon></a-alert>
-        <a-list class="ant-version-list w-100" bordered>
-          <a-list-item class="ant-version-list-item" v-for="version, index in versionModal.versions">
-            <a-tag :color="index % 2 == 0 ? 'purple' : 'green'">[[ version ]]</a-tag>
-            <a-radio :class="themeSwitcher.currentTheme" :checked="version === `v${status.xray.version}`"
-              @click="switchV2rayVersion(version)"></a-radio>
-          </a-list-item>
-        </a-list>
+        <div class="xray-version-list-wrap">
+          <a-list class="ant-version-list w-100" bordered>
+            <a-list-item class="ant-version-list-item" v-for="version, index in versionModal.versions">
+              <a-tag :color="index % 2 == 0 ? 'purple' : 'green'">[[ version ]]</a-tag>
+              <a-radio :class="themeSwitcher.currentTheme" :checked="version === `v${status.xray.version}`"
+                @click="switchV2rayVersion(version)"></a-radio>
+            </a-list-item>
+          </a-list>
+        </div>
       </a-collapse-panel>
       <a-collapse-panel key="2" header='Geofiles'>
         <a-list class="ant-version-list w-100" bordered>

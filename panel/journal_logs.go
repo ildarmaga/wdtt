@@ -22,16 +22,12 @@ func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool
 	if !syslog && unit != "" {
 		args = append([]string{"-u", unit}, args...)
 	}
-	// WDTT stats every few seconds — exclude at source to avoid scanning hundreds of lines.
-	if serviceKey == "wdtt" && !syslog {
-		args = append(args, "--grep=\\[СТАТ\\]", "-v")
-	}
 	out, _ := runCmd("journalctl", args...)
 	source := logSourceForService(unit, serviceKey)
 	lines := make([]string, 0, count)
 	for _, raw := range strings.Split(out, "\n") {
 		raw = strings.TrimSpace(raw)
-		if raw == "" {
+		if raw == "" || skipJournalNoise(raw, serviceKey) {
 			continue
 		}
 		if serviceKey == "panel" && needsUnifiedLogFilter(serviceKey, unit) {
@@ -46,6 +42,13 @@ func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool
 		}
 	}
 	return lines
+}
+
+func skipJournalNoise(raw, serviceKey string) bool {
+	if serviceKey == "wdtt" && strings.Contains(raw, "[СТАТ]") {
+		return true
+	}
+	return false
 }
 
 func normalizeLogLevelFilter(level string) string {
@@ -124,17 +127,21 @@ func stripServiceLogPrefix(body string) string {
 
 func formatJournalLine(message string, priority int, realtimeUS, source string) string {
 	date, clock, body := splitLogTimestamp(message, realtimeUS)
+	if strings.TrimSpace(body) == "" {
+		body = strings.TrimSpace(message)
+	}
 	body = strings.TrimSpace(body)
 	body = xrayLevelTagRe.ReplaceAllString(body, "")
 	body = stripServiceLogPrefix(body)
-
-	level := inferLogLevel(body, priority)
 	if body == "" {
-		body = strings.TrimSpace(xrayLevelTagRe.ReplaceAllString(message, ""))
-	}
-	if date == "" {
 		return ""
 	}
+	if date == "" {
+		now := time.Now()
+		date = now.Format("2006/01/02")
+		clock = now.Format("15:04:05")
+	}
+	level := inferLogLevel(body, priority)
 	return date + " " + clock + " " + level + " - " + source + ": " + body
 }
 

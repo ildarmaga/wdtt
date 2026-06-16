@@ -2,6 +2,13 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.32] — 2026-06-16
+
+### Исправлено
+- **Журнал WDTT/Xray** — убран `journalctl --grep/-v` (не поддерживается на части systemd); фильтр `[СТАТ]` в коде; строки без timestamp из journal больше не отбрасываются.
+- **Журнал Xray (access log)** — fallback на `/var/log/wdtt-xray/access.log`, если в config `none`, но файл есть; при idle показываются internal `api -> api` строки вместо пустого «No Record...».
+- **Выбор версии Xray** — обёртка `.xray-version-list-wrap` в HTML (CSS v1.4.31 без неё не работала).
+
 ## [1.4.31] — 2026-06-16
 
 ### Исправлено

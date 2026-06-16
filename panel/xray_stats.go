@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -71,6 +72,10 @@ func getAccessLogPath() (string, error) {
 	logCfg, _ := cfg["log"].(map[string]interface{})
 	access, _ := logCfg["access"].(string)
 	if access == "" || access == "none" {
+		fallback := defaultXrayAccessLog()
+		if _, err := os.Stat(fallback); err == nil {
+			return fallback, nil
+		}
 		return "", fmt.Errorf("access log not configured")
 	}
 	return access, nil
@@ -128,12 +133,6 @@ func isFilterFalse(v interface{}) bool {
 }
 
 func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy interface{}) []XrayLogEntry {
-	const (
-		directEvent = iota
-		blockedEvent
-		proxiedEvent
-	)
-
 	freedoms, blackholes := getDefaultLogOutboundTags()
 	pathToAccessLog, err := getAccessLogPath()
 	if err != nil {
@@ -152,10 +151,27 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 		return nil
 	}
 
+	entries := parseXrayAccessLogLines(rawLines, count, filter, showDirect, showBlocked, showProxy, freedoms, blackholes, true)
+	if len(entries) == 0 {
+		entries = parseXrayAccessLogLines(rawLines, count, filter, showDirect, showBlocked, showProxy, freedoms, blackholes, false)
+	}
+	return entries
+}
+
+func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDirect, showBlocked, showProxy interface{}, freedoms, blackholes []string, skipInternalAPI bool) []XrayLogEntry {
+	const (
+		directEvent = iota
+		blockedEvent
+		proxiedEvent
+	)
+
 	var entries []XrayLogEntry
 	for _, line := range rawLines {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.Contains(line, "api -> api") {
+		if line == "" {
+			continue
+		}
+		if skipInternalAPI && strings.Contains(line, "api -> api") {
 			continue
 		}
 		if !strings.Contains(line, " accepted ") && !strings.Contains(line, " rejected ") {
@@ -211,7 +227,6 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 	if count > 0 && len(entries) > count {
 		entries = entries[len(entries)-count:]
 	}
-	// Newest first (как 3x-ui).
 	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
 		entries[i], entries[j] = entries[j], entries[i]
 	}
