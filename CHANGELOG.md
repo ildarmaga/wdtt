@@ -2,6 +2,12 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.22] — 2026-06-16
+
+### Изменено
+- **deploy.sh v3.5** — скачивание `wdtt-linux-*` из GitHub Releases (`WDTT_VERSION` / latest); отключение legacy `wdtt-panel.service`; cleanup `wdtt-panel`/`wdtt-app` бинарников.
+- **wdtt-install v1.4.22** — актуальный help (`update --version v1.4.22`); синхронизация с deploy.
+
 ## [1.4.21] — 2026-06-16
 
 ### Удалено

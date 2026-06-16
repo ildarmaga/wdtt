@@ -2,7 +2,7 @@
 # ==============================================================================
 #  WDTT VPN Server — Универсальный установщик для VPS
 #  Поддержка: Debian 11+, Ubuntu 20.04+, CentOS/RHEL/Fedora/AlmaLinux/Rocky
-#  Версия: 3.4  |  Дата: 2026-06-16
+#  Версия: 3.5  |  Дата: 2026-06-16
 #  Unified: panel + VPN в wdtt-app; порты/DNS/лимиты — в panel.db (не в systemd)
 #  NAT:  MASQUERADE через iptables
 #  WG:   порт 56001 (не конфликтует с существующим WG на 51820)
@@ -10,7 +10,9 @@
 # ==============================================================================
 set -uo pipefail
 
-readonly SCRIPT_VERSION="3.4"
+readonly SCRIPT_VERSION="3.5"
+readonly WDTT_GITHUB_USER="${WDTT_GITHUB_USER:-ildarmaga}"
+readonly WDTT_BIN="/usr/local/bin/wdtt-app"
 readonly LOG_FILE="/var/log/wdtt-install.log"
 readonly WG_PORT="${WDTT_WG_PORT:-56001}"
 readonly DTLS_PORT="${WDTT_DTLS_PORT:-56000}"
@@ -348,17 +350,61 @@ cleanup_config_dir_keep_access_db() {
 #  WDTT VPN SERVER DEPLOYMENT
 # ══════════════════════════════════════════════════════════════════════════════
 
+detect_goarch() {
+    case "$(uname -m 2>/dev/null)" in
+        x86_64|amd64) echo amd64 ;;
+        aarch64|arm64) echo arm64 ;;
+        *) echo amd64 ;;
+    esac
+}
+
+disable_legacy_panel_service() {
+    systemctl stop wdtt-panel.service 2>/dev/null || true
+    systemctl disable wdtt-panel.service 2>/dev/null || true
+    rm -f /etc/systemd/system/wdtt-panel.service
+    systemctl daemon-reload 2>/dev/null || true
+}
+
+# Скачивание wdtt-linux-* из GitHub Releases (как wdtt-install).
+download_wdtt_release() {
+    local tag="${WDTT_VERSION:-latest}"
+    local arch asset api json url tmp
+    command -v curl >/dev/null || return 1
+    arch="$(detect_goarch)"
+    asset="wdtt-linux-${arch}"
+    tmp="/tmp/${asset}.download"
+    if [ "$tag" = "latest" ]; then
+        api="https://api.github.com/repos/${WDTT_GITHUB_USER}/wdtt/releases/latest"
+    else
+        tag="${tag#v}"
+        api="https://api.github.com/repos/${WDTT_GITHUB_USER}/wdtt/releases/tags/v${tag}"
+    fi
+    json="$(curl -fsSL "$api" 2>/dev/null)" || return 1
+    url="$(echo "$json" | grep -o "https://[^\"]*${asset}[^\"]*" | head -1)"
+    [ -n "$url" ] || return 1
+    curl -fsSL "$url" -o "$tmp" || return 1
+    chmod +x "$tmp"
+    install -m 0755 "$tmp" "$WDTT_BIN"
+    rm -f "$tmp"
+    local rel_tag
+    rel_tag="$(echo "$json" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\(v[^"]*\)".*/\1/')"
+    log_info "wdtt скачан из GitHub Releases (${rel_tag:-latest}, ${asset})"
+    return 0
+}
+
 # ─── Очистка старого WDTT ─────────────────────────────────────────────────────
 wdtt_cleanup() {
     prog 0.05 "Очистка..."
     echo "🧹 Очистка старой установки WDTT..."
 
+    disable_legacy_panel_service
     systemctl unmask wdtt 2>/dev/null || true
     systemctl stop wdtt 2>/dev/null || true
     systemctl disable wdtt 2>/dev/null || true
     rm -f /etc/systemd/system/wdtt.service 2>/dev/null || true
     systemctl daemon-reload 2>/dev/null || true
-    pkill -x wdtt 2>/dev/null || pkill -x wdtt-server 2>/dev/null || killall wdtt wdtt-server 2>/dev/null || true
+    pkill -x wdtt-app 2>/dev/null || true
+    pkill -x wdtt 2>/dev/null || pkill -x wdtt-server 2>/dev/null || pkill -x wdtt-panel 2>/dev/null || killall wdtt wdtt-server wdtt-panel 2>/dev/null || true
 
     # Удаляем только собственный интерфейс WDTT.
     ip link show "$WDTT_IFACE" >/dev/null 2>&1 && ip link del "$WDTT_IFACE" 2>/dev/null || true
@@ -366,7 +412,7 @@ wdtt_cleanup() {
     # Удаляем старые правила NAT для WDTT подсети
     fw_cleanup_wdtt_rules "$(detect_wan_interface)"
 
-    rm -f /usr/local/bin/wdtt-app /usr/local/bin/wdtt-server 2>/dev/null || true
+    rm -f /usr/local/bin/wdtt-app /usr/local/bin/wdtt-server /usr/local/bin/wdtt-panel 2>/dev/null || true
     cleanup_config_dir_keep_access_db
 
     echo "✓ Очистка завершена (passwords.json и panel.db сохранены)"
@@ -433,13 +479,15 @@ setup_wdtt_binary() {
 
     if [ -f /tmp/wdtt ]; then
         chmod +x /tmp/wdtt
-        install -m 0755 /tmp/wdtt /usr/local/bin/wdtt-app 2>/dev/null || mv /tmp/wdtt /usr/local/bin/wdtt-app
-        echo "✓ wdtt установлен"
-    elif [ -f /usr/local/bin/wdtt-app ]; then
-        echo "✓ wdtt уже установлен"
+        install -m 0755 /tmp/wdtt "$WDTT_BIN" 2>/dev/null || mv /tmp/wdtt "$WDTT_BIN"
+        echo "✓ wdtt установлен из /tmp/wdtt"
+    elif download_wdtt_release; then
+        echo "✓ wdtt установлен из GitHub Releases"
+    elif [ -f "$WDTT_BIN" ]; then
+        echo "✓ wdtt уже установлен ($WDTT_BIN)"
     else
-        echo "⚠ wdtt не найден в /tmp/ — пропускаем"
-        echo "  Загрузите бинарник wdtt-linux-amd64 в /usr/local/bin/wdtt-app"
+        log_warn "wdtt не найден: положите бинарник в /tmp/wdtt или задайте WDTT_VERSION=vX.Y.Z"
+        echo "  curl -fsSL -o $WDTT_BIN https://github.com/${WDTT_GITHUB_USER}/wdtt/releases/latest/download/wdtt-linux-$(detect_goarch)"
     fi
 
     mkdir -p "$WDTT_CONFIG_DIR"
@@ -513,6 +561,7 @@ WDTTSVC
     echo "✓ unit: ExecStart только -config-dir (порты VPN → panel.db / Подключения)"
 
     install_wdtt_mtu_rules_script || true
+    disable_legacy_panel_service
     systemctl daemon-reload
     systemctl unmask wdtt >/dev/null 2>&1 || true
     systemctl enable wdtt >/dev/null 2>&1 || true
@@ -563,17 +612,19 @@ start_wdtt() {
 do_uninstall() {
     log_step "Удаление WDTT..."
 
+    disable_legacy_panel_service
     systemctl stop wdtt 2>/dev/null || true
     systemctl disable wdtt 2>/dev/null || true
     rm -f /etc/systemd/system/wdtt.service
     systemctl daemon-reload
 
     ip link show "$WDTT_IFACE" >/dev/null 2>&1 && ip link del "$WDTT_IFACE" 2>/dev/null || true
-    pkill -x wdtt 2>/dev/null || pkill -x wdtt-server 2>/dev/null || true
+    pkill -x wdtt-app 2>/dev/null || true
+    pkill -x wdtt 2>/dev/null || pkill -x wdtt-server 2>/dev/null || pkill -x wdtt-panel 2>/dev/null || true
 
     fw_cleanup_wdtt_rules "$(detect_wan_interface)"
 
-    rm -f /usr/local/bin/wdtt-app /usr/local/bin/wdtt-server
+    rm -f "$WDTT_BIN" /usr/local/bin/wdtt-server /usr/local/bin/wdtt-panel
     cleanup_config_dir_keep_access_db
     rm -f /etc/sysctl.d/99-wdtt.conf
     sysctl --system >/dev/null 2>&1 || true
