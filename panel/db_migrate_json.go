@@ -220,7 +220,9 @@ func ensureDefaultWdttData() {
 		Passwords: map[string]*PasswordEntry{},
 		Devices:   map[string]*DeviceEntry{},
 	}
-	if pass := passwordFromWdttService(); pass != "" {
+	if pass := readDeployMainPassword(); pass != "" {
+		db.MainPassword = pass
+	} else if pass := passwordFromWdttService(); pass != "" {
 		db.MainPassword = pass
 	}
 	if err := savePasswordsNorm(db); err != nil {
@@ -228,7 +230,7 @@ func ensureDefaultWdttData() {
 		return
 	}
 	if db.MainPassword != "" {
-		log.Printf("panel db: seeded wdtt_users (main password from wdtt.service)")
+		log.Printf("panel db: seeded wdtt_users (main password from install env or legacy unit)")
 	}
 }
 
