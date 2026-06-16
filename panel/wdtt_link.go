@@ -17,7 +17,7 @@ func decodeWdttShareLink(link string) (WdttSharePayload, error) {
 	return sharelink.Decode(link)
 }
 
-func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, _ string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) (string, error) {
+func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) (string, error) {
 	inbound.normalize()
 	host := strings.TrimSpace(inbound.ServerHost)
 	if host == "" {
@@ -44,4 +44,72 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, _ string
 		SubURL:   subURL,
 		DtlsPort: dtls,
 	})
+}
+
+// buildAllSubscriptionLinks — все форматы из вкладки «Подключения» профиля.
+func buildAllSubscriptionLinks(linkHost, password, remark, vpnTitle string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) (links, titles []string, err error) {
+	jsonLink, err := buildWdttShareLink(linkHost, password, remark, vpnTitle, "", "", entry, inbound, subURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	inbound.normalize()
+	host := strings.TrimSpace(inbound.ServerHost)
+	if host == "" {
+		host = linkHost
+	}
+	dtls, wg, client := resolveUserPorts(entry, inbound)
+	name := strings.TrimSpace(remark)
+	if name == "" && entry != nil {
+		name = strings.TrimSpace(entry.Comment)
+	}
+	if name == "" {
+		name = "WDTT"
+	}
+	vkHash := ""
+	if entry != nil {
+		vkHash = entry.VkHash
+	}
+	base := sharelink.ColonLinkParams{
+		Host: host, Password: password, Name: name, VkHash: vkHash,
+		DtlsPort: dtls, WgPort: wg,
+	}
+	candidates := []struct {
+		title string
+		link  string
+	}{
+		{"WDTT JSON", jsonLink},
+		{"iOS — VK Turn Proxy", sharelink.BuildColonLink(sharelink.ColonLinkParams{
+			Host: base.Host, Password: base.Password, Name: base.Name, VkHash: base.VkHash,
+			DtlsPort: base.DtlsPort, WgPort: base.WgPort, HashLimit: 1,
+		})},
+		{"Android — WDTT", sharelink.BuildColonLink(sharelink.ColonLinkParams{
+			Host: base.Host, Password: base.Password, Name: base.Name, VkHash: base.VkHash,
+			DtlsPort: base.DtlsPort, WgPort: base.WgPort, LocalPort: client,
+		})},
+		{"PWDTT — Desktop", sharelink.BuildColonLink(sharelink.ColonLinkParams{
+			Host: base.Host, Password: base.Password, Name: base.Name, VkHash: base.VkHash,
+			DtlsPort: base.DtlsPort, WgPort: base.WgPort, WithName: true,
+		})},
+		{"WDTT — Windows", sharelink.BuildColonLink(sharelink.ColonLinkParams{
+			Host: base.Host, Password: base.Password, Name: base.Name, VkHash: base.VkHash,
+			DtlsPort: base.DtlsPort, WgPort: base.WgPort, WithName: true,
+		})},
+		{"qWDTT", sharelink.BuildQwdttLink(sharelink.QwdttLinkParams{
+			Host: host, Password: password, Name: name, VkHash: vkHash, Port: client,
+		})},
+	}
+	seen := make(map[string]struct{})
+	for _, c := range candidates {
+		link := strings.TrimSpace(c.link)
+		if link == "" {
+			continue
+		}
+		if _, ok := seen[link]; ok {
+			continue
+		}
+		seen[link] = struct{}{}
+		links = append(links, link)
+		titles = append(titles, c.title)
+	}
+	return links, titles, nil
 }

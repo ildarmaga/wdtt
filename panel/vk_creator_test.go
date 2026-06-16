@@ -70,3 +70,17 @@ func TestVKCallsDBRoundtrip(t *testing.T) {
 		t.Fatalf("expected empty, got %d", len(list))
 	}
 }
+
+func TestSubtractVKHashes(t *testing.T) {
+	merged := mergeVKHashes("hash1,hash2", "hash3")
+	got := subtractVKHashes(merged, []string{"hash2"})
+	if got != "hash1,hash3" {
+		t.Fatalf("got %q", got)
+	}
+	if subtractVKHashes("a,b", []string{"c"}) != "a,b" {
+		t.Fatal("unchanged when hash not present")
+	}
+	if subtractVKHashes("only", []string{"only"}) != "" {
+		t.Fatal("expected empty")
+	}
+}

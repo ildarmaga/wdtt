@@ -56,7 +56,7 @@ func vkCreatorStatus() map[string]interface{} {
 	for _, s := range sessions {
 		running := vkCallAlive(s.JoinLink)
 		if s.Finishing && !running {
-			_ = deleteVKCreatorSessions("", s.CallID)
+			_ = dropVKCreatorSession(s)
 			continue
 		}
 		active = append(active, map[string]interface{}{
@@ -166,8 +166,10 @@ func createVKCall(password string) (joinLink, hash string, sess vkCreatorSession
 		if err := finishVKCalls(cookieHeader, old); err != nil {
 			return "", "", sess, err
 		}
-		if err := deleteVKCreatorSessions(realPass, ""); err != nil {
-			return "", "", sess, err
+		for _, s := range old {
+			if err := dropVKCreatorSession(s); err != nil {
+				return "", "", sess, err
+			}
 		}
 	}
 
@@ -275,6 +277,61 @@ func applyVKHashToUser(password, hash string) error {
 		MaxDevices:  entry.MaxDevices,
 	}
 	return updateUser(realPass, realPass, req, false)
+}
+
+func removeVKHashFromUser(password, hash string) error {
+	realPass, err := resolveUserPassword(password)
+	if err != nil {
+		return err
+	}
+	toRemove := vkhash.Parse(hash, 0)
+	if len(toRemove) == 0 {
+		return nil
+	}
+	db, err := loadPasswords()
+	if err != nil {
+		return err
+	}
+	entry, ok := db.Passwords[realPass]
+	if !ok || entry == nil {
+		return nil
+	}
+	remaining := subtractVKHashes(entry.VkHash, toRemove)
+	if remaining == entry.VkHash {
+		return nil
+	}
+	active := !entry.IsDeactivated
+	req := userAPIReq{
+		Password:    realPass,
+		Comment:     entry.Comment,
+		ExpiresAt:   entry.ExpiresAt,
+		TotalGB:     bytesToGB(entry.TotalBytes),
+		MaxDownMBps: entry.MaxDownMBps,
+		MaxUpMBps:   entry.MaxUpMBps,
+		Active:      &active,
+		Ports:       entry.Ports,
+		VkHash:      remaining,
+		MaxDevices:  entry.MaxDevices,
+	}
+	return updateUser(realPass, realPass, req, false)
+}
+
+func subtractVKHashes(existing string, remove []string) string {
+	removeSet := make(map[string]struct{}, len(remove))
+	for _, h := range remove {
+		removeSet[h] = struct{}{}
+	}
+	var out []string
+	for _, p := range vkhash.Parse(existing, 0) {
+		if _, drop := removeSet[p]; drop {
+			continue
+		}
+		out = append(out, p)
+		if len(out) >= vkhash.Max {
+			break
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 func mergeVKHashes(existing, added string) string {

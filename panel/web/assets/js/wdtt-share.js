@@ -130,6 +130,5 @@ function wdttBuildQwdttLink(opts) {
   params.set('hashes', wdttFormatVkHashes(opts.vkHash, 'bare'));
   params.set('workers', String(Number(opts.workers) || 18));
   params.set('port', String(Number(opts.port) || 9000));
-  params.set('pass', password);
-  return 'qwdtt://config?' + params.toString();
+  return 'qwdtt://config?' + params.toString() + '&pass=' + password;
 }

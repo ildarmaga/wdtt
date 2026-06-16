@@ -3,7 +3,9 @@
   const el = document.getElementById('subscription-data');
   if (!el) return;
   const textarea = document.getElementById('subscription-links');
+  const titlesEl = document.getElementById('subscription-link-titles');
   const rawLinks = (textarea?.value || '').split('\n').filter(Boolean);
+  const rawTitles = (titlesEl?.value || '').split('\n').filter(Boolean);
 
   const data = {
     sId: el.getAttribute('data-sid') || '',
@@ -52,6 +54,7 @@
 
   // Try to extract a human label (email/ps) from different link types
   function linkName(link, idx) {
+    if (rawTitles[idx]) return rawTitles[idx];
     try {
       if (link.startsWith('vmess://')) {
         const json = JSON.parse(atob(link.replace('vmess://', '')));
@@ -74,6 +77,12 @@
         if (hashIdx !== -1) return decodeURIComponent(link.substring(hashIdx + 1));
       } else if (link.startsWith('wdtt://')) {
         try {
+          const rest = link.slice(7);
+          if (rest.includes(':') && !rest.startsWith('eyJ')) {
+            const hashIdx = link.indexOf('#');
+            if (hashIdx !== -1) return decodeURIComponent(link.substring(hashIdx + 1));
+            return 'WDTT colon';
+          }
           const json = decodeWdttPayload(link);
           if (json.name) return json.name;
           if (json.ps) return json.ps;
@@ -81,6 +90,13 @@
           if (json.email) return json.email;
           if (json.vpn) return json.vpn;
         } catch (e) { /* ignore */ }
+      } else if (link.startsWith('qwdtt://')) {
+        const q = link.indexOf('?');
+        if (q !== -1) {
+          const name = new URLSearchParams(link.slice(q + 1)).get('name');
+          if (name) return name;
+        }
+        return 'qWDTT';
       }
     } catch (e) { /* ignore and fallback */ }
     return 'Link ' + (idx + 1);

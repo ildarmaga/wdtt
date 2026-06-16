@@ -90,6 +90,25 @@ func deleteVKCreatorSessions(password, callID string) error {
 	return fmt.Errorf("укажите call_id или профиль")
 }
 
+func dropVKCreatorSession(s vkCreatorSession) error {
+	if !panelDBEnabled() {
+		return fmt.Errorf("база панели недоступна")
+	}
+	callID := strings.TrimSpace(s.CallID)
+	if callID == "" {
+		return fmt.Errorf("call_id пуст")
+	}
+	if p := strings.TrimSpace(s.Password); p != "" {
+		if realPass, err := resolveUserPassword(p); err == nil {
+			p = realPass
+		}
+		if err := removeVKHashFromUser(p, s.VkHash); err != nil {
+			return err
+		}
+	}
+	return paneldb.DeleteVKCall(panelDB, callID)
+}
+
 func loadVKCookiesFromStore() ([]byte, error) {
 	if !panelDBEnabled() {
 		return nil, fmt.Errorf("база панели недоступна")

@@ -187,6 +187,8 @@
     data-datepicker="{{ .datepicker }}"></template>
 <textarea id="subscription-links" style="display:none">{{ range .result }}{{ . }}
 {{ end }}</textarea>
+<textarea id="subscription-link-titles" style="display:none">{{ range .linkTitles }}{{ . }}
+{{ end }}</textarea>
 
 {{template "component/aThemeSwitch" .}}
 <script src="{{ .base_path }}assets/qrcode/qrious2.min.js?{{ .cur_ver }}"></script>

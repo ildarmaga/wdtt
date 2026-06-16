@@ -271,12 +271,12 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	inbound, _ := loadWdttInbound()
 	linkHost := a.resolveLinkHost(inbound)
-	link, err := buildWdttShareLink(linkHost, info.Password, info.Email, a.cfg.SubTitle, "", info.Entry.VkHash, info.Entry, inbound, a.buildSubURL(info.Entry.SubID))
+	subURL := a.buildSubURL(info.Entry.SubID)
+	link, err := buildWdttShareLink(linkHost, info.Password, info.Email, a.cfg.SubTitle, "", info.Entry.VkHash, info.Entry, inbound, subURL)
 	if err != nil {
 		http.Error(w, "failed to build link", http.StatusInternalServerError)
 		return
 	}
-	links := []string{link}
 	expireSec := int64(0)
 	if info.Entry.ExpiresAt > 0 {
 		expireSec = info.Entry.ExpiresAt
@@ -285,13 +285,18 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		info.Entry.UpBytes, info.Entry.DownBytes, info.Entry.TotalBytes, expireSec)
 
 	if subscriptionWantsHTML(r) {
-		a.serveSubInfoPage(w, r, subID, info, links)
+		pageLinks, linkTitles, err := buildAllSubscriptionLinks(linkHost, info.Password, info.Email, a.cfg.SubTitle, info.Entry, inbound, subURL)
+		if err != nil || len(pageLinks) == 0 {
+			pageLinks = []string{link}
+			linkTitles = []string{"WDTT JSON"}
+		}
+		a.serveSubInfoPage(w, r, subID, info, pageLinks, linkTitles)
 		return
 	}
 
 	a.applySubHeaders(w, header)
 
-	body := strings.Join(links, "\n")
+	body := link
 	if a.cfg.SubEncrypt {
 		body = base64.StdEncoding.EncodeToString([]byte(body))
 	}
@@ -322,7 +327,7 @@ func (a *App) applySubHeaders(w http.ResponseWriter, userInfoHeader string) {
 	w.Header().Set("Content-Disposition", "attachment; filename=wdtt")
 }
 
-func (a *App) serveSubInfoPage(w http.ResponseWriter, r *http.Request, subID string, info *subUserInfo, links []string) {
+func (a *App) serveSubInfoPage(w http.ResponseWriter, r *http.Request, subID string, info *subUserInfo, links, linkTitles []string) {
 	if htmlTemplates == nil {
 		http.Error(w, "templates not loaded", http.StatusInternalServerError)
 		return
@@ -377,6 +382,7 @@ func (a *App) serveSubInfoPage(w http.ResponseWriter, r *http.Request, subID str
 		"totalByte":    total,
 		"datepicker":   "gregorian",
 		"result":       links,
+		"linkTitles":   linkTitles,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := htmlTemplates.ExecuteTemplate(w, "subscription.html", data); err != nil {
