@@ -225,6 +225,8 @@ func ensureDefaultWdttData() {
 	} else if pass := passwordFromWdttService(); pass != "" {
 		db.MainPassword = pass
 	}
+	ensureMainPasswordEntry(db)
+	dedupePasswordDeviceBindings(db)
 	if err := savePasswordsNorm(db); err != nil {
 		log.Printf("panel db: seed users: %v", err)
 		return

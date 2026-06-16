@@ -43,13 +43,12 @@ func loadDatabaseFromSQLite() (*Database, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	ok, err := paneldb.HasUsers(db)
-	if err != nil || !ok {
-		return nil, false, err
-	}
 	s, err := paneldb.LoadStore(db)
 	if err != nil {
 		return nil, false, err
+	}
+	if s.MainPassword == "" && len(s.Users) == 0 {
+		return nil, false, nil
 	}
 	out := databaseFromStore(s)
 	return out, true, nil
