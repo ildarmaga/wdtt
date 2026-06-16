@@ -2,6 +2,12 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.27] — 2026-06-16
+
+### Исправлено
+- **Старт unified** — `BootstrapDB()` синхронно до `server.Run()`: panel.db и seed `wdtt_users` готовы до WRAP (гонка с goroutine panel).
+- **wdtt-install v1.4.27** — `seed` env до `build_wdtt`; проверка `/health` после первого `systemctl restart`.
+
 ## [1.4.26] — 2026-06-16
 
 ### Исправлено

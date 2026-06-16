@@ -24,7 +24,7 @@ func Run() error {
 	if err := initTemplates(); err != nil {
 		return fmt.Errorf("templates: %w", err)
 	}
-	if err := initPanelDB(); err != nil {
+	if err := BootstrapDB(); err != nil {
 		return fmt.Errorf("panel db: %w", err)
 	}
 
@@ -32,8 +32,6 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	ensureLegacySettingsImported()
-	ensureDefaultWdttData()
 	if _, err := loadWdttInbound(); err != nil {
 		log.Printf("panel inbound load: %v", err)
 	}

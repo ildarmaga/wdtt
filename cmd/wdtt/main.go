@@ -25,6 +25,10 @@ func main() {
 	}
 	os.Args = filtered
 
+	if err := panel.BootstrapDB(); err != nil {
+		log.Fatalf("[PANEL] bootstrap: %v", err)
+	}
+
 	if !noPanel {
 		panel.InitUnifiedLogSink()
 		go func() {
