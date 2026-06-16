@@ -1,11 +1,4 @@
 {{ template "page/head_start" .}}
-<link rel="stylesheet"
-  href="{{ .base_path }}assets/codemirror/codemirror.min.css?{{ .cur_ver }}">
-<link rel="stylesheet"
-  href="{{ .base_path }}assets/codemirror/fold/foldgutter.css">
-<link rel="stylesheet"
-  href="{{ .base_path }}assets/codemirror/xq.min.css?{{ .cur_ver }}">
-<link rel="stylesheet" href="{{ .base_path }}assets/codemirror/lint/lint.css">
 {{ template "page/head_end" .}}
 
 {{ template "page/body_start" .}}
@@ -132,21 +125,12 @@
   </a-layout>
 </a-layout>
 {{template "page/body_scripts" .}}
+<script src="{{ .base_path }}assets/js/codemirror-loader.js?{{ .cur_ver }}"></script>
 <script
   src="{{ .base_path }}assets/js/model/outbound.js?{{ .cur_ver }}"></script>
-<script
-  src="{{ .base_path }}assets/codemirror/codemirror.min.js?{{ .cur_ver }}"></script>
-<script src="{{ .base_path }}assets/codemirror/javascript.js"></script>
-<script src="{{ .base_path }}assets/codemirror/jshint.js"></script>
-<script src="{{ .base_path }}assets/codemirror/jsonlint.js"></script>
-<script src="{{ .base_path }}assets/codemirror/lint/lint.js"></script>
-<script
-  src="{{ .base_path }}assets/codemirror/lint/javascript-lint.js"></script>
-<script
-  src="{{ .base_path }}assets/codemirror/hint/javascript-hint.js"></script>
-<script src="{{ .base_path }}assets/codemirror/fold/foldcode.js"></script>
-<script src="{{ .base_path }}assets/codemirror/fold/foldgutter.js"></script>
-<script src="{{ .base_path }}assets/codemirror/fold/brace-fold.js"></script>
+<script>
+  const curVer = '{{ .cur_ver }}';
+</script>
 {{template "component/wdttSidebar" .}}
 {{template "component/aThemeSwitch" .}}
 {{template "component/aTableSortable" .}}
@@ -439,9 +423,9 @@
           this.saveBtnDisable = true;
         }
       },
-      changePage(pageKey) {
-        if (pageKey == 'tpl-advanced') this.changeCode();
-        if (pageKey == 'tpl-balancer') this.changeObsCode();
+      async changePage(pageKey) {
+        if (pageKey == 'tpl-advanced') await this.changeCode();
+        if (pageKey == 'tpl-balancer') await this.changeObsCode();
       },
       syncRulesWithOutbound(tag, setting) {
         const newTemplateSettings = this.templateSettings;
@@ -511,7 +495,8 @@
         }
         this.templateSettings = newTemplateSettings;
       },
-      changeCode() {
+      async changeCode() {
+        await CodeMirrorLoader.load();
         if (this.cm != null) {
           this.cm.toTextArea();
         }
@@ -525,7 +510,8 @@
           }
         });
       },
-      changeObsCode() {
+      async changeObsCode() {
+        await CodeMirrorLoader.load();
         if (this.cm != null) {
           this.cm.toTextArea();
         }

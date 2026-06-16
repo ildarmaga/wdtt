@@ -176,6 +176,21 @@ func migratePanelDBV10() error {
 	return nil
 }
 
+func migratePanelDBV11() error {
+	for _, stmt := range []string{
+		`ALTER TABLE wdtt_inbound ADD COLUMN wg_keepalive_sec INTEGER NOT NULL DEFAULT 25`,
+		`ALTER TABLE wdtt_inbound ADD COLUMN stats_interval_sec INTEGER NOT NULL DEFAULT 2`,
+		`ALTER TABLE panel_config ADD COLUMN dashboard_poll_sec INTEGER NOT NULL DEFAULT 2`,
+		`ALTER TABLE panel_config ADD COLUMN users_poll_sec INTEGER NOT NULL DEFAULT 5`,
+		`ALTER TABLE panel_config ADD COLUMN connections_poll_sec INTEGER NOT NULL DEFAULT 5`,
+	} {
+		if _, err := panelDB.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	return nil
+}
+
 func purgeLegacySettingsBlobs() error {
 	var removed int
 	for _, key := range legacySettingKeys {

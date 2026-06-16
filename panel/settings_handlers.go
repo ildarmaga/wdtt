@@ -32,13 +32,15 @@ type panelSettingsReq struct {
 	SubCertFile   string `json:"subCertFile"`
 	SubKeyFile    string `json:"subKeyFile"`
 	SubEncrypt    bool   `json:"subEncrypt"`
-	SubUpdates    int    `json:"subUpdates"`
 	SubTitle      string `json:"subTitle"`
 	SubSupportURL string `json:"subSupportUrl"`
 	SubProfileURL string `json:"subProfileUrl"`
 	SubAnnounce   string `json:"subAnnounce"`
 	SubURI        string `json:"subURI"`
 	SubShowInfo   bool   `json:"subShowInfo"`
+	DashboardPollSec   int    `json:"dashboardPollSec"`
+	UsersPollSec       int    `json:"usersPollSec"`
+	ConnectionsPollSec int    `json:"connectionsPollSec"`
 }
 
 type panelUserReq struct {
@@ -90,6 +92,15 @@ func parsePanelSettingsReq(r *http.Request) (panelSettingsReq, error) {
 	if p := values.Get("pageSize"); p != "" {
 		req.PageSize, _ = strconv.Atoi(p)
 	}
+	if p := values.Get("dashboardPollSec"); p != "" {
+		req.DashboardPollSec, _ = strconv.Atoi(p)
+	}
+	if p := values.Get("usersPollSec"); p != "" {
+		req.UsersPollSec, _ = strconv.Atoi(p)
+	}
+	if p := values.Get("connectionsPollSec"); p != "" {
+		req.ConnectionsPollSec, _ = strconv.Atoi(p)
+	}
 	if p := values.Get("blockPing"); p != "" {
 		req.BlockPing = p == "true" || p == "1"
 	}
@@ -108,7 +119,7 @@ func parsePanelSettingsReq(r *http.Request) (panelSettingsReq, error) {
 		req.SubPort, _ = strconv.Atoi(p)
 	}
 	if p := values.Get("subUpdates"); p != "" {
-		req.SubUpdates, _ = strconv.Atoi(p)
+		_, _ = strconv.Atoi(p) // legacy column kept in DB; UI removed
 	}
 	req.SubEncrypt = values.Get("subEncrypt") == "true" || values.Get("subEncrypt") == "1"
 	req.SubShowInfo = values.Get("subShowInfo") == "true" || values.Get("subShowInfo") == "1"
@@ -195,8 +206,12 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	a.cfg.SubAnnounce = strings.TrimSpace(req.SubAnnounce)
 	a.cfg.SubURI = strings.TrimSpace(req.SubURI)
 	a.cfg.SubShowInfo = req.SubShowInfo
+	a.cfg.DashboardPollSec = clampDashboardPollSec(req.DashboardPollSec)
+	a.cfg.UsersPollSec = clampPagePollSec(req.UsersPollSec)
+	a.cfg.ConnectionsPollSec = clampPagePollSec(req.ConnectionsPollSec)
 	normalizePanelConfig(a.cfg)
 	syncSubCertFromPanel(a.cfg)
+	syncPanelPollDefaults(a.cfg)
 	sanitizePanelCertPaths(a.cfg)
 
 	if a.cfg.SubPort < 1 || a.cfg.SubPort > 65535 {

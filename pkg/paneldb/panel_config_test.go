@@ -35,7 +35,10 @@ CREATE TABLE panel_config (
 	sub_profile_url TEXT NOT NULL DEFAULT '',
 	sub_announce TEXT NOT NULL DEFAULT '',
 	sub_uri TEXT NOT NULL DEFAULT '',
-	sub_show_info INTEGER NOT NULL DEFAULT 1
+	sub_show_info INTEGER NOT NULL DEFAULT 1,
+	dashboard_poll_sec INTEGER NOT NULL DEFAULT 2,
+	users_poll_sec INTEGER NOT NULL DEFAULT 5,
+	connections_poll_sec INTEGER NOT NULL DEFAULT 5
 );
 `
 

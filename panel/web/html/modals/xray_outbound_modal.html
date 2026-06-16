@@ -54,9 +54,10 @@
                 this.isValid = true;
             }
         },
-        toggleJson(jsonTab) {
+        async toggleJson(jsonTab) {
             textAreaObj = document.getElementById('outboundJson');
             if(jsonTab){
+                await CodeMirrorLoader.load();
                 if(this.cm != null) {
                         this.cm.toTextArea();
                         this.cm=null;

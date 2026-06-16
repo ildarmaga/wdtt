@@ -12,7 +12,8 @@ CREATE TABLE wdtt_global (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	main_password TEXT NOT NULL DEFAULT '',
 	admin_id TEXT NOT NULL DEFAULT '',
-	bot_token TEXT NOT NULL DEFAULT ''
+	bot_token TEXT NOT NULL DEFAULT '',
+	users_rev INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE wdtt_users (
 	password TEXT PRIMARY KEY,

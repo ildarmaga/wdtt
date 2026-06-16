@@ -86,8 +86,14 @@ func migratePanelDB() error {
 		if err := migratePanelDBV10(); err != nil {
 			return err
 		}
-		_, err = panelDB.Exec(`INSERT INTO schema_version (version) VALUES (?)`, dbSchemaVersion)
-		return err
+		if err := migratePanelDBV11(); err != nil {
+			return err
+		}
+		if _, err = panelDB.Exec(`INSERT INTO schema_version (version) VALUES (?)`, dbSchemaVersion); err != nil {
+			return err
+		}
+		migrateLegacyJSONFiles()
+		return migrateEnsureUserSubIDs()
 	}
 	if err != nil {
 		return err
@@ -137,12 +143,18 @@ func migratePanelDB() error {
 			return err
 		}
 	}
+	if ver < 11 {
+		if err := migratePanelDBV11(); err != nil {
+			return err
+		}
+	}
 	if ver < dbSchemaVersion {
 		_, err = panelDB.Exec(`UPDATE schema_version SET version = ?`, dbSchemaVersion)
 	}
 	if err != nil {
 		return err
 	}
+	migrateLegacyJSONFiles()
 	// Повторно после старого wdtt-server без sub_id в save/load.
 	return migrateEnsureUserSubIDs()
 }

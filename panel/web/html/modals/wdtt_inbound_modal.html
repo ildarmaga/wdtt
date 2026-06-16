@@ -81,11 +81,35 @@
     <a-divider>Расширенные</a-divider>
     <a-form-item>
       <template slot="label">
-        <a-tooltip title="Таймаут DTLS-хендшейка И порог онлайн/офлайн в панели (сек). Через столько секунд без активности WG пользователь считается офлайн. Применяется сразу после «Сохранить» (hot-reload). На нестабильном Wi‑Fi можно 45–60">
-          DTLS / онлайн, сек <a-icon type="question-circle"></a-icon>
+        <a-tooltip title="Таймаут установки DTLS-сессии (сек). На нестабильном Wi‑Fi можно 45–60">
+          DTLS handshake, сек <a-icon type="question-circle"></a-icon>
         </a-tooltip>
       </template>
       <a-input-number v-model="inboundForm.handshake_timeout_sec" :min="5" :max="600" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="Через столько секунд без WG-трафика пользователь считается офлайн в панели. WG keepalive ≈25 с — минимум 35. Применяется сразу (hot-reload)">
+          Онлайн-таймаут, сек <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.online_timeout_sec" :min="5" :max="600" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="WireGuard PersistentKeepalive в конфиге клиента (сек). Обычно 25; на NAT можно 15–30">
+          WG keepalive, сек <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.wg_keepalive_sec" :min="10" :max="120" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="Интервал сбора статистики и записи server.log (сек). Меньше = точнее онлайн, выше нагрузка CPU">
+          Интервал stats, сек <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.stats_interval_sec" :min="2" :max="60" :style="{ width: '100%' }"></a-input-number>
     </a-form-item>
     <a-form-item>
       <template slot="label">

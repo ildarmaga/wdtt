@@ -2,6 +2,25 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.14] — 2026-06-16
+
+### Добавлено
+- **Schema v11** — `wg_keepalive_sec`, `stats_interval_sec`, `dashboard_poll_sec`, `users_poll_sec`, `connections_poll_sec`.
+- **Inbound advanced** — WG keepalive и интервал stats в модалке подключений.
+- **Настройки → Общие** — интервалы опроса дашборда, пользователей и подключений.
+- **Подписка** — заголовок `Profile-Home-Page-Url` для `subProfileUrl`.
+- **Lazy CodeMirror** — редактор xray грузится только на странице xray.
+
+### Изменено
+- **Stats loop** — один WG dump за тик, batch `last_seen`, `[СТАТ]` по интервалу stats (не каждые 2 с).
+- **Poll** — пауза при скрытой вкладке (`PagePollUtil`).
+- **Подключения** — отдельные поля DTLS handshake и online timeout.
+- **Синхронизация panel.db** — server подтягивает правки пользователей/устройств по `users_rev` в stats loop.
+
+### Исправлено
+- **Онлайн** — динамический TTL `server.log`; после рестарта нет «призраков» и ложных online из offline WG-пиров.
+- **Admin reload** — авторизация через `X-WDTT-Admin-Token` (session key панели); без токена — только localhost.
+
 ## [1.4.13] — 2026-06-16
 
 ### Изменено

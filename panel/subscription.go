@@ -309,8 +309,12 @@ func (a *App) applySubHeaders(w http.ResponseWriter, userInfoHeader string) {
 	if title := strings.TrimSpace(a.cfg.SubTitle); title != "" {
 		w.Header().Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
 	}
-	if support := strings.TrimSpace(a.cfg.SubSupportURL); support != "" {
+	support := strings.TrimSpace(a.cfg.SubSupportURL)
+	if support != "" {
 		w.Header().Set("Profile-Web-Page-Url", support)
+	}
+	if profile := strings.TrimSpace(a.cfg.SubProfileURL); profile != "" && profile != support {
+		w.Header().Set("Profile-Home-Page-Url", profile)
 	}
 	if announce := strings.TrimSpace(a.cfg.SubAnnounce); announce != "" {
 		w.Header().Set("Announce", "base64:"+base64.StdEncoding.EncodeToString([]byte(announce)))

@@ -173,3 +173,30 @@ func UpdateLastSeen(db *sql.DB, password string, ts int64) error {
 	_, err := db.Exec(`UPDATE wdtt_users SET last_seen_at = ? WHERE password = ? AND last_seen_at < ?`, ts, password, ts)
 	return err
 }
+
+// UpdateLastSeenBatch обновляет last_seen_at для нескольких паролей одной транзакцией.
+func UpdateLastSeenBatch(db *sql.DB, updates map[string]int64) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`UPDATE wdtt_users SET last_seen_at = ? WHERE password = ? AND last_seen_at < ?`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for password, ts := range updates {
+		if password == "" || ts <= 0 {
+			continue
+		}
+		if _, err := stmt.Exec(ts, password, ts); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}

@@ -60,6 +60,27 @@
             </template>
         </a-setting-list-item>
         <a-setting-list-item paddings="small">
+            <template #title>Опрос дашборда, сек</template>
+            <template #description>Интервал обновления главной страницы (2–120). Меньше = чаще, выше нагрузка</template>
+            <template #control>
+                <a-input-number :min="2" :max="120" v-model="allSetting.dashboardPollSec" :style="{ width: '100%' }"></a-input-number>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small">
+            <template #title>Опрос «Пользователи», сек</template>
+            <template #description>Интервал автообновления списка пользователей по умолчанию (3–120)</template>
+            <template #control>
+                <a-input-number :min="3" :max="120" v-model="allSetting.usersPollSec" :style="{ width: '100%' }"></a-input-number>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small">
+            <template #title>Опрос «Подключения», сек</template>
+            <template #description>Интервал автообновления inbound-ов по умолчанию (3–120)</template>
+            <template #control>
+                <a-input-number :min="3" :max="120" v-model="allSetting.connectionsPollSec" :style="{ width: '100%' }"></a-input-number>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small">
             <template #title>{{ i18n "pages.settings.language"}}</template>
             <template #control>
                 <a-select ref="selectLang" v-model="lang" @change="LanguageManager.setLanguage(lang)"

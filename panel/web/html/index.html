@@ -1097,6 +1097,7 @@
       showAlert: false,
       showIp: false,
       ipLimitEnable: false,
+      dashboardPollMs: 2000,
       customGeoColumns,
       customGeoList: [],
       customGeoLoading: false,
@@ -1517,10 +1518,13 @@
         fileInput.click();
       },
       startPolling() {
-        // Fallback polling mechanism
+        const pollMs = Math.max(2000, Number(this.dashboardPollMs) || 2000);
         const pollInterval = setInterval(async () => {
           if (window.wsClient && window.wsClient.isConnected) {
             clearInterval(pollInterval);
+            return;
+          }
+          if (!PagePollUtil.isVisible()) {
             return;
           }
           try {
@@ -1528,7 +1532,12 @@
           } catch (e) {
             console.error(e);
           }
-        }, 2000);
+        }, pollMs);
+        document.addEventListener('visibilitychange', () => {
+          if (PagePollUtil.isVisible()) {
+            this.getStatus().catch(console.error);
+          }
+        });
       },
     },
     async mounted() {
@@ -1541,6 +1550,7 @@
       const msg = await settingsPromise;
       if (msg.success) {
         this.ipLimitEnable = msg.obj.ipLimitEnable;
+        this.dashboardPollMs = Math.max(2000, (Number(msg.obj.dashboardPollSec) || 2) * 1000);
       }
 
       // Как 3x-ui: опрос кэшированного статуса раз в 2 сек (сервер обновляет фоном)

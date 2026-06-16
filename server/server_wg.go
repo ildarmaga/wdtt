@@ -45,13 +45,17 @@ func wgIpcSet(dev *device.Device, cfg string) error {
 }
 
 func syncTrafficFromWGPeers() {
-	peers, err := collectWGPeerStats()
+	peers, err := collectWGPeerInfos()
 	if err != nil {
 		wgTrafficErrOnce.Do(func() {
 			log.Printf("[WG] учёт трафика: %v", err)
 		})
 		return
 	}
+	syncTrafficFromWGPeerInfos(peers)
+}
+
+func syncTrafficFromWGPeerInfos(peers []wgPeerInfo) {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 	for _, peer := range peers {
@@ -264,65 +268,6 @@ func parseWGPeerInfosDump(text string) []wgPeerInfo {
 		})
 	}
 	return peers
-}
-
-// syncOnlineFromWGPeers восстанавливает presence по активным WG-пирам (multi-worker relay без GETCONF).
-func syncOnlineFromWGPeers() {
-	peers, err := collectWGPeerInfos()
-	if err != nil {
-		return
-	}
-	now := time.Now()
-	nowUnix := now.Unix()
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-	onlineUsersMutex.Lock()
-	defer onlineUsersMutex.Unlock()
-	for _, peer := range peers {
-		if peer.lastHandshake <= 0 || nowUnix-peer.lastHandshake > wgPeerOnlineMaxAgeSec() {
-			continue
-		}
-		id, ip, pass, isMain := deviceForWGPeerLocked(peer)
-		if id == "" {
-			continue
-		}
-		if pass == "" {
-			pass = bindOrphanDeviceToMainLocked(id)
-		}
-		if pass == "" {
-			continue
-		}
-		if pass == db.MainPassword {
-			isMain = true
-		}
-		if ip == "" {
-			ip = peer.allowedIP
-		}
-		label := userLabel(pass, isMain)
-		if info, ok := onlineUsers[id]; ok && info != nil {
-			info.LastActivity = now
-			if info.Sessions <= 0 {
-				info.Sessions = 1
-			}
-			if ip != "" {
-				info.IP = ip
-			}
-			if pass != "" {
-				info.Password = pass
-			}
-			if label != "" {
-				info.Label = label
-			}
-			continue
-		}
-		onlineUsers[id] = &onlineUserInfo{
-			Label:        label,
-			Password:     pass,
-			IP:           ip,
-			Sessions:     1,
-			LastActivity: now,
-		}
-	}
 }
 
 func collectWGPeerStats() ([]wgPeerStat, error) {
@@ -650,6 +595,6 @@ AllowedIPs = 0.0.0.0/0
 Endpoint = 127.0.0.1:%s
 PersistentKeepalive = %d`,
 		clientPrivate, clientIP, clientDNS, wgMTU,
-		serverPublic, clientPort, keepalive,
+		serverPublic, clientPort, wgKeepaliveSec,
 	)
 }

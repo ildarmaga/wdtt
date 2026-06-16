@@ -25,6 +25,8 @@ const (
 	defaultWgMTU        = 1280
 	maxUsersSubnetLimit = 249
 	defaultOnlineTimeoutSec = 15
+	defaultWgKeepaliveSec    = 25
+	defaultStatsIntervalSec  = 2
 )
 
 type WdttInboundConfig struct {
@@ -42,6 +44,8 @@ type WdttInboundConfig struct {
 	HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
 	MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
 	OnlineTimeoutSec    int    `json:"online_timeout_sec"`
+	WgKeepaliveSec      int    `json:"wg_keepalive_sec"`
+	StatsIntervalSec    int    `json:"stats_interval_sec"`
 	AdminAddr           string `json:"admin_addr"`
 	Create              bool   `json:"create"`
 }
@@ -76,6 +80,8 @@ func defaultWdttInbound() WdttInboundConfig {
 		HandshakeTimeoutSec: 30,
 		MaxDtlsPerDevice:    0,
 		OnlineTimeoutSec:    defaultOnlineTimeoutSec,
+		WgKeepaliveSec:      defaultWgKeepaliveSec,
+		StatsIntervalSec:    defaultStatsIntervalSec,
 		AdminAddr:           "127.0.0.1:2861",
 	}
 }
@@ -137,6 +143,12 @@ func (c *WdttInboundConfig) normalize() {
 	if c.OnlineTimeoutSec <= 0 {
 		c.OnlineTimeoutSec = def.OnlineTimeoutSec
 	}
+	if c.WgKeepaliveSec <= 0 {
+		c.WgKeepaliveSec = def.WgKeepaliveSec
+	}
+	if c.StatsIntervalSec <= 0 {
+		c.StatsIntervalSec = def.StatsIntervalSec
+	}
 	if strings.TrimSpace(c.AdminAddr) == "" {
 		c.AdminAddr = def.AdminAddr
 	}
@@ -181,6 +193,12 @@ func (c WdttInboundConfig) validate() error {
 	}
 	if c.OnlineTimeoutSec < 5 || c.OnlineTimeoutSec > 600 {
 		return fmt.Errorf("таймаут «онлайн»: от 5 до 600 секунд")
+	}
+	if c.WgKeepaliveSec < 10 || c.WgKeepaliveSec > 120 {
+		return fmt.Errorf("WG keepalive: от 10 до 120 секунд")
+	}
+	if c.StatsIntervalSec < 2 || c.StatsIntervalSec > 60 {
+		return fmt.Errorf("интервал статистики: от 2 до 60 секунд")
 	}
 	adminHost, _, err := net.SplitHostPort(strings.TrimSpace(c.AdminAddr))
 	if err != nil || adminHost == "" {

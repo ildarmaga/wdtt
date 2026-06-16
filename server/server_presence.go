@@ -28,11 +28,28 @@ var (
 	wgActivityMu sync.Mutex
 )
 
+func clearWGActivity() {
+	wgActivityMu.Lock()
+	wgActivity = make(map[string]*wgActivitySample)
+	wgActivityMu.Unlock()
+}
+
+func clearOnlineUsers() {
+	onlineUsersMutex.Lock()
+	onlineUsers = make(map[string]*onlineUserInfo)
+	onlineUsersMutex.Unlock()
+	atomic.StoreInt32(&activeUsers, 0)
+}
+
 func refreshWGActivity() {
 	peers, err := collectWGPeerInfos()
 	if err != nil {
 		return
 	}
+	refreshWGActivityFromPeers(peers)
+}
+
+func refreshWGActivityFromPeers(peers []wgPeerInfo) {
 	now := time.Now()
 
 	type resolved struct {
@@ -76,16 +93,19 @@ func refreshWGActivity() {
 		label := userLabel(r.pass, r.isMain)
 		cur, ok := wgActivity[r.id]
 		if !ok {
-			// Не используем старый lastHandshake после рестарта сервера — иначе
-			// relay_evict срабатывает до первого WG-трафика клиента.
-			init := now
-			if r.handshake > 0 {
-				hs := time.Unix(r.handshake, 0)
-				if now.Sub(hs) < timeout {
-					init = hs
-				}
+			// Не ставим lastChange=now для всех пиров из конфига: после рестарта в WG
+			// остаются все устройства из БД, но offline-пиры не должны сразу быть «онлайн».
+			// Онлайн: свежий WG handshake или рост rx/tx на следующих тиках.
+			sample := &wgActivitySample{
+				bytes:    r.bytes,
+				label:    label,
+				ip:       r.ip,
+				password: r.pass,
 			}
-			wgActivity[r.id] = &wgActivitySample{bytes: r.bytes, lastChange: init, label: label, ip: r.ip, password: r.pass}
+			if r.handshake > 0 && wgPeerRecentlyHandshook(r.handshake, now.Unix()) {
+				sample.lastChange = now
+			}
+			wgActivity[r.id] = sample
 			continue
 		}
 		if r.bytes != cur.bytes {
@@ -156,10 +176,17 @@ func wgPeerOnlineMaxAgeSec() int64 {
 		sec = 600
 	}
 	// WG PersistentKeepalive=25s — меньше порога даёт офлайн между keepalive.
-	if sec < int64(keepalive)+10 {
-		sec = int64(keepalive) + 10
+	if sec < int64(wgKeepaliveSec)+10 {
+		sec = int64(wgKeepaliveSec) + 10
 	}
 	return sec
+}
+
+func wgPeerRecentlyHandshook(handshakeSec, nowUnix int64) bool {
+	if handshakeSec <= 0 {
+		return false
+	}
+	return nowUnix-handshakeSec <= wgPeerOnlineMaxAgeSec()
 }
 
 type onlineUserInfo struct {

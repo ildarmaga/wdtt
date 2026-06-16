@@ -98,15 +98,38 @@ type DeviceEntry struct {
 }
 
 type ServerStats struct {
-	ActiveUsers int                      `json:"active_users"`
-	Sessions    int                      `json:"sessions"`
-	Total       int64                    `json:"total"`
-	NAT         string                   `json:"nat"`
-	Uptime      string                   `json:"uptime"`
-	DownGB      string                   `json:"down_gb"`
-	UpGB        string                   `json:"up_gb"`
-	Online      []map[string]interface{} `json:"online"`
-	Timestamp   int64                    `json:"timestamp"`
+	ActiveUsers      int                      `json:"active_users"`
+	Sessions         int                      `json:"sessions"`
+	Total            int64                    `json:"total"`
+	NAT              string                   `json:"nat"`
+	Uptime           string                   `json:"uptime"`
+	DownGB           string                   `json:"down_gb"`
+	UpGB             string                   `json:"up_gb"`
+	Online           []map[string]interface{} `json:"online"`
+	Timestamp        int64                    `json:"timestamp"`
+	StatsIntervalSec int                      `json:"stats_interval_sec"`
+}
+
+func serverStatsMaxAgeSec(s *ServerStats) int64 {
+	interval := defaultStatsIntervalSec
+	if s != nil && s.StatsIntervalSec >= 2 {
+		interval = s.StatsIntervalSec
+	}
+	maxAge := int64(interval)*2 + 3
+	if maxAge < 10 {
+		return 10
+	}
+	if maxAge > 130 {
+		return 130
+	}
+	return maxAge
+}
+
+func serverStatsFresh(s *ServerStats) bool {
+	if s == nil || s.Timestamp <= 0 {
+		return false
+	}
+	return time.Now().Unix()-s.Timestamp <= serverStatsMaxAgeSec(s)
 }
 
 const passChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
@@ -201,7 +224,7 @@ func maskPassword(pass string) string {
 }
 
 func userOnlineFromStats(pass, deviceID string, isMain bool, stats *ServerStats) bool {
-	if stats == nil || len(stats.Online) == 0 {
+	if stats == nil || !serverStatsFresh(stats) || len(stats.Online) == 0 {
 		return false
 	}
 	deviceIDs := strings.Split(deviceID, ", ")
@@ -328,6 +351,11 @@ func loadServerStats() *ServerStats {
 	var s ServerStats
 	if json.Unmarshal(data, &s) != nil {
 		return nil
+	}
+	if !serverStatsFresh(&s) {
+		s.Online = nil
+		s.ActiveUsers = 0
+		s.Sessions = 0
 	}
 	return &s
 }

@@ -137,6 +137,9 @@
       this.subAnnounce = data.subAnnounce || "";
       this.subURI = data.subURI || "";
       this.subShowInfo = data.subShowInfo !== false;
+      this.dashboardPollSec = Number(data.dashboardPollSec) || 2;
+      this.usersPollSec = Number(data.usersPollSec) || 5;
+      this.connectionsPollSec = Number(data.connectionsPollSec) || 5;
     }
     payload() {
       return {
@@ -164,6 +167,9 @@
         subAnnounce: String(this.subAnnounce || ''),
         subURI: String(this.subURI || ''),
         subShowInfo: !!this.subShowInfo,
+        dashboardPollSec: Number(this.dashboardPollSec) || 2,
+        usersPollSec: Number(this.usersPollSec) || 5,
+        connectionsPollSec: Number(this.connectionsPollSec) || 5,
       };
     }
     equals(other) {

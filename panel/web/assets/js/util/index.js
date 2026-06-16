@@ -80,6 +80,26 @@ class PromiseUtil {
     }
 }
 
+class PagePollUtil {
+    static isVisible() {
+        return typeof document === 'undefined' || document.visibilityState !== 'hidden';
+    }
+
+    /** Sleep ms but pause countdown while tab is hidden. */
+    static async sleep(intervalMs) {
+        let remaining = intervalMs;
+        while (remaining > 0) {
+            if (!PagePollUtil.isVisible()) {
+                await PromiseUtil.sleep(500);
+                continue;
+            }
+            const step = Math.min(remaining, 500);
+            await PromiseUtil.sleep(step);
+            remaining -= step;
+        }
+    }
+}
+
 class RandomUtil {
     static getSeq({ type = "default", hasNumbers = true, hasLowercase = true, hasUppercase = true } = {}) {
         let seq = '';

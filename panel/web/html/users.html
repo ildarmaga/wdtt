@@ -168,6 +168,12 @@
         this.showAlert = true;
       }
       userModal.onSaved = () => this.loadUsers();
+      try {
+        const settingsMsg = await axios.get('panel/setting/defaultSettings').then(r => r.data).catch(() => null);
+        if (settingsMsg && settingsMsg.success && !localStorage.getItem("refreshInterval")) {
+          this.refreshInterval = (Number(settingsMsg.obj.usersPollSec) || 5) * 1000;
+        }
+      } catch (e) {}
       await this.loadServerIp();
       if (this.isRefreshEnabled) {
         this.startDataRefreshLoop();
@@ -250,12 +256,14 @@
       },
       async startDataRefreshLoop() {
         while (this.isRefreshEnabled) {
-          try {
-            await this.loadUsers();
-          } catch (e) {
-            console.error(e);
+          if (PagePollUtil.isVisible()) {
+            try {
+              await this.loadUsers();
+            } catch (e) {
+              console.error(e);
+            }
           }
-          await PromiseUtil.sleep(this.refreshInterval);
+          await PagePollUtil.sleep(this.refreshInterval);
         }
       },
       toggleRefresh() {

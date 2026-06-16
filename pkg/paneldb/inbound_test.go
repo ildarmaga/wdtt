@@ -22,6 +22,8 @@ CREATE TABLE wdtt_inbound (
 	handshake_timeout_sec INTEGER NOT NULL DEFAULT 30,
 	max_dtls_per_device INTEGER NOT NULL DEFAULT 0,
 	online_timeout_sec INTEGER NOT NULL DEFAULT 15,
+	wg_keepalive_sec INTEGER NOT NULL DEFAULT 25,
+	stats_interval_sec INTEGER NOT NULL DEFAULT 2,
 	admin_addr TEXT NOT NULL DEFAULT '127.0.0.1:2861'
 );
 `

@@ -64,6 +64,9 @@ type PanelConfig struct {
 	SubAnnounce   string `json:"subAnnounce,omitempty"`
 	SubURI        string `json:"subURI,omitempty"`
 	SubShowInfo   bool   `json:"subShowInfo,omitempty"`
+	DashboardPollSec   int `json:"dashboardPollSec,omitempty"`
+	UsersPollSec       int `json:"usersPollSec,omitempty"`
+	ConnectionsPollSec int `json:"connectionsPollSec,omitempty"`
 }
 
 func loadPanelConfig() (*PanelConfig, error) {
@@ -100,6 +103,7 @@ func finalizePanelConfig(cfg *PanelConfig) (*PanelConfig, error) {
 			_ = savePanelConfig(cfg)
 		}
 	}
+	syncPanelPollDefaults(cfg)
 	return cfg, nil
 }
 
@@ -121,6 +125,18 @@ func normalizePanelConfig(cfg *PanelConfig) {
 	}
 	cfg.RemarkModel = normalizeRemarkModel(cfg.RemarkModel)
 	normalizeSubConfig(cfg)
+	cfg.DashboardPollSec = clampDashboardPollSec(cfg.DashboardPollSec)
+	if cfg.DashboardPollSec == 0 {
+		cfg.DashboardPollSec = defaultDashboardPollSec
+	}
+	cfg.UsersPollSec = clampPagePollSec(cfg.UsersPollSec)
+	if cfg.UsersPollSec == 0 {
+		cfg.UsersPollSec = defaultUsersPollSec
+	}
+	cfg.ConnectionsPollSec = clampPagePollSec(cfg.ConnectionsPollSec)
+	if cfg.ConnectionsPollSec == 0 {
+		cfg.ConnectionsPollSec = defaultConnectionsPollSec
+	}
 }
 
 func normalizeSubConfig(cfg *PanelConfig) {
@@ -243,6 +259,9 @@ func createDefaultPanelConfig() (*PanelConfig, error) {
 		SubEncrypt:    true,
 		SubShowInfo:   true,
 		SubUpdates:    12,
+		DashboardPollSec:   defaultDashboardPollSec,
+		UsersPollSec:       defaultUsersPollSec,
+		ConnectionsPollSec: defaultConnectionsPollSec,
 	}
 	if err := savePanelConfig(cfg); err != nil {
 		return nil, err
@@ -302,6 +321,9 @@ func panelSettingsMap(cfg *PanelConfig) map[string]interface{} {
 		"subAnnounce":      cfg.SubAnnounce,
 		"subURI":           cfg.SubURI,
 		"subShowInfo":      cfg.SubShowInfo,
+		"dashboardPollSec":   cfg.DashboardPollSec,
+		"usersPollSec":       cfg.UsersPollSec,
+		"connectionsPollSec": cfg.ConnectionsPollSec,
 	}
 }
 

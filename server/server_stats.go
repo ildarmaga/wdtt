@@ -39,79 +39,123 @@ func serverUptimeSeconds() uint64 {
 	return uint64(secs)
 }
 
+func resetServerStatsCache(configDir string) {
+	statsFile := filepath.Join(configDir, "server.log")
+	statsJSON, _ := json.Marshal(map[string]interface{}{
+		"active_users":       0,
+		"active":             0,
+		"sessions":           0,
+		"total":              0,
+		"online":             []interface{}{},
+		"timestamp":          time.Now().Unix(),
+		"vpn_active":         true,
+		"uptime_sec":         0,
+		"stats_interval_sec": statsIntervalSec,
+	})
+	_ = os.WriteFile(statsFile, statsJSON, 0600)
+}
+
+func statsIntervalDuration() time.Duration {
+	sec := statsIntervalSec
+	if sec < 2 {
+		sec = 2
+	}
+	if sec > 60 {
+		sec = 60
+	}
+	return time.Duration(sec) * time.Second
+}
+
 func statsLoop(ctx context.Context, configDir string) {
 	if serverStartTime.IsZero() {
 		serverStartTime = time.Now()
 	}
 	statsFile := filepath.Join(configDir, "server.log")
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
 	for {
+		interval := statsIntervalDuration()
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
-			fromC := atomic.LoadInt64(&totalBytesFromClient)
-			toC := atomic.LoadInt64(&totalBytesToClient)
-			sessions := atomic.LoadInt32(&activeConns)
-			refreshWGActivity()
+		case <-timer.C:
+		}
+		fromC := atomic.LoadInt64(&totalBytesFromClient)
+		toC := atomic.LoadInt64(&totalBytesToClient)
+		sessions := atomic.LoadInt32(&activeConns)
 
-			online := snapshotOnlineUsers()
-			users := int32(len(online))
-			atomic.StoreInt32(&activeUsers, users)
-			forEachOnlinePassword(touchUserLastSeen)
-			total := atomic.LoadInt64(&totalConns)
-			uptime := time.Since(serverStartTime)
+		peers, peerErr := collectWGPeerInfos()
+		if peerErr == nil {
+			refreshWGActivityFromPeers(peers)
+		}
 
-			log.Printf("[СТАТ] Пользователей: %d | Сессий: %d | Всего: %d | NAT: %s | ↑%.2f МБ | ↓%.2f МБ",
-				users, sessions, total, natType,
-				float64(fromC)/1024/1024,
-				float64(toC)/1024/1024,
-			)
+		dbMutex.Lock()
+		syncPanelDeviceEditsLocked()
+		dbMutex.Unlock()
 
-			// Пишем server.log
-			dbMutex.Lock()
-			numPasswords := len(db.Passwords)
-			numDevices := len(db.Devices)
-			dbMutex.Unlock()
+		online := snapshotOnlineUsers()
+		users := int32(len(online))
+		atomic.StoreInt32(&activeUsers, users)
+		touchOnlineUsersLastSeenBatch()
+		total := atomic.LoadInt64(&totalConns)
+		uptime := time.Since(serverStartTime)
 
-			uptimeStr := formatUptime(uptime)
-			downGB := float64(toC) / (1024 * 1024 * 1024)
-			upGB := float64(fromC) / (1024 * 1024 * 1024)
+		dbMutex.Lock()
+		numPasswords := len(db.Passwords)
+		numDevices := len(db.Devices)
+		dbMutex.Unlock()
 
-			statsJSON, _ := json.Marshal(map[string]interface{}{
-				"active_users": users,
-				"active":       users,
-				"sessions":     sessions,
-				"total":        total,
-				"nat":          natType,
-				"uptime":       uptimeStr,
-				"uptime_sec":   int64(uptime.Seconds()),
-				"vpn_active":   true,
-				"down_gb":      fmt.Sprintf("%.2f", downGB),
-				"up_gb":        fmt.Sprintf("%.2f", upGB),
-				"passwords":    numPasswords,
-				"devices":      numDevices,
-				"online":       online,
-				"timestamp":    time.Now().Unix(),
-			})
-			os.WriteFile(statsFile, statsJSON, 0600)
+		uptimeStr := formatUptime(uptime)
+		downGB := float64(toC) / (1024 * 1024 * 1024)
+		upGB := float64(fromC) / (1024 * 1024 * 1024)
+		intervalSec := statsIntervalSec
+		if intervalSec < 2 {
+			intervalSec = 2
+		}
 
-			go func() {
-				syncTrafficFromWGPeers()
-				syncVPNLocalServices(wgIfaceName)
-				relayEvictAllIdle(relayStaleEvictIdle)
-			}()
+		log.Printf("[СТАТ] Пользователей: %d | Сессий: %d | Всего: %d | NAT: %s | ↑%.2f МБ | ↓%.2f МБ",
+			users, sessions, total, natType,
+			float64(fromC)/1024/1024,
+			float64(toC)/1024/1024,
+		)
 
-			if trafficDirty.Load() {
-				dbMutex.Lock()
-				if err := saveTrafficToSQLiteLocked(); err != nil {
-					log.Printf("[DB] save traffic: %v", err)
-				} else {
-					trafficDirty.Store(false)
-				}
-				dbMutex.Unlock()
+		statsJSON, _ := json.Marshal(map[string]interface{}{
+			"active_users":       users,
+			"active":             users,
+			"sessions":           sessions,
+			"total":              total,
+			"nat":                natType,
+			"uptime":             uptimeStr,
+			"uptime_sec":         int64(uptime.Seconds()),
+			"vpn_active":         true,
+			"down_gb":            fmt.Sprintf("%.2f", downGB),
+			"up_gb":              fmt.Sprintf("%.2f", upGB),
+			"passwords":          numPasswords,
+			"devices":            numDevices,
+			"online":             online,
+			"timestamp":          time.Now().Unix(),
+			"stats_interval_sec": intervalSec,
+		})
+		os.WriteFile(statsFile, statsJSON, 0600)
+
+		peersCopy := peers
+		peersOK := peerErr == nil
+		go func() {
+			if peersOK {
+				syncTrafficFromWGPeerInfos(peersCopy)
 			}
+			syncVPNLocalServices(wgIfaceName)
+			relayEvictAllIdle(relayStaleEvictIdle)
+		}()
+
+		if trafficDirty.Load() {
+			dbMutex.Lock()
+			if err := saveTrafficToSQLiteLocked(); err != nil {
+				log.Printf("[DB] save traffic: %v", err)
+			} else {
+				trafficDirty.Store(false)
+			}
+			dbMutex.Unlock()
 		}
 	}
 }

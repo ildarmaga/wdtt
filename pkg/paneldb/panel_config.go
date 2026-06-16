@@ -40,6 +40,9 @@ type PanelConfig struct {
 	SubAnnounce   string
 	SubURI        string
 	SubShowInfo   bool
+	DashboardPollSec   int
+	UsersPollSec       int
+	ConnectionsPollSec int
 }
 
 // HasPanelConfig — есть ли строка в panel_config.
@@ -58,13 +61,15 @@ func LoadPanelConfig(db *sql.DB) (*PanelConfig, error) {
 	err := db.QueryRow(`SELECT username, password_hash, port, web_base_path, session_key,
 		web_listen, web_domain, web_cert_file, web_key_file, session_max_age, page_size, remark_model, block_ping,
 		sub_enable, sub_listen, sub_port, sub_path, sub_domain, sub_cert_file, sub_key_file,
-		sub_encrypt, sub_updates, sub_title, sub_support_url, sub_profile_url, sub_announce, sub_uri, sub_show_info
+		sub_encrypt, sub_updates, sub_title, sub_support_url, sub_profile_url, sub_announce, sub_uri, sub_show_info,
+		dashboard_poll_sec, users_poll_sec, connections_poll_sec
 		FROM panel_config WHERE id = 1`).Scan(
 		&cfg.Username, &cfg.PasswordHash, &cfg.Port, &cfg.WebBasePath, &cfg.SessionKey,
 		&cfg.WebListen, &cfg.WebDomain, &cfg.WebCertFile, &cfg.WebKeyFile,
 		&cfg.SessionMaxAge, &cfg.PageSize, &cfg.RemarkModel, &blockPing,
 		&subEnable, &cfg.SubListen, &cfg.SubPort, &cfg.SubPath, &cfg.SubDomain, &cfg.SubCertFile, &cfg.SubKeyFile,
 		&subEncrypt, &cfg.SubUpdates, &cfg.SubTitle, &cfg.SubSupportURL, &cfg.SubProfileURL, &cfg.SubAnnounce, &cfg.SubURI, &subShowInfo,
+		&cfg.DashboardPollSec, &cfg.UsersPollSec, &cfg.ConnectionsPollSec,
 	)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
@@ -105,8 +110,9 @@ func SavePanelConfig(db *sql.DB, cfg *PanelConfig) error {
 		web_listen, web_domain, web_cert_file, web_key_file,
 		session_max_age, page_size, remark_model, block_ping,
 		sub_enable, sub_listen, sub_port, sub_path, sub_domain, sub_cert_file, sub_key_file,
-		sub_encrypt, sub_updates, sub_title, sub_support_url, sub_profile_url, sub_announce, sub_uri, sub_show_info
-	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		sub_encrypt, sub_updates, sub_title, sub_support_url, sub_profile_url, sub_announce, sub_uri, sub_show_info,
+		dashboard_poll_sec, users_poll_sec, connections_poll_sec
+	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	ON CONFLICT(id) DO UPDATE SET
 		username=excluded.username, password_hash=excluded.password_hash, port=excluded.port,
 		web_base_path=excluded.web_base_path, session_key=excluded.session_key,
@@ -120,12 +126,16 @@ func SavePanelConfig(db *sql.DB, cfg *PanelConfig) error {
 		sub_encrypt=excluded.sub_encrypt, sub_updates=excluded.sub_updates,
 		sub_title=excluded.sub_title, sub_support_url=excluded.sub_support_url,
 		sub_profile_url=excluded.sub_profile_url, sub_announce=excluded.sub_announce,
-		sub_uri=excluded.sub_uri, sub_show_info=excluded.sub_show_info`,
+		sub_uri=excluded.sub_uri, sub_show_info=excluded.sub_show_info,
+		dashboard_poll_sec=excluded.dashboard_poll_sec,
+		users_poll_sec=excluded.users_poll_sec,
+		connections_poll_sec=excluded.connections_poll_sec`,
 		cfg.Username, cfg.PasswordHash, cfg.Port, cfg.WebBasePath, cfg.SessionKey,
 		cfg.WebListen, cfg.WebDomain, cfg.WebCertFile, cfg.WebKeyFile,
 		cfg.SessionMaxAge, cfg.PageSize, cfg.RemarkModel, bp,
 		se, cfg.SubListen, cfg.SubPort, cfg.SubPath, cfg.SubDomain, cfg.SubCertFile, cfg.SubKeyFile,
 		senc, cfg.SubUpdates, cfg.SubTitle, cfg.SubSupportURL, cfg.SubProfileURL, cfg.SubAnnounce, cfg.SubURI, sshow,
+		cfg.DashboardPollSec, cfg.UsersPollSec, cfg.ConnectionsPollSec,
 	)
 	return err
 }

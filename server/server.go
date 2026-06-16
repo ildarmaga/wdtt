@@ -33,7 +33,13 @@ const (
 	defaultWgMTU          = 1280
 	defaultPanelTCPPort   = 2860 // fallback до panel.db
 	defaultSubTCPPort     = 2096
-	keepalive             = 25
+	keepalive             = 25 // default; overridden from panel.db via wgKeepaliveSec
+	defaultStatsIntervalSec = 2
+)
+
+var (
+	wgKeepaliveSec   = keepalive
+	statsIntervalSec = defaultStatsIntervalSec
 )
 
 var (
@@ -377,6 +383,34 @@ func touchUserLastSeen(password string) {
 	_ = updateLastSeenInSQLite(password, now)
 }
 
+func touchOnlineUsersLastSeenBatch() {
+	now := time.Now().Unix()
+	var passwords []string
+	forEachOnlinePassword(func(pass string) {
+		passwords = append(passwords, pass)
+	})
+	if len(passwords) == 0 {
+		return
+	}
+	updates := make(map[string]int64, len(passwords))
+	dbMutex.Lock()
+	for _, password := range passwords {
+		if password == db.MainPassword {
+			ensureMainPasswordEntryLocked()
+		}
+		e, ok := db.Passwords[password]
+		if !ok || e == nil || now <= e.LastSeenAt {
+			continue
+		}
+		e.LastSeenAt = now
+		updates[password] = now
+	}
+	dbMutex.Unlock()
+	if len(updates) > 0 {
+		_ = updateLastSeenBatchInSQLite(updates)
+	}
+}
+
 func addTrafficLocked(password string, bytes int64, isDownload bool) bool {
 	if password == "" {
 		return true
@@ -520,6 +554,10 @@ func runServerOnce(ctx context.Context, cfg ServerConfig) {
 		runCmdSilent("ip", "link", "del", wgIfaceName)
 	}()
 
+	clearWGActivity()
+	clearOnlineUsers()
+	atomic.StoreInt32(&activeConns, 0)
+	resetServerStatsCache(cfg.ConfigDir)
 	go statsLoop(ctx, cfg.ConfigDir)
 	go userPresenceLoop(ctx)
 	go expiredPasswordJanitor(ctx, wgDev)

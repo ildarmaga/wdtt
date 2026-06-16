@@ -10,7 +10,7 @@ import (
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
-const dbSchemaVersion = 10
+const dbSchemaVersion = 11
 
 const schemaV2DDL = `
 CREATE TABLE IF NOT EXISTS panel_config (
@@ -172,7 +172,6 @@ func migratePanelDBV6() error {
 	if _, err := panelDB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_wdtt_users_sub_id ON wdtt_users(sub_id) WHERE sub_id != ''`); err != nil {
 		return err
 	}
-	migrateLegacyJSONFiles()
 	return migrateEnsureUserSubIDs()
 }
 

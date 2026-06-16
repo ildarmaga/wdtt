@@ -35,6 +35,8 @@ func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
 		"handshake_timeout_sec": cfg.HandshakeTimeoutSec,
 		"max_dtls_per_device":   cfg.MaxDtlsPerDevice,
 		"online_timeout_sec":    cfg.OnlineTimeoutSec,
+		"wg_keepalive_sec":      cfg.WgKeepaliveSec,
+		"stats_interval_sec":    cfg.StatsIntervalSec,
 		"admin_addr":            cfg.AdminAddr,
 		"service_active":   serviceActive,
 		"iface_up":         st.IfaceUp,

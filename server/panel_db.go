@@ -129,6 +129,17 @@ func updateLastSeenInSQLite(password string, ts int64) error {
 	return paneldb.UpdateLastSeen(db, password, ts)
 }
 
+func updateLastSeenBatchInSQLite(updates map[string]int64) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	db, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	return paneldb.UpdateLastSeenBatch(db, updates)
+}
+
 func applyDBGlobalFromCLI(mainPass, adminID, botToken string) {
 	if mainPass != "" {
 		db.MainPassword = mainPass
@@ -212,6 +223,7 @@ func syncPanelDeviceEditsLocked() {
 		}
 		db.Passwords[pass] = cp
 	}
+	oldDevices := db.Devices
 	if incoming.Devices != nil {
 		next := make(map[string]*ClientDevice, len(incoming.Devices))
 		for id, d := range incoming.Devices {
@@ -227,6 +239,38 @@ func syncPanelDeviceEditsLocked() {
 	}
 	if incoming.MainPassword != "" {
 		db.MainPassword = incoming.MainPassword
+	}
+	migrateDatabaseDevices()
+	if err := refreshWrapKeysFromDBLocked(); err != nil {
+		log.Printf("[DB] wrap keys sync: %v", err)
+		return
+	}
+	serverWGDevMu.RLock()
+	wgDev := serverWGDev
+	serverWGDevMu.RUnlock()
+	if wgDev != nil {
+		for id, dev := range oldDevices {
+			if _, ok := db.Devices[id]; !ok {
+				removePeerFromWG(wgDev, dev)
+			}
+		}
+		suspendExpiredPasswordsLocked(wgDev)
+		for deviceID, dev := range db.Devices {
+			pass := passwordForDeviceLocked(deviceID)
+			if pass == "" {
+				pass = bindOrphanDeviceToMainLocked(deviceID)
+			}
+			if pass == "" {
+				removePeerFromWG(wgDev, dev)
+				continue
+			}
+			entry := db.Passwords[pass]
+			if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
+				removePeerFromWG(wgDev, dev)
+				continue
+			}
+			upsertPeerInWG(wgDev, dev)
+		}
 	}
 	rememberUsersRev(rev)
 	log.Printf("[DB] синхронизация из panel.db (users_rev=%d)", rev)
@@ -291,11 +335,21 @@ func applyInboundRuntimeSettings(raw inboundRuntimeSettings) {
 	} else {
 		userOnlineTimeoutSec = defaultOnlineTimeoutSec
 	}
+	if raw.WgKeepaliveSec >= 10 && raw.WgKeepaliveSec <= 120 {
+		wgKeepaliveSec = raw.WgKeepaliveSec
+	} else {
+		wgKeepaliveSec = keepalive
+	}
+	if raw.StatsIntervalSec >= 2 && raw.StatsIntervalSec <= 60 {
+		statsIntervalSec = raw.StatsIntervalSec
+	} else {
+		statsIntervalSec = defaultStatsIntervalSec
+	}
 	if raw.MTU >= 576 && raw.MTU <= 1500 {
 		wgMTU = raw.MTU
 	}
-	log.Printf("[CFG] inbound: DTLS timeout=%s, online=%s, max сессий/device=%d (0=без лимита)",
-		dtlsHandshakeTimeout, userOnlineTimeoutDuration(), maxDTLSPerDevice)
+	log.Printf("[CFG] inbound: DTLS timeout=%s, online=%s, WG keepalive=%ds, stats=%ds, max сессий/device=%d (0=без лимита)",
+		dtlsHandshakeTimeout, userOnlineTimeoutDuration(), wgKeepaliveSec, statsIntervalSec, maxDTLSPerDevice)
 	log.Printf("[CFG] DNS клиентов: %s, MTU: %d, лимит активных: %d", clientDNS, wgMTU, maxGeneratedPasswords)
 }
 

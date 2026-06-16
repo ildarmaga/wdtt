@@ -207,6 +207,8 @@
       this.max_users = Number(data.max_users) || 10;
       this.handshake_timeout_sec = Number(data.handshake_timeout_sec) || 30;
       this.online_timeout_sec = Number(data.online_timeout_sec) || 15;
+      this.wg_keepalive_sec = Number(data.wg_keepalive_sec) || 25;
+      this.stats_interval_sec = Number(data.stats_interval_sec) || 2;
       this.max_dtls_per_device = Number.isFinite(Number(data.max_dtls_per_device)) ? Number(data.max_dtls_per_device) : 0;
       this.admin_addr = data.admin_addr || '127.0.0.1:2861';
       this.server_ip = data.server_ip || '';
@@ -236,6 +238,8 @@
         handshake_timeout_sec: Number(this.handshake_timeout_sec) || 30,
         max_dtls_per_device: Number(this.max_dtls_per_device),
         online_timeout_sec: Number(this.online_timeout_sec) || 15,
+        wg_keepalive_sec: Number(this.wg_keepalive_sec) || 25,
+        stats_interval_sec: Number(this.stats_interval_sec) || 2,
         admin_addr: (this.admin_addr || '127.0.0.1:2861').trim(),
       };
     }
@@ -547,8 +551,10 @@
       },
       async startDataRefreshLoop() {
         while (this.isRefreshEnabled) {
-          try { await this.loadAll(); } catch (e) { console.error(e); }
-          await PromiseUtil.sleep(this.refreshInterval);
+          if (PagePollUtil.isVisible()) {
+            try { await this.loadAll(); } catch (e) { console.error(e); }
+          }
+          await PagePollUtil.sleep(this.refreshInterval);
         }
       },
       toggleRefresh() {
@@ -565,6 +571,12 @@
         this.wdtt = new InboundSetting(obj);
         this.wdttConfigured = true;
       };
+      try {
+        const settingsMsg = await HttpUtil.get('/panel/setting/defaultSettings').catch(() => null);
+        if (settingsMsg && settingsMsg.success && !localStorage.getItem("inboundRefreshInterval")) {
+          this.refreshInterval = (Number(settingsMsg.obj.connectionsPollSec) || 5) * 1000;
+        }
+      } catch (e) {}
       if (this.isRefreshEnabled) this.startDataRefreshLoop();
       else await this.loadAll({ withSpinner: true });
     },

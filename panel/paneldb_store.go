@@ -150,6 +150,8 @@ func wdttInboundToPaneldb(cfg WdttInboundConfig) *paneldb.Inbound {
 		HandshakeTimeoutSec: cfg.HandshakeTimeoutSec,
 		MaxDtlsPerDevice:    cfg.MaxDtlsPerDevice,
 		OnlineTimeoutSec:    cfg.OnlineTimeoutSec,
+		WgKeepaliveSec:      cfg.WgKeepaliveSec,
+		StatsIntervalSec:    cfg.StatsIntervalSec,
 		AdminAddr:           cfg.AdminAddr,
 	}
 }
@@ -187,6 +189,9 @@ func panelConfigToPaneldb(cfg *PanelConfig) *paneldb.PanelConfig {
 		SubAnnounce:   cfg.SubAnnounce,
 		SubURI:        cfg.SubURI,
 		SubShowInfo:   cfg.SubShowInfo,
+		DashboardPollSec:   cfg.DashboardPollSec,
+		UsersPollSec:       cfg.UsersPollSec,
+		ConnectionsPollSec: cfg.ConnectionsPollSec,
 	}
 }
 
@@ -223,6 +228,9 @@ func panelConfigFromPaneldb(pc *paneldb.PanelConfig) *PanelConfig {
 		SubAnnounce:   pc.SubAnnounce,
 		SubURI:        pc.SubURI,
 		SubShowInfo:   pc.SubShowInfo,
+		DashboardPollSec:   pc.DashboardPollSec,
+		UsersPollSec:       pc.UsersPollSec,
+		ConnectionsPollSec: pc.ConnectionsPollSec,
 	}
 }
 
@@ -245,6 +253,8 @@ func wdttInboundFromPaneldb(in *paneldb.Inbound) WdttInboundConfig {
 		HandshakeTimeoutSec: in.HandshakeTimeoutSec,
 		MaxDtlsPerDevice:    in.MaxDtlsPerDevice,
 		OnlineTimeoutSec:    in.OnlineTimeoutSec,
+		WgKeepaliveSec:      in.WgKeepaliveSec,
+		StatsIntervalSec:    in.StatsIntervalSec,
 		AdminAddr:           in.AdminAddr,
 	}
 }

@@ -21,6 +21,8 @@ type Inbound struct {
 	HandshakeTimeoutSec int
 	MaxDtlsPerDevice    int
 	OnlineTimeoutSec    int
+	WgKeepaliveSec      int
+	StatsIntervalSec    int
 	AdminAddr           string
 }
 
@@ -32,6 +34,8 @@ type RuntimeSettings struct {
 	HandshakeTimeoutSec int    `json:"handshake_timeout_sec"`
 	MaxDtlsPerDevice    int    `json:"max_dtls_per_device"`
 	OnlineTimeoutSec    int    `json:"online_timeout_sec"`
+	WgKeepaliveSec      int    `json:"wg_keepalive_sec"`
+	StatsIntervalSec    int    `json:"stats_interval_sec"`
 }
 
 // StartupSettings — bind-параметры + runtime (читаются при старте / in-process restart).
@@ -58,10 +62,12 @@ func LoadInbound(db *sql.DB) (*Inbound, error) {
 	var in Inbound
 	var enable int
 	err := db.QueryRow(`SELECT tag, remark, enable, listen_host, server_host, dtls_port, wg_port,
-		client_port, dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, admin_addr
+		client_port, dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec,
+		wg_keepalive_sec, stats_interval_sec, admin_addr
 		FROM wdtt_inbound WHERE id = 1`).Scan(
 		&in.Tag, &in.Remark, &enable, &in.ListenHost, &in.ServerHost, &in.DtlsPort, &in.WgPort,
-		&in.ClientPort, &in.DNS, &in.MTU, &in.MaxUsers, &in.HandshakeTimeoutSec, &in.MaxDtlsPerDevice, &in.OnlineTimeoutSec, &in.AdminAddr,
+		&in.ClientPort, &in.DNS, &in.MTU, &in.MaxUsers, &in.HandshakeTimeoutSec, &in.MaxDtlsPerDevice, &in.OnlineTimeoutSec,
+		&in.WgKeepaliveSec, &in.StatsIntervalSec, &in.AdminAddr,
 	)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
@@ -84,8 +90,8 @@ func SaveInbound(db *sql.DB, in *Inbound) error {
 	}
 	_, err := db.Exec(`INSERT INTO wdtt_inbound (
 		id, tag, remark, enable, listen_host, server_host, dtls_port, wg_port, client_port, dns, mtu,
-		max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, admin_addr
-	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, wg_keepalive_sec, stats_interval_sec, admin_addr
+	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	ON CONFLICT(id) DO UPDATE SET
 		tag=excluded.tag, remark=excluded.remark, enable=excluded.enable,
 		listen_host=excluded.listen_host, server_host=excluded.server_host,
@@ -93,9 +99,13 @@ func SaveInbound(db *sql.DB, in *Inbound) error {
 		dns=excluded.dns, mtu=excluded.mtu, max_users=excluded.max_users,
 		handshake_timeout_sec=excluded.handshake_timeout_sec,
 		max_dtls_per_device=excluded.max_dtls_per_device,
-		online_timeout_sec=excluded.online_timeout_sec, admin_addr=excluded.admin_addr`,
+		online_timeout_sec=excluded.online_timeout_sec,
+		wg_keepalive_sec=excluded.wg_keepalive_sec,
+		stats_interval_sec=excluded.stats_interval_sec,
+		admin_addr=excluded.admin_addr`,
 		in.Tag, in.Remark, en, in.ListenHost, in.ServerHost, in.DtlsPort, in.WgPort,
-		in.ClientPort, in.DNS, in.MTU, in.MaxUsers, in.HandshakeTimeoutSec, in.MaxDtlsPerDevice, in.OnlineTimeoutSec, in.AdminAddr,
+		in.ClientPort, in.DNS, in.MTU, in.MaxUsers, in.HandshakeTimeoutSec, in.MaxDtlsPerDevice, in.OnlineTimeoutSec,
+		in.WgKeepaliveSec, in.StatsIntervalSec, in.AdminAddr,
 	)
 	return err
 }
@@ -110,9 +120,11 @@ func LoadRuntimeSettings(db *sql.DB) (RuntimeSettings, bool, error) {
 		return RuntimeSettings{}, false, err
 	}
 	var s RuntimeSettings
-	err = db.QueryRow(`SELECT dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec
+	err = db.QueryRow(`SELECT dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec,
+		wg_keepalive_sec, stats_interval_sec
 		FROM wdtt_inbound WHERE id = 1`).Scan(
 		&s.DNS, &s.MTU, &s.MaxUsers, &s.HandshakeTimeoutSec, &s.MaxDtlsPerDevice, &s.OnlineTimeoutSec,
+		&s.WgKeepaliveSec, &s.StatsIntervalSec,
 	)
 	if err == sql.ErrNoRows {
 		return RuntimeSettings{}, false, nil
@@ -148,6 +160,8 @@ func LoadStartupSettings(db *sql.DB) (StartupSettings, bool, error) {
 			HandshakeTimeoutSec: in.HandshakeTimeoutSec,
 			MaxDtlsPerDevice:    in.MaxDtlsPerDevice,
 			OnlineTimeoutSec:    in.OnlineTimeoutSec,
+			WgKeepaliveSec:      in.WgKeepaliveSec,
+			StatsIntervalSec:    in.StatsIntervalSec,
 		},
 	}, true, nil
 }
