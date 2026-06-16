@@ -55,6 +55,11 @@ func (a *App) handleSettingAll(w http.ResponseWriter, r *http.Request) {
 	if syncSubCertFromPanel(a.cfg) {
 		changed = true
 	}
+	if ufwInstalled() && a.cfg.BlockPing != ufwPingBlocked() {
+		if err := setUFWBlockPing(a.cfg.BlockPing); err != nil {
+			log.Printf("panel: reconcile blockPing UFW: %v", err)
+		}
+	}
 	if changed {
 		_ = savePanelConfig(a.cfg)
 		go a.restartSubscriptionServer()

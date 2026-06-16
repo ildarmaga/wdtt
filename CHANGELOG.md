@@ -2,6 +2,13 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.17] — 2026-06-16
+
+### Изменено
+- **`blockPing`** — в API отдаётся значение из БД; `blockPingLive` показывает фактическое состояние UFW; при открытии настроек UFW синхронизируется с БД.
+- **Panel JS bundle** — `csrf.js`, `axios-init.js`, `util/index.js`, `websocket.js` → один `panel-core.min.js` (esbuild, сборка в `build.sh`).
+- **API restart** — страница подключений использует `/panel/api/server/restartWdttService` (как дашборд).
+
 ## [1.4.16] — 2026-06-16
 
 ### Изменено

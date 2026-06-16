@@ -78,14 +78,11 @@
 <script src="{{ .base_path }}assets/ant-design-vue/antd.min.js"></script>
 <script src="{{ .base_path }}assets/axios/axios.min.js?{{ .cur_ver }}"></script>
 <script src="{{ .base_path }}assets/qs/qs.min.js"></script>
-<script src="{{ .base_path }}assets/js/csrf.js?{{ .cur_ver }}"></script>
-<script src="{{ .base_path }}assets/js/axios-init.js?{{ .cur_ver }}"></script>
-<script src="{{ .base_path }}assets/js/util/index.js?{{ .cur_ver }}"></script>
+<script src="{{ .base_path }}assets/js/panel-core.min.js?{{ .cur_ver }}-{{ .assets_ver }}"></script>
 <script>
   const basePath = '{{ .base_path }}';
   axios.defaults.baseURL = basePath;
 </script>
-<script src="{{ .base_path }}assets/js/websocket.js?{{ .cur_ver }}"></script>
 {{ end }}
   
 {{ define "page/body_end" }}

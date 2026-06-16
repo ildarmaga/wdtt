@@ -40,7 +40,8 @@ build_server() {
 }
 
 build_panel() {
-  chmod +x panel/build.sh
+  chmod +x scripts/bundle-panel-core.sh panel/build.sh
+  scripts/bundle-panel-core.sh
   panel/build.sh "$1"
 }
 
@@ -51,6 +52,8 @@ build_unified() {
     amd64) out=wdtt-linux-amd64 ;;
     arm64) out=wdtt-linux-arm64 ;;
   esac
+  chmod +x scripts/bundle-panel-core.sh
+  scripts/bundle-panel-core.sh
   local version="${WDTT_VERSION:-}"
   if [[ -z "$version" ]]; then
     version="$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo 1.4.0)"

@@ -546,7 +546,7 @@
         }
       },
       async restartWdtt() {
-        const res = await HttpUtil.post('/panel/api/service/wdtt/restart').catch(() => null);
+        const res = await HttpUtil.post('/panel/api/server/restartWdttService').catch(() => null);
         if (res && res.success) await this.loadWdtt();
       },
       async startDataRefreshLoop() {

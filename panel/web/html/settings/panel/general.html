@@ -103,6 +103,11 @@
                 (<code>ufw-before-input</code> / <code>ufw-before-forward</code>, echo-request и др. ICMP).
                 Нажмите «Сохранить» вверху страницы — выполнится <code>ufw reload</code>.
                 Смена SSH-порта эти правила не трогает.
+                <span v-if="allSetting.ufwInstalled && allSetting.blockPing !== allSetting.blockPingLive"
+                    :style="{ display: 'block', marginTop: '6px', color: '#fa8c16' }">
+                    UFW сейчас: [[ allSetting.blockPingLive ? 'ping заблокирован' : 'ping разрешён' ]] —
+                    отличается от сохранённой настройки; «Сохранить» или перезагрузка страницы синхронизирует UFW.
+                </span>
             </template>
             <template #control>
                 <a-switch v-model="allSetting.blockPing" :disabled="!allSetting.ufwInstalled"></a-switch>

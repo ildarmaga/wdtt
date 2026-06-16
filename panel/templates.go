@@ -29,10 +29,7 @@ func initAssetsVer() {
 	var buf []byte
 	for _, path := range []string{
 		"web/assets/css/custom.min.css",
-		"web/assets/js/util/index.js",
-		"web/assets/js/csrf.js",
-		"web/assets/js/axios-init.js",
-		"web/assets/js/websocket.js",
+		"web/assets/js/panel-core.min.js",
 		"web/assets/js/wdtt-share.js",
 	} {
 		data, err := assetsFS.ReadFile(path)
