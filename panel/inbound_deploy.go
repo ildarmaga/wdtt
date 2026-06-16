@@ -2,12 +2,18 @@ package panel
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-const deployInboundEnvPath = wdttConfigDir + "/install-inbound.env"
-const deployMainPasswordPath = wdttConfigDir + "/install-main-password.env"
+func deployInboundEnvPath() string {
+	return filepath.Join(wdttConfigDir, "install-inbound.env")
+}
+
+func deployMainPasswordPath() string {
+	return filepath.Join(wdttConfigDir, "install-main-password.env")
+}
 
 func readDeployEnvValue(path, key string) string {
 	data, err := os.ReadFile(path)
@@ -29,7 +35,7 @@ func readDeployEnvValue(path, key string) string {
 
 // readDeployMainPassword — пароль из install-main-password.env (install.sh / deploy).
 func readDeployMainPassword() string {
-	return readDeployEnvValue(deployMainPasswordPath, "MAIN_PASSWORD")
+	return readDeployEnvValue(deployMainPasswordPath(), "MAIN_PASSWORD")
 }
 
 // applyDeployInboundDefaults подставляет порты из deploy.sh (install-inbound.env) при первом seed panel.db.
@@ -37,7 +43,7 @@ func applyDeployInboundDefaults(cfg *WdttInboundConfig) {
 	if cfg == nil {
 		return
 	}
-	data, err := os.ReadFile(deployInboundEnvPath)
+	data, err := os.ReadFile(deployInboundEnvPath())
 	if err != nil {
 		return
 	}

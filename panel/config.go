@@ -15,11 +15,11 @@ import (
 var (
 	panelConfigPath   = "/etc/wdtt/panel.json"
 	panelXrayMetaPath = "/etc/wdtt/panel-xray.json"
+	wdttConfigDir     = "/etc/wdtt"
 )
 
 const (
 	// WDTT VPN-сервер
-	wdttConfigDir     = "/etc/wdtt"
 	wdttServerBin     = "/usr/local/bin/wdtt-app"
 	wdttXrayRulesPath = "/usr/local/bin/wdtt-xray-rules.sh"
 	wdttServiceUnit   = "wdtt.service"

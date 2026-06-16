@@ -2,6 +2,12 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.26] — 2026-06-16
+
+### Исправлено
+- **wdtt-install v1.4.26** — fresh install качает `v${INSTALLER_VERSION}` (fallback на latest), чтобы не попасть на старый бинарник при гонке с GitHub Releases.
+- **Тесты** — регрессия seed `wdtt_users` и загрузки `main_password` без строк users.
+
 ## [1.4.25] — 2026-06-16
 
 ### Исправлено

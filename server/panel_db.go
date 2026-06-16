@@ -12,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const panelDBPath = "/etc/wdtt/panel.db"
+var panelDBPath = "/etc/wdtt/panel.db"
 
 var (
 	serverPanelDB     *sql.DB
