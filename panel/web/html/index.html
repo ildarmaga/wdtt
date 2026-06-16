@@ -1207,7 +1207,7 @@
           return;
         }
         this.$confirm({
-          title: '{{ i18n "pages.index.panelSwitchVersionDialog"}}',
+          title: '{{ i18n "pages.index.panelSwitchVersionDialog"}}'.replace('#version#', version),
           content: '{{ i18n "pages.index.panelSwitchVersionDialogDesc"}}'.replace('#version#', version),
           okText: '{{ i18n "confirm"}}',
           class: themeSwitcher.currentTheme,
@@ -1347,7 +1347,7 @@
       },
       switchV2rayVersion(version) {
         this.$confirm({
-          title: '{{ i18n "pages.index.xraySwitchVersionDialog"}}',
+          title: '{{ i18n "pages.index.xraySwitchVersionDialog"}}'.replace('#version#', version),
           content: '{{ i18n "pages.index.xraySwitchVersionDialogDesc"}}'.replace('#version#', version),
           okText: '{{ i18n "confirm"}}',
           class: themeSwitcher.currentTheme,

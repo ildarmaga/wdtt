@@ -124,10 +124,9 @@ function wdttBuildQwdttLink(opts) {
   const host = String(opts.host || '').trim();
   const password = String(opts.password || '').trim();
   if (!host || !password) return '';
-  const dtls = Number(opts.dtls) || 56000;
   const params = new URLSearchParams();
   params.set('name', String(opts.name || 'WDTT').trim() || 'WDTT');
-  params.set('peer', host + ':' + dtls);
+  params.set('peer', host);
   params.set('hashes', wdttFormatVkHashes(opts.vkHash, 'bare'));
   params.set('workers', String(Number(opts.workers) || 18));
   params.set('port', String(Number(opts.port) || 9000));
