@@ -26,6 +26,7 @@ func main() {
 	os.Args = filtered
 
 	if !noPanel {
+		panel.InitUnifiedLogSink()
 		go func() {
 			if err := panel.Run(); err != nil {
 				log.Fatalf("[PANEL] %v", err)

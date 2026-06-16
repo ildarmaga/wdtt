@@ -67,17 +67,51 @@ func updateGeofilesOp(name string) (updated []string, restartXray bool, err erro
 }
 
 func fetchServiceLogLines(count int, serviceKey, level string, syslog bool) []string {
+	if syslog {
+		unit := resolveLogUnit(serviceKey, syslog)
+		lines := fetchFormattedServiceLogs(unit, count, level, syslog, serviceKey)
+		if len(lines) > count {
+			lines = lines[:count]
+		}
+		if lines == nil {
+			return []string{}
+		}
+		return lines
+	}
+
 	unit := resolveLogUnit(serviceKey, syslog)
+	if serviceKey == "panel" && needsUnifiedLogFilter(serviceKey, unit) {
+		if lines := fetchPanelLogLines(count, level); len(lines) > 0 {
+			return lines
+		}
+	}
+
 	fetchCount := count
 	if needsUnifiedLogFilter(serviceKey, unit) {
-		fetchCount = count * 20
-		if fetchCount < 200 {
-			fetchCount = 200
+		if serviceKey == "panel" {
+			fetchCount = count * 8
+			if fetchCount < 200 {
+				fetchCount = 200
+			}
+			if fetchCount > 400 {
+				fetchCount = 400
+			}
+		} else {
+			fetchCount = count * 4
+			if fetchCount < 120 {
+				fetchCount = 120
+			}
+			if fetchCount > 400 {
+				fetchCount = 400
+			}
 		}
 	}
 	lines := fetchFormattedServiceLogs(unit, fetchCount, level, syslog, serviceKey)
 	if needsUnifiedLogFilter(serviceKey, unit) {
 		lines = filterUnifiedLogLines(lines, serviceKey, count)
+		if serviceKey == "wdtt" {
+			lines = collapseRepeatedLogLines(lines)
+		}
 	} else if len(lines) > count {
 		lines = lines[:count]
 	}

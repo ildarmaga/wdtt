@@ -1,7 +1,6 @@
 package panel
 
 import (
-	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,7 +18,7 @@ var logLevelRank = map[string]int{
 
 func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool, serviceKey string) []string {
 	level = normalizeLogLevelFilter(level)
-	args := []string{"--no-pager", "-n", strconv.Itoa(count), "-r", "-o", "json", "-p", level}
+	args := []string{"--no-pager", "-n", strconv.Itoa(count), "-r", "-o", "cat", "-p", level}
 	if !syslog && unit != "" {
 		args = append([]string{"-u", unit}, args...)
 	}
@@ -28,26 +27,13 @@ func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool
 	lines := make([]string, 0, count)
 	for _, raw := range strings.Split(out, "\n") {
 		raw = strings.TrimSpace(raw)
-		if raw == "" || !strings.HasPrefix(raw, "{") {
+		if raw == "" {
 			continue
-		}
-		var entry struct {
-			Message              string `json:"MESSAGE"`
-			Priority             string `json:"PRIORITY"`
-			RealtimeTimestampUS  string `json:"__REALTIME_TIMESTAMP"`
-			SyslogIdentifier     string `json:"SYSLOG_IDENTIFIER"`
-		}
-		if err := json.Unmarshal([]byte(raw), &entry); err != nil || entry.Message == "" {
-			continue
-		}
-		priority, _ := strconv.Atoi(entry.Priority)
-		if syslog && entry.SyslogIdentifier != "" {
-			source = normalizeLogSource(entry.SyslogIdentifier)
 		}
 		if serviceKey == "panel" && needsUnifiedLogFilter(serviceKey, unit) {
 			source = "WDTT Panel"
 		}
-		formatted := formatJournalLine(entry.Message, priority, entry.RealtimeTimestampUS, source)
+		formatted := formatJournalLine(raw, 6, "", source)
 		if formatted == "" {
 			continue
 		}

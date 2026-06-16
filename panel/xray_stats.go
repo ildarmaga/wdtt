@@ -1,11 +1,9 @@
 package panel
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -142,16 +140,21 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 		return nil
 	}
 
-	file, err := os.Open(pathToAccessLog)
+	tailLines := count * 200
+	if tailLines < 2000 {
+		tailLines = 2000
+	}
+	if tailLines > 15000 {
+		tailLines = 15000
+	}
+	rawLines, err := readTailLines(pathToAccessLog, tailLines)
 	if err != nil {
 		return nil
 	}
-	defer file.Close()
 
 	var entries []XrayLogEntry
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	for _, line := range rawLines {
+		line = strings.TrimSpace(line)
 		if line == "" || strings.Contains(line, "api -> api") {
 			continue
 		}
@@ -205,9 +208,6 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 		entries = append(entries, entry)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil
-	}
 	if count > 0 && len(entries) > count {
 		entries = entries[len(entries)-count:]
 	}
@@ -216,6 +216,22 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 		entries[i], entries[j] = entries[j], entries[i]
 	}
 	return entries
+}
+
+// readTailLines reads at most maxLines from the end of a file without scanning the whole file.
+func readTailLines(path string, maxLines int) ([]string, error) {
+	if maxLines <= 0 {
+		maxLines = 100
+	}
+	out, err := runCmd("tail", "-n", strconv.Itoa(maxLines), path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(out, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines, nil
 }
 
 func queryXrayStats() (map[string]int64, error) {
