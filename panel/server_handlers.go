@@ -21,6 +21,28 @@ func (a *App) handleCPUHistory(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, aggregateCPUHistory(bucket, 120))
 }
 
+func (a *App) handleProcessList(w http.ResponseWriter, r *http.Request) {
+	jsonOK(w, getProcessList(40))
+}
+
+func (a *App) handleKillProcess(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	pidStr := strings.TrimPrefix(r.URL.Path, a.cfg.basePath()+"panel/api/server/killProcess/")
+	pid, err := strconv.Atoi(strings.Trim(pidStr, "/"))
+	if err != nil || pid <= 0 {
+		jsonMsg(w, "invalid pid", false)
+		return
+	}
+	if err := killProcess(pid); err != nil {
+		jsonMsg(w, err.Error(), false)
+		return
+	}
+	jsonMsg(w, "process terminated", true)
+}
+
 func (a *App) handleGetXrayVersion(w http.ResponseWriter, r *http.Request) {
 	versions, err := xrayVersionTagList()
 	if err != nil {
@@ -233,6 +255,13 @@ func (a *App) handleServerAPI(w http.ResponseWriter, r *http.Request) {
 		a.handleServerMetrics(w, r)
 	case "cpuHistory":
 		a.handleCPUHistory(w, r)
+	case "processes":
+		a.handleProcessList(w, r)
+	case "killProcess":
+		if len(parts) > 1 {
+			r.URL.Path = a.cfg.basePath() + "panel/api/server/killProcess/" + parts[1]
+		}
+		a.handleKillProcess(w, r)
 	case "getXrayVersion":
 		a.handleGetXrayVersion(w, r)
 	case "getPanelVersion":

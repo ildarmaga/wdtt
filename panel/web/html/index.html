@@ -91,6 +91,34 @@
   #version-modal .xray-version-list-wrap .ant-list {
     border-radius: 8px;
   }
+  #cpu-history-modal .ant-modal-body,
+  .cpu-history-modal-wrap .ant-modal-body {
+    max-height: calc(100vh - 120px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 16px 20px !important;
+  }
+  .cpu-history-processes {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(127, 127, 127, 0.2);
+  }
+  .cpu-history-modal-wrap .ant-table-small {
+    font-size: 12px;
+  }
+  .cpu-history-modal-wrap .ant-table-placeholder {
+    background: transparent !important;
+  }
+  .cpu-history-modal-wrap .ant-table-tbody > tr > td {
+    background: transparent !important;
+  }
+  .cpu-history-modal-wrap .ant-table-thead > tr > th {
+    background: rgba(255, 255, 255, 0.04) !important;
+  }
+  body.dark .cpu-history-modal-wrap .ant-table-thead > tr > th {
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: rgba(255, 255, 255, 0.75);
+  }
 </style>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' index-page'">
   <wdtt-sidebar></wdtt-sidebar>
@@ -597,7 +625,9 @@
   </a-modal>
   <!-- CPU History Modal -->
   <a-modal id="cpu-history-modal" v-model="cpuHistoryModal.visible" :closable="true"
-    @cancel="() => cpuHistoryModal.visible = false" :class="themeSwitcher.currentTheme" width="900px" footer="">
+    @cancel="closeCpuHistory" :class="themeSwitcher.currentTheme" :width="isMobile ? '95vw' : '920px'" footer=""
+    wrap-class-name="cpu-history-modal-wrap" :destroy-on-close="false"
+    :body-style="{ maxHeight: 'calc(100vh - 120px)', overflowY: 'auto', padding: '16px 20px' }">
     <template slot="title">
       CPU History
       <a-select size="small" v-model="cpuHistoryModal.bucket" class="ml-10" style="width: 80px"
@@ -610,11 +640,26 @@
         <a-select-option :value="300">5h</a-select-option>
       </a-select>
     </template>
-    <div style="padding:16px">
-      <sparkline :data="cpuHistoryLong" :labels="cpuHistoryLabels" :vb-width="840" :height="220"
+    <div class="cpu-history-modal-inner">
+      <sparkline :data="cpuHistoryLong" :labels="cpuHistoryLabels" :vb-width="840" :height="180"
         :stroke="status.cpu.color" :stroke-width="2.2" :show-grid="true" :show-axes="true" :tick-count-x="5"
-        :max-points="cpuHistoryLong.length" :fill-opacity="0.18" :marker-radius="3.2" :show-tooltip="true" />
+        :max-points="cpuHistoryLong.length" :fill-opacity="0.18" :marker-radius="3.2" :show-tooltip="true"></sparkline>
       <div style="margin-top:4px;font-size:11px;opacity:0.65">Timeframe: [[ cpuHistoryModal.bucket ]] sec per point (total [[ cpuHistoryLong.length ]] points)</div>
+      <div class="cpu-history-processes">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b>Процессы</b>
+          <a-icon :spin="processLoading" type="sync" class="cursor-pointer" @click="fetchProcessList()"></a-icon>
+        </div>
+        <a-table size="small" :columns="processColumns" :data-source="processList" :pagination="false"
+          :row-key="record => record.pid">
+          <template slot="mem" slot-scope="text">[[ SizeFormatter.sizeFormat(text) ]]</template>
+          <template slot="cpu" slot-scope="text">[[ Number(text || 0).toFixed(2) ]]%</template>
+          <template slot="action" slot-scope="text, record">
+            <a-button v-if="record.killable" size="small" type="danger" icon="close" @click="killProcess(record)"></a-button>
+            <span v-else style="opacity:0.25">—</span>
+          </template>
+        </a-table>
+      </div>
     </div>
   </a-modal>
 </a-layout>
@@ -1106,6 +1151,14 @@
     { title: '{{ i18n "pages.index.customGeoActions" }}', key: 'action', scopedSlots: { customRender: 'action' }, width: 120, fixed: 'right' },
   ];
 
+  const processColumns = [
+    { title: 'PID', dataIndex: 'pid', width: 72 },
+    { title: 'Процесс', dataIndex: 'name', ellipsis: true },
+    { title: 'ОЗУ', dataIndex: 'mem', scopedSlots: { customRender: 'mem' }, width: 96 },
+    { title: 'ЦП', dataIndex: 'cpu', scopedSlots: { customRender: 'cpu' }, width: 72 },
+    { title: '', key: 'action', scopedSlots: { customRender: 'action' }, width: 52 },
+  ];
+
   const app = new Vue({
     delimiters: ['[[', ']]'],
     el: '#app',
@@ -1121,6 +1174,10 @@
   cpuHistoryLong: [], // aggregated points from backend
   cpuHistoryLabels: [],
   cpuHistoryModal: { visible: false, bucket: 2 },
+      processList: [],
+      processColumns,
+      processLoading: false,
+      processPollTimer: null,
       versionModal,
       panelVersionModal,
       logModal,
@@ -1190,6 +1247,58 @@
       openCpuHistory() {
         this.cpuHistoryModal.visible = true
         this.fetchCpuHistoryBucket()
+        this.startProcessPoll()
+      },
+      closeCpuHistory() {
+        this.cpuHistoryModal.visible = false
+        this.stopProcessPoll()
+      },
+      startProcessPoll() {
+        this.stopProcessPoll()
+        this.fetchProcessList()
+        this.processPollTimer = setInterval(() => this.fetchProcessList(), 2000)
+      },
+      stopProcessPoll() {
+        if (this.processPollTimer) {
+          clearInterval(this.processPollTimer)
+          this.processPollTimer = null
+        }
+      },
+      async fetchProcessList() {
+        const first = this.processList.length === 0
+        if (first) {
+          this.processLoading = true
+        }
+        try {
+          const msg = await HttpUtil.get('/panel/api/server/processes')
+          if (msg.success && Array.isArray(msg.obj)) {
+            this.processList = msg.obj
+          }
+        } catch (e) {
+          console.error('Failed to fetch process list', e)
+        } finally {
+          if (first) {
+            this.processLoading = false
+          }
+        }
+      },
+      killProcess(record) {
+        const self = this
+        this.$confirm({
+          title: 'Завершить процесс?',
+          content: `${record.name} (PID ${record.pid})`,
+          okText: 'Закрыть',
+          okType: 'danger',
+          cancelText: '{{ i18n "cancel" }}',
+          onOk() {
+            return HttpUtil.post('/panel/api/server/killProcess/' + record.pid).then(msg => {
+              if (!msg.success) {
+                return Promise.reject(new Error(msg.msg || 'error'))
+              }
+              self.fetchProcessList()
+            })
+          },
+        })
       },
       async fetchCpuHistoryBucket() {
         const bucket = this.cpuHistoryModal.bucket || 2
@@ -1454,23 +1563,26 @@
       openXraySettings() {
         location.href = basePath + 'panel/xray';
       },
-      async openLogs() {
+      openLogs() {
         logModal.service = 'panel';
         logModal.visible = true;
         logModal.formattedLogs = '…';
-        await this.fetchServiceLogs();
+        logModal.loading = true;
+        void this.fetchServiceLogs();
       },
-      async openWdttJournal() {
+      openWdttJournal() {
         logModal.service = 'wdtt';
         logModal.visible = true;
         logModal.formattedLogs = '…';
-        await this.fetchServiceLogs();
+        logModal.loading = true;
+        void this.fetchServiceLogs();
       },
-      async openXrayJournal() {
+      openXrayJournal() {
         logModal.service = 'xray';
         logModal.visible = true;
         logModal.formattedLogs = '…';
-        await this.fetchServiceLogs();
+        logModal.loading = true;
+        void this.fetchServiceLogs();
       },
       async fetchServiceLogs() {
         logModal.loading = true;
@@ -1483,15 +1595,18 @@
         if (!msg.success) return;
         logModal.show(msg.obj);
       },
-      async openXrayLogs() {
+      openXrayLogs() {
         xraylogModal.visible = true;
         xraylogModal.loading = true;
-        const msg = await HttpUtil.post('/panel/api/server/xraylogs/' + xraylogModal.rows, { filter: xraylogModal.filter, showDirect: xraylogModal.showDirect, showBlocked: xraylogModal.showBlocked, showProxy: xraylogModal.showProxy });
-        xraylogModal.loading = false;
-        if (!msg.success) {
-          return;
-        }
-        xraylogModal.show(msg.obj);
+        xraylogModal.formattedLogs = '…';
+        void (async () => {
+          const msg = await HttpUtil.post('/panel/api/server/xraylogs/' + xraylogModal.rows, { filter: xraylogModal.filter, showDirect: xraylogModal.showDirect, showBlocked: xraylogModal.showBlocked, showProxy: xraylogModal.showProxy });
+          xraylogModal.loading = false;
+          if (!msg.success) {
+            return;
+          }
+          xraylogModal.show(msg.obj);
+        })();
       },
       downloadXrayLogs() {
         if (!Array.isArray(this.xraylogModal.logs) || this.xraylogModal.logs.length === 0) {

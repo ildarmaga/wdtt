@@ -116,6 +116,9 @@ func (a *App) renderHTML(w http.ResponseWriter, r *http.Request, name, title str
 	extra["assets_ver"] = assetsVer
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	if err := htmlTemplates.ExecuteTemplate(w, name, extra); err != nil {
 		http.Error(w, fmt.Sprintf("template error: %v", err), http.StatusInternalServerError)
 	}

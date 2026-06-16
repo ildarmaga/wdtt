@@ -32,7 +32,8 @@
     if (typeof EventSource === 'undefined') {
       return;
     }
-    var url = this.basePath + 'panel/api/server/events';
+    var base = (typeof basePath !== 'undefined' && basePath) ? basePath : this.basePath;
+    var url = base + 'panel/api/server/events';
     this._es = new EventSource(url, { withCredentials: true });
     this._es.onopen = function () {
       self.isConnected = true;

@@ -81,9 +81,42 @@ func fetchServiceLogLines(count int, serviceKey, level string, syslog bool) []st
 		return lines
 	}
 
+	if serviceKey == "xray" {
+		if lines := fetchXrayErrorLogLines(count, level); len(lines) > 0 {
+			return lines
+		}
+	}
+
 	unit := resolveLogUnit(serviceKey, syslog)
-	if serviceKey == "panel" && needsUnifiedLogFilter(serviceKey, unit) {
-		if lines := fetchPanelLogLines(count, level); len(lines) > 0 {
+	if needsUnifiedLogFilter(serviceKey, unit) {
+		if serviceKey == "panel" {
+			if lines := fetchPanelLogLines(count, level); len(lines) > 0 {
+				return lines
+			}
+		}
+		scanCount := count * 8
+		if serviceKey == "panel" {
+			scanCount = count * 4
+			if scanCount < 120 {
+				scanCount = 120
+			}
+		} else {
+			if scanCount < 200 {
+				scanCount = 200
+			}
+		}
+		if scanCount > logBufferCapacity {
+			scanCount = logBufferCapacity
+		}
+		if bufLines := fetchUnifiedBufferLogLines(scanCount, level, serviceKey); len(bufLines) > 0 {
+			lines := bufLines
+			if len(lines) > count {
+				lines = lines[:count]
+			}
+			if serviceKey == "wdtt" {
+				lines = collapseRepeatedLogLines(lines)
+				lines = prependWdttStatsSummary(lines)
+			}
 			return lines
 		}
 	}

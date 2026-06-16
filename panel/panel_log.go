@@ -15,9 +15,10 @@ type panelSplitWriter struct {
 }
 
 func (w *panelSplitWriter) Write(p []byte) (int, error) {
-	if w.panel != nil {
-		msg := strings.TrimSpace(string(p))
-		if msg != "" {
+	msg := strings.TrimSpace(string(p))
+	if msg != "" {
+		appendLogBuffer(msg)
+		if w.panel != nil {
 			body := logMessageBody(msg)
 			if isPanelLogMessage(body) {
 				_, _ = w.panel.Write(p)

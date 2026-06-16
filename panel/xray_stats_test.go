@@ -12,7 +12,7 @@ func TestIsInternalXrayAccessLine(t *testing.T) {
 		{"2026/06/16 10:11:35 from DNS accepted udp:1.1.1.1:53 [xray.system.uuid -> NL]", false},
 	}
 	for _, tc := range cases {
-		if got := isInternalXrayAccessLine(tc.line); got != tc.want {
+		if got := isInternalXrayAccessLine(tc.line, defaultXrayAPIPort); got != tc.want {
 			t.Fatalf("line=%q got=%v want=%v", tc.line, got, tc.want)
 		}
 	}

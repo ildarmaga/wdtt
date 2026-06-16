@@ -132,11 +132,13 @@ func isFilterFalse(v interface{}) bool {
 	return false
 }
 
-func isInternalXrayAccessLine(line string) bool {
+func isInternalXrayAccessLine(line string, apiPort int) bool {
 	if strings.Contains(line, "api -> api") {
 		return true
 	}
-	apiPort := xrayAPIPortFromConfig()
+	if apiPort <= 0 {
+		apiPort = defaultXrayAPIPort
+	}
 	if strings.Contains(line, fmt.Sprintf("tcp:127.0.0.1:%d", apiPort)) {
 		return true
 	}
@@ -153,22 +155,23 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 		return nil
 	}
 
-	tailLines := count * 500
-	if tailLines < 5000 {
-		tailLines = 5000
+	tailLines := count * 40
+	if tailLines < 400 {
+		tailLines = 400
 	}
-	if tailLines > 20000 {
-		tailLines = 20000
+	if tailLines > 3000 {
+		tailLines = 3000
 	}
 	rawLines, err := readTailLines(pathToAccessLog, tailLines)
 	if err != nil {
 		return nil
 	}
 
-	return parseXrayAccessLogLines(rawLines, count, filter, showDirect, showBlocked, showProxy, freedoms, blackholes)
+	apiPort := xrayAPIPortFromConfig()
+	return parseXrayAccessLogLines(rawLines, count, filter, showDirect, showBlocked, showProxy, freedoms, blackholes, apiPort)
 }
 
-func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDirect, showBlocked, showProxy interface{}, freedoms, blackholes []string) []XrayLogEntry {
+func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDirect, showBlocked, showProxy interface{}, freedoms, blackholes []string, apiPort int) []XrayLogEntry {
 	const (
 		directEvent = iota
 		blockedEvent
@@ -181,7 +184,7 @@ func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDi
 		if line == "" {
 			continue
 		}
-		if isInternalXrayAccessLine(line) {
+		if isInternalXrayAccessLine(line, apiPort) {
 			continue
 		}
 		if !strings.Contains(line, " accepted ") && !strings.Contains(line, " rejected ") {
@@ -257,6 +260,43 @@ func readTailLines(path string, maxLines int) ([]string, error) {
 		lines = lines[:len(lines)-1]
 	}
 	return lines, nil
+}
+
+func fetchXrayErrorLogLines(count int, level string) []string {
+	if count <= 0 {
+		count = 20
+	}
+	tailN := count * 3
+	if tailN < 100 {
+		tailN = 100
+	}
+	if tailN > 500 {
+		tailN = 500
+	}
+	raw, err := readTailLines(defaultXrayErrorLog(), tailN)
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	level = normalizeLogLevelFilter(level)
+	lines := make([]string, 0, count)
+	for i := len(raw) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(raw[i])
+		if line == "" {
+			continue
+		}
+		formatted := formatJournalLine(line, 6, "", "XRAY")
+		if formatted == "" {
+			continue
+		}
+		if !passesLogLevelFilter(level, formattedLevel(formatted)) {
+			continue
+		}
+		lines = append(lines, formatted)
+		if len(lines) >= count {
+			break
+		}
+	}
+	return lines
 }
 
 func queryXrayStats() (map[string]int64, error) {
