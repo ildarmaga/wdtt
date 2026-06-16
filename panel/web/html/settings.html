@@ -131,7 +131,6 @@
       this.subCertFile = data.subCertFile || "";
       this.subKeyFile = data.subKeyFile || "";
       this.subEncrypt = data.subEncrypt !== false;
-      this.subUpdates = data.subUpdates || 12;
       this.subTitle = data.subTitle || "";
       this.subSupportUrl = data.subSupportUrl || "";
       this.subProfileUrl = data.subProfileUrl || "";
@@ -159,7 +158,6 @@
         subCertFile: String(this.subCertFile || ''),
         subKeyFile: String(this.subKeyFile || ''),
         subEncrypt: !!this.subEncrypt,
-        subUpdates: Number(this.subUpdates) || 12,
         subTitle: String(this.subTitle || ''),
         subSupportUrl: String(this.subSupportUrl || ''),
         subProfileUrl: String(this.subProfileUrl || ''),
@@ -349,9 +347,13 @@
         if (obj.panel) {
           this.allSetting.webCertFile = obj.panel.webCertFile || '';
           this.allSetting.webKeyFile = obj.panel.webKeyFile || '';
+          if (obj.panel.subCertFile) this.allSetting.subCertFile = obj.panel.subCertFile;
+          if (obj.panel.subKeyFile) this.allSetting.subKeyFile = obj.panel.subKeyFile;
           if (obj.panel.webDomain) this.allSetting.webDomain = obj.panel.webDomain;
           this.oldAllSetting.webCertFile = this.allSetting.webCertFile;
           this.oldAllSetting.webKeyFile = this.allSetting.webKeyFile;
+          if (obj.panel.subCertFile) this.oldAllSetting.subCertFile = this.allSetting.subCertFile;
+          if (obj.panel.subKeyFile) this.oldAllSetting.subKeyFile = this.allSetting.subKeyFile;
           if (obj.panel.webDomain) this.oldAllSetting.webDomain = obj.panel.webDomain;
         }
       },
@@ -442,6 +444,8 @@
           this.syncCertPanel(msg.obj);
           this.allSetting.webCertFile = row.certFile;
           this.allSetting.webKeyFile = row.keyFile;
+          if (!this.allSetting.subCertFile) this.allSetting.subCertFile = row.certFile;
+          if (!this.allSetting.subKeyFile) this.allSetting.subKeyFile = row.keyFile;
           await this.getAllSetting();
           if (restart) setTimeout(() => window.location.reload(), 3000);
         } else {

@@ -49,8 +49,13 @@ type panelUserReq struct {
 }
 
 func (a *App) handleSettingAll(w http.ResponseWriter, r *http.Request) {
-	if sanitizePanelCertPaths(a.cfg) {
+	changed := sanitizePanelCertPaths(a.cfg)
+	if syncSubCertFromPanel(a.cfg) {
+		changed = true
+	}
+	if changed {
 		_ = savePanelConfig(a.cfg)
+		go a.restartSubscriptionServer()
 	}
 	jsonOK(w, panelSettingsMap(a.cfg))
 }
@@ -184,7 +189,6 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	a.cfg.SubCertFile = strings.TrimSpace(req.SubCertFile)
 	a.cfg.SubKeyFile = strings.TrimSpace(req.SubKeyFile)
 	a.cfg.SubEncrypt = req.SubEncrypt
-	a.cfg.SubUpdates = req.SubUpdates
 	a.cfg.SubTitle = strings.TrimSpace(req.SubTitle)
 	a.cfg.SubSupportURL = strings.TrimSpace(req.SubSupportURL)
 	a.cfg.SubProfileURL = strings.TrimSpace(req.SubProfileURL)
@@ -192,6 +196,7 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 	a.cfg.SubURI = strings.TrimSpace(req.SubURI)
 	a.cfg.SubShowInfo = req.SubShowInfo
 	normalizePanelConfig(a.cfg)
+	syncSubCertFromPanel(a.cfg)
 	sanitizePanelCertPaths(a.cfg)
 
 	if a.cfg.SubPort < 1 || a.cfg.SubPort > 65535 {

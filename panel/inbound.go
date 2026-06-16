@@ -395,11 +395,12 @@ func ensureWdttFirewallPorts(cfg WdttInboundConfig) {
 // writeWdttServiceFile — минимальный unit: параметры VPN читаются из panel.db, не из ExecStart.
 func writeWdttServiceFile(cfg WdttInboundConfig) error {
 	cfg.normalize()
+	sshPort := detectSSHPort()
 	iptPre := fmt.Sprintf(
-		`ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p tcp --dport 22 -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 22 -m comment --comment %s -j ACCEPT; fi"`,
+		`ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p tcp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport %d -m comment --comment %s -j ACCEPT; fi"`,
 		cfg.DtlsPort, wdttIptComment, cfg.DtlsPort, wdttIptComment,
 		cfg.WgPort, wdttIptComment, cfg.WgPort, wdttIptComment,
-		wdttIptComment, wdttIptComment,
+		sshPort, wdttIptComment, sshPort, wdttIptComment,
 	)
 	content := fmt.Sprintf(`[Unit]
 Description=WDTT (panel + VPN server)

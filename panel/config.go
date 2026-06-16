@@ -163,6 +163,28 @@ func sanitizePanelCertPaths(cfg *PanelConfig) bool {
 	return false
 }
 
+// syncSubCertFromPanel прописывает TLS подписки из сертификата панели, если свои пути пусты.
+func syncSubCertFromPanel(cfg *PanelConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	cert := strings.TrimSpace(cfg.WebCertFile)
+	key := strings.TrimSpace(cfg.WebKeyFile)
+	if cert == "" || key == "" {
+		return false
+	}
+	changed := false
+	if strings.TrimSpace(cfg.SubCertFile) == "" {
+		cfg.SubCertFile = cert
+		changed = true
+	}
+	if strings.TrimSpace(cfg.SubKeyFile) == "" {
+		cfg.SubKeyFile = key
+		changed = true
+	}
+	return changed
+}
+
 func panelCertPanelMap(cfg *PanelConfig) map[string]interface{} {
 	if cfg == nil {
 		return map[string]interface{}{}
@@ -171,6 +193,8 @@ func panelCertPanelMap(cfg *PanelConfig) map[string]interface{} {
 		"webCertFile": cfg.WebCertFile,
 		"webKeyFile":  cfg.WebKeyFile,
 		"webDomain":   cfg.WebDomain,
+		"subCertFile": cfg.SubCertFile,
+		"subKeyFile":  cfg.SubKeyFile,
 		"tlsActive":   panelTLSEnabled(cfg),
 	}
 }
@@ -272,7 +296,6 @@ func panelSettingsMap(cfg *PanelConfig) map[string]interface{} {
 		"subCertFile":      cfg.SubCertFile,
 		"subKeyFile":       cfg.SubKeyFile,
 		"subEncrypt":       cfg.SubEncrypt,
-		"subUpdates":       cfg.SubUpdates,
 		"subTitle":         cfg.SubTitle,
 		"subSupportUrl":    cfg.SubSupportURL,
 		"subProfileUrl":    cfg.SubProfileURL,

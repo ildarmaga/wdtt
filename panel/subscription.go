@@ -315,9 +315,6 @@ func (a *App) applySubHeaders(w http.ResponseWriter, userInfoHeader string) {
 	if announce := strings.TrimSpace(a.cfg.SubAnnounce); announce != "" {
 		w.Header().Set("Announce", "base64:"+base64.StdEncoding.EncodeToString([]byte(announce)))
 	}
-	if a.cfg.SubUpdates > 0 {
-		w.Header().Set("Profile-Update-Interval", fmt.Sprintf("%d", a.cfg.SubUpdates))
-	}
 	w.Header().Set("Content-Disposition", "attachment; filename=wdtt")
 }
 

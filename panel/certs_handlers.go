@@ -197,18 +197,12 @@ func (a *App) handleCertsApply(w http.ResponseWriter, r *http.Request) {
 		jsonMsg(w, err.Error(), false)
 		return
 	}
-	a.cfg.WebCertFile = strings.TrimSpace(req.CertFile)
-	a.cfg.WebKeyFile = strings.TrimSpace(req.KeyFile)
+	a.restartSubscriptionServer()
 	certs, _ := listCertificates(a.cfg)
 	jsonOK(w, map[string]interface{}{
 		"message": "Сертификат панели обновлён",
 		"certs":   certs,
-		"panel": map[string]interface{}{
-			"webCertFile": a.cfg.WebCertFile,
-			"webKeyFile":  a.cfg.WebKeyFile,
-			"webDomain":   a.cfg.WebDomain,
-			"tlsActive":   panelTLSEnabled(a.cfg),
-		},
+		"panel":   panelCertPanelMap(a.cfg),
 	})
 }
 

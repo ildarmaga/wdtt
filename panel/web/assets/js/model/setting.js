@@ -45,7 +45,6 @@ class AllSetting {
         this.externalTrafficInformURI = "";
         this.subCertFile = "";
         this.subKeyFile = "";
-        this.subUpdates = 12;
         this.subEncrypt = true;
         this.subShowInfo = true;
         this.subURI = "";
