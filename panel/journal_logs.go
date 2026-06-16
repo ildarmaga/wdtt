@@ -22,6 +22,10 @@ func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool
 	if !syslog && unit != "" {
 		args = append([]string{"-u", unit}, args...)
 	}
+	// WDTT stats every few seconds — exclude at source to avoid scanning hundreds of lines.
+	if serviceKey == "wdtt" && !syslog {
+		args = append(args, "--grep=\\[СТАТ\\]", "-v")
+	}
 	out, _ := runCmd("journalctl", args...)
 	source := logSourceForService(unit, serviceKey)
 	lines := make([]string, 0, count)

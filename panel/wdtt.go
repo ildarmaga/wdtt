@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
 type PasswordsDB struct {
@@ -140,11 +142,11 @@ func ensureMainPasswordEntry(db *PasswordsDB) {
 	}
 	entry, ok := db.Passwords[db.MainPassword]
 	if !ok || entry == nil {
-		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец"}
+		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: paneldb.MainUserComment}
 		return
 	}
-	if entry.Comment == "" {
-		entry.Comment = "Владелец"
+	if entry.Comment == "" || entry.Comment == "Владелец" {
+		entry.Comment = paneldb.MainUserComment
 	}
 	entry.MaxDevices = 0
 }
@@ -305,7 +307,7 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 		"device_ids":       deviceIDs,
 		"devices_bound":    devicesBound,
 		"max_devices":      0,
-		"comment":          "Владелец",
+		"comment":          paneldb.MainUserComment,
 		"expires_at":       0,
 		"expires":          "бессрочно",
 		"up":               formatBytes(upBytes),
@@ -323,7 +325,7 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 		"dtls_port":        dtlsPort,
 		"wg_port":          wgPort,
 		"client_port":      clientPort,
-		"link":             buildWdttLink(serverIP, db.MainPassword, vpnTitle, "", &PasswordEntry{Comment: "Владелец"}, inbound, ""),
+		"link":             buildWdttLink(serverIP, db.MainPassword, vpnTitle, "", &PasswordEntry{Comment: paneldb.MainUserComment}, inbound, ""),
 	}
 }
 
@@ -398,9 +400,9 @@ func migrateMainPasswordDB(db *PasswordsDB, newMain string) {
 	}
 	db.MainPassword = newMain
 	if carry == nil {
-		carry = &PasswordEntry{Comment: "Владелец"}
+		carry = &PasswordEntry{Comment: paneldb.MainUserComment}
 	} else {
-		carry.Comment = "Владелец"
+		carry.Comment = paneldb.MainUserComment
 		carry.MaxDevices = 0
 	}
 	db.Passwords[newMain] = carry

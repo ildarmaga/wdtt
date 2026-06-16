@@ -1436,14 +1436,20 @@
       },
       async openLogs() {
         logModal.service = 'panel';
+        logModal.visible = true;
+        logModal.formattedLogs = '…';
         await this.fetchServiceLogs();
       },
       async openWdttJournal() {
         logModal.service = 'wdtt';
+        logModal.visible = true;
+        logModal.formattedLogs = '…';
         await this.fetchServiceLogs();
       },
       async openXrayJournal() {
         logModal.service = 'xray';
+        logModal.visible = true;
+        logModal.formattedLogs = '…';
         await this.fetchServiceLogs();
       },
       async fetchServiceLogs() {

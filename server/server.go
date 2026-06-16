@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3"
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 
 	"golang.zx2c4.com/wireguard/device"
 )
@@ -349,11 +350,11 @@ func ensureMainPasswordEntryLocked() {
 	}
 	entry, ok := db.Passwords[db.MainPassword]
 	if !ok || entry == nil {
-		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: "Владелец"}
+		db.Passwords[db.MainPassword] = &PasswordEntry{Comment: paneldb.MainUserComment}
 		return
 	}
-	if entry.Comment == "" {
-		entry.Comment = "Владелец"
+	if entry.Comment == "" || entry.Comment == "Владелец" {
+		entry.Comment = paneldb.MainUserComment
 	}
 	// Главный пароль — без лимита устройств (MaxDevices не используется).
 	entry.MaxDevices = 0

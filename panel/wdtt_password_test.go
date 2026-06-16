@@ -1,12 +1,16 @@
 package panel
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
+)
 
 func TestMigrateMainPasswordDB(t *testing.T) {
 	db := &PasswordsDB{
 		MainPassword: "old",
 		Passwords: map[string]*PasswordEntry{
-			"old": {Comment: "Владелец", UpBytes: 100, DeviceIDs: []string{"dev1"}},
+			"old": {Comment: paneldb.MainUserComment, UpBytes: 100, DeviceIDs: []string{"dev1"}},
 			"other": {Comment: "guest"},
 		},
 	}

@@ -2,7 +2,9 @@ package panel
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 )
 
 func xrayVersionTagList() ([]string, error) {
@@ -89,20 +91,20 @@ func fetchServiceLogLines(count int, serviceKey, level string, syslog bool) []st
 	fetchCount := count
 	if needsUnifiedLogFilter(serviceKey, unit) {
 		if serviceKey == "panel" {
-			fetchCount = count * 8
-			if fetchCount < 200 {
-				fetchCount = 200
-			}
-			if fetchCount > 400 {
-				fetchCount = 400
-			}
-		} else {
 			fetchCount = count * 4
 			if fetchCount < 120 {
 				fetchCount = 120
 			}
-			if fetchCount > 400 {
-				fetchCount = 400
+			if fetchCount > 250 {
+				fetchCount = 250
+			}
+		} else {
+			fetchCount = count * 2
+			if fetchCount < 60 {
+				fetchCount = 60
+			}
+			if fetchCount > 150 {
+				fetchCount = 150
 			}
 		}
 	}
@@ -209,12 +211,29 @@ func resolveLogUnit(serviceKey string, syslog bool) string {
 	}
 }
 
+var (
+	unifiedDeployOnce sync.Once
+	unifiedDeploy     bool
+)
+
 func serviceUnitExists(unit string) bool {
-	_, err := runCmd("systemctl", "status", unit, "--no-pager")
-	return err == nil
+	for _, p := range []string{
+		"/etc/systemd/system/" + unit,
+		"/lib/systemd/system/" + unit,
+		"/usr/lib/systemd/system/" + unit,
+	} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	out, _ := runCmd("systemctl", "show", unit, "-p", "LoadState", "--value")
+	return out == "loaded" || out == "masked"
 }
 
 // isUnifiedDeployment — один бинарник (wdtt): панель и VPN-сервер в одном процессе, без wdtt-panel.service.
 func isUnifiedDeployment() bool {
-	return !serviceUnitExists(panelServiceUnit)
+	unifiedDeployOnce.Do(func() {
+		unifiedDeploy = !serviceUnitExists(panelServiceUnit)
+	})
+	return unifiedDeploy
 }

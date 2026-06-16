@@ -5,6 +5,7 @@ const DefaultPath = "/etc/wdtt/panel.db"
 const (
 	DefaultMaxDevices = 1
 	MaxDevicesLimit   = 20
+	MainUserComment   = "ADMIN" // comment for main_password row in wdtt_users
 )
 
 // Store — wdtt_users + wdtt_devices + wdtt_global (ядро VPN-данных).

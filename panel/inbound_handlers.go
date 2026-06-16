@@ -2,6 +2,8 @@ package panel
 
 import (
 	"net/http"
+
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
 func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
@@ -25,7 +27,7 @@ func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
 		"server_ip":        a.serverIP(),
 		"default_link_host": a.defaultLinkHost(),
 		"panel_tls":        panelTLSEnabled(a.cfg),
-		"link_main":        buildWdttLink(a.resolveLinkHost(cfg), mainPass, a.cfg.SubTitle, "", &PasswordEntry{Comment: "Владелец"}, cfg, ""),
+		"link_main":        buildWdttLink(a.resolveLinkHost(cfg), mainPass, a.cfg.SubTitle, "", &PasswordEntry{Comment: paneldb.MainUserComment}, cfg, ""),
 		"remark":           cfg.Remark,
 		"server_host":      cfg.ServerHost,
 		"client_port":      cfg.ClientPort,
