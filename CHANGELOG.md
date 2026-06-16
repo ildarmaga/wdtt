@@ -2,6 +2,12 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.24] — 2026-06-16
+
+### Исправлено
+- **wdtt-install v1.4.24** — прямой download `releases/latest/download/wdtt-linux-*` (без GitHub API); `git reset --hard` при обновлении clone; fallback — `go build ./cmd/wdtt` без `build.sh`/`npx`.
+- **deploy.sh** — тот же прямой download URL для Releases.
+
 ## [1.4.23] — 2026-06-16
 
 ### Исправлено

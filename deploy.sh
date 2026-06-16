@@ -368,27 +368,50 @@ disable_legacy_panel_service() {
 # Скачивание wdtt-linux-* из GitHub Releases (как wdtt-install).
 download_wdtt_release() {
     local tag="${WDTT_VERSION:-latest}"
-    local arch asset api json url tmp
+    local arch asset api json url tmp ver_tag
     command -v curl >/dev/null || return 1
     arch="$(detect_goarch)"
     asset="wdtt-linux-${arch}"
     tmp="/tmp/${asset}.download"
+
+    if [ "$tag" = "latest" ]; then
+        url="https://github.com/${WDTT_GITHUB_USER}/wdtt/releases/latest/download/${asset}"
+        if curl -fsSL -L "$url" -o "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+            ver_tag="$(curl -fsSL -I "https://github.com/${WDTT_GITHUB_USER}/wdtt/releases/latest" 2>/dev/null \
+                | grep -i '^location:' | tail -1 | sed 's|.*/tag/||;s/\r//;s/ .*//')"
+            chmod +x "$tmp"
+            install -m 0755 "$tmp" "$WDTT_BIN"
+            rm -f "$tmp"
+            log_info "wdtt скачан из GitHub Releases (${ver_tag:-latest}, ${asset})"
+            return 0
+        fi
+    else
+        ver_tag="v${tag#v}"
+        url="https://github.com/${WDTT_GITHUB_USER}/wdtt/releases/download/${ver_tag}/${asset}"
+        if curl -fsSL -L "$url" -o "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+            chmod +x "$tmp"
+            install -m 0755 "$tmp" "$WDTT_BIN"
+            rm -f "$tmp"
+            log_info "wdtt скачан из GitHub Releases (${ver_tag}, ${asset})"
+            return 0
+        fi
+    fi
+
     if [ "$tag" = "latest" ]; then
         api="https://api.github.com/repos/${WDTT_GITHUB_USER}/wdtt/releases/latest"
     else
         tag="${tag#v}"
         api="https://api.github.com/repos/${WDTT_GITHUB_USER}/wdtt/releases/tags/v${tag}"
     fi
-    json="$(curl -fsSL "$api" 2>/dev/null)" || return 1
+    json="$(curl -fsSL -H "User-Agent: wdtt-deploy" "$api" 2>/dev/null)" || return 1
     url="$(echo "$json" | grep -o "https://[^\"]*${asset}[^\"]*" | head -1)"
     [ -n "$url" ] || return 1
-    curl -fsSL "$url" -o "$tmp" || return 1
+    curl -fsSL -L "$url" -o "$tmp" || return 1
     chmod +x "$tmp"
     install -m 0755 "$tmp" "$WDTT_BIN"
     rm -f "$tmp"
-    local rel_tag
-    rel_tag="$(echo "$json" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\(v[^"]*\)".*/\1/')"
-    log_info "wdtt скачан из GitHub Releases (${rel_tag:-latest}, ${asset})"
+    ver_tag="$(echo "$json" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\(v[^"]*\)".*/\1/')"
+    log_info "wdtt скачан из GitHub Releases (${ver_tag:-latest}, ${asset})"
     return 0
 }
 
