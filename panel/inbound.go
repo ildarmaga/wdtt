@@ -500,6 +500,7 @@ func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
 			if err := wdttServerRestart(old.AdminAddr); err != nil {
 				return false, err
 			}
+			applyWdttMtuRules("down")
 			return true, nil
 		}
 		runCmd("systemctl", "stop", wdttServiceUnit)
@@ -509,6 +510,11 @@ func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
 		if unified {
 			if err := wdttServerRestart(old.AdminAddr); err != nil {
 				return false, err
+			}
+			if cfg.Enable {
+				applyWdttMtuRules("up")
+			} else {
+				applyWdttMtuRules("down")
 			}
 			return true, nil
 		}
@@ -520,7 +526,14 @@ func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
 	if err := wdttHotReload(); err != nil {
 		log.Printf("[panel] inbound hot-reload: %v", err)
 		if unified {
-			return false, fmt.Errorf("hot-reload не удался: %v", err)
+			inbound, _ := loadWdttInbound()
+			if err := wdttServerRestart(inbound.AdminAddr); err != nil {
+				return false, fmt.Errorf("hot-reload не удался: %v", err)
+			}
+			if cfg.Enable {
+				applyWdttMtuRules("up")
+			}
+			return true, nil
 		}
 		if err := restartWdttWithDeps(); err != nil {
 			return false, err

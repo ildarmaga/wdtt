@@ -21,10 +21,28 @@ var (
 	totalConns           int64
 	natType              string = "Инициализация..."
 	serverStartTime      time.Time
+	serverVPNActive      atomic.Bool
 )
 
+func markServerVPNActive(active bool) {
+	serverVPNActive.Store(active)
+}
+
+func serverUptimeSeconds() uint64 {
+	if !serverVPNActive.Load() || serverStartTime.IsZero() {
+		return 0
+	}
+	secs := time.Since(serverStartTime).Seconds()
+	if secs < 0 {
+		return 0
+	}
+	return uint64(secs)
+}
+
 func statsLoop(ctx context.Context, configDir string) {
-	serverStartTime = time.Now()
+	if serverStartTime.IsZero() {
+		serverStartTime = time.Now()
+	}
 	statsFile := filepath.Join(configDir, "server.log")
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -68,6 +86,8 @@ func statsLoop(ctx context.Context, configDir string) {
 				"total":        total,
 				"nat":          natType,
 				"uptime":       uptimeStr,
+				"uptime_sec":   int64(uptime.Seconds()),
+				"vpn_active":   true,
 				"down_gb":      fmt.Sprintf("%.2f", downGB),
 				"up_gb":        fmt.Sprintf("%.2f", upGB),
 				"passwords":    numPasswords,

@@ -71,6 +71,10 @@ func (a *App) handleStopXrayService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleStopWdttService(w http.ResponseWriter, r *http.Request) {
+	if isUnifiedDeployment() {
+		jsonMsg(w, "используйте выключение VPN в Подключениях", false)
+		return
+	}
 	if err := controlService("wdtt", "stop"); err != nil {
 		jsonMsg(w, "WDTT stop error: "+err.Error(), false)
 		return
@@ -84,7 +88,7 @@ func (a *App) handleRestartWdttService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isUnifiedDeployment() {
-		jsonMsg(w, "VPN-сервер перезапущен внутри процесса (панель работает)", true)
+		jsonMsg(w, "VPN-сервер перезапущен", true)
 		return
 	}
 	jsonMsg(w, "WDTT restarted", true)

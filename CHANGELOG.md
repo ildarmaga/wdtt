@@ -2,6 +2,22 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.11] — 2026-06-16
+
+### Добавлено
+- **Uptime WDTT-PANEL / WDTT-SERVER** — на дашборде отдельно: процесс (systemd) и VPN-сервер (сбрасывается при in-process restart); `/health` отдаёт `uptime_sec` и `vpn_active`.
+
+### Изменено
+- **Подключения** — switch VPN переключает `enable` через inbound save, не `systemctl stop` (панель не падает в unified).
+- **deploy.sh** — при переустановке сохраняется `panel.db`; seed `install-main-password.env` на чистой установке.
+
+### Исправлено
+- **Re-enable VPN** — admin HTTP активен при `enable=false`; повторное включение без `systemctl restart`.
+- **Hot-reload fallback** — в unified при ошибке reload → in-process restart (создание пользователей, inbound).
+- **Toast «Перезапуск VPN»** — одно уведомление «VPN-сервер перезапущен» (без дубля HttpUtil).
+- **DTLS renew / MTU** — in-process restart в unified; `wdtt-mtu-rules.sh` при restart VPN.
+- **stop WDTT** — заблокирован в unified (используйте выключение в Подключениях).
+
 ## [1.4.10] — 2026-06-16
 
 ### Добавлено

@@ -475,15 +475,25 @@ func RunManaged() {
 }
 
 func runServerOnce(ctx context.Context, cfg ServerConfig) {
+	serverStartTime = time.Now()
+	markServerVPNActive(false)
+
+	disabled := false
 	if startup, ok, err := loadStartupFromSQLite(); err == nil && ok && !startup.Enable {
-		log.Println("[SERVER] WDTT отключён в panel.db — VPN не слушает (ожидание включения)")
-		<-ctx.Done()
-		return
+		disabled = true
 	}
 	cfg.applyGlobals()
 
 	initDB(cfg.MainPass, cfg.AdminID, cfg.BotToken)
 	log.Printf("[CFG] Admin HTTP: %s (hot-reload /health, restart /admin/restart)", adminListenAddr)
+
+	if disabled {
+		log.Println("[SERVER] WDTT отключён в panel.db — VPN не слушает (admin HTTP активен)")
+		startAdminServer(ctx, nil)
+		<-ctx.Done()
+		log.Println("[SERVER] Idle mode stopped")
+		return
+	}
 
 	keys, err := loadOrGenerateKeys(cfg.ConfigDir)
 	if err != nil {
@@ -552,6 +562,7 @@ func runServerOnce(ctx context.Context, cfg ServerConfig) {
 	log.Printf("   DTLS: %s | WG: %s | NAT: %s", cfg.Listen, wgEndpoint, natType)
 	log.Printf("   WRAP: password HKDF + RTP AEAD | keys: %d", serverWrapKeys.Count())
 	log.Println("[SERVER] Готов")
+	markServerVPNActive(true)
 
 	var wg sync.WaitGroup
 	for {

@@ -46,8 +46,8 @@
                     </a-dropdown>
                   </template>
                   <template slot="wdttEnable" slot-scope="_, row">
-                    <a-switch :checked="row.service_active" :loading="row.toggling"
-                      @change="checked => toggleWdttService(row, checked)"></a-switch>
+                    <a-switch :checked="row.enable !== false" :loading="row.toggling"
+                      @change="checked => toggleWdttEnable(row, checked)"></a-switch>
                   </template>
                   <template slot="wdttRemark" slot-scope="text">[[ text || '—' ]]</template>
                   <template slot="wdttPort" slot-scope="_, row">
@@ -435,16 +435,22 @@
       async manualRefresh() {
         if (!this.refreshing) await this.loadAll({ withSpinner: true });
       },
-      async toggleWdttService(row, enabled) {
+      async toggleWdttEnable(row, enabled) {
         row.toggling = true;
-        const action = enabled ? 'start' : 'stop';
-        const res = await HttpUtil.post('/panel/api/service/wdtt/' + action).catch(() => null);
+        const payload = Object.assign({}, new InboundSetting(row).payload(false), { enable: !!enabled });
+        const res = await panelApiJson('panel/api/inbound/save', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }).catch(err => {
+          this.toast(err.message || 'ошибка', false);
+          return null;
+        });
         row.toggling = false;
-        if (res && res.success) {
-          this.toast(enabled ? 'WDTT запущен' : 'WDTT остановлен', true);
-          await this.loadWdtt();
+        if (res && res.obj) {
+          this.toast(enabled ? 'VPN включён' : 'VPN выключен', true);
+          this.wdtt = new InboundSetting(res.obj);
+          this.wdttConfigured = !!res.obj.configured;
         } else {
-          this.toast((res && res.msg) || 'ошибка', false);
           await this.loadWdtt();
         }
       },
@@ -537,10 +543,7 @@
       },
       async restartWdtt() {
         const res = await HttpUtil.post('/panel/api/service/wdtt/restart').catch(() => null);
-        if (res && res.success) {
-          this.toast(res.msg || 'VPN-сервер перезапущен', true);
-          await this.loadWdtt();
-        } else this.toast((res && res.msg) || 'ошибка', false);
+        if (res && res.success) await this.loadWdtt();
       },
       async startDataRefreshLoop() {
         while (this.isRefreshEnabled) {

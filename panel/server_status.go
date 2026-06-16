@@ -54,6 +54,7 @@ type serverStatus struct {
 		DownBytes   int64        `json:"downBytes"`
 		UpBytes     int64        `json:"upBytes"`
 		Uptime      uint64       `json:"uptime"`
+		ServerUptime uint64      `json:"serverUptime"`
 	} `json:"wdtt"`
 	Uptime   uint64    `json:"uptime"`
 	Loads    []float64 `json:"loads"`
@@ -232,6 +233,7 @@ func fillWdttStatus(s *serverStatus) {
 	if t, err := serviceUptime(wdttServiceUnit); err == nil {
 		s.Wdtt.Uptime = t
 	}
+	s.Wdtt.ServerUptime = fetchWdttServerUptimeSec()
 }
 
 func readServiceUsage(unit string) serviceUsage {

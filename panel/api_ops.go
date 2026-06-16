@@ -37,6 +37,9 @@ func controlService(name, action string) error {
 		}
 		return serviceRestart(svc)
 	case "stop":
+		if svc == wdttServiceUnit && isUnifiedDeployment() {
+			return fmt.Errorf("используйте выключение VPN в Подключениях")
+		}
 		if svc == xrayServiceUnit {
 			markXrayManuallyStopped()
 		}

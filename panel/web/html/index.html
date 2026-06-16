@@ -250,7 +250,8 @@
               <a-col :xs="24" :sm="24" :lg="12">
                 <a-card title='{{ i18n "pages.index.operationHours" }}' hoverable>
                   <a-tag :color="status.xray.color">Xray: [[ TimeFormatter.formatSecond(status.xray.uptime) ]]</a-tag>
-                  <a-tag :color="status.wdtt.color">WDTT: [[ TimeFormatter.formatSecond(status.wdtt.uptime) ]]</a-tag>
+                  <a-tag :color="status.wdtt.color">WDTT-PANEL: [[ TimeFormatter.formatSecond(status.wdtt.uptime) ]]</a-tag>
+                  <a-tag :color="status.wdttServerColor">WDTT-SERVER: [[ TimeFormatter.formatSecond(status.wdtt.serverUptime) ]]</a-tag>
                   <a-tag color="green">OS: [[ TimeFormatter.formatSecond(status.uptime) ]]</a-tag>
                 </a-card>
               </a-col>
@@ -823,7 +824,8 @@
       };
 
       this.xray = { state: 'stop', stateMsg: "", errorMsg: "", version: "", color: "", uptime: 0 };
-      this.wdtt = { state: 'stop', stateMsg: "", errorMsg: "", color: "", activeUsers: 0, sessions: 0, iface: "", ifaceShort: "wdtt0", mainPassword: "", downGB: "0", upGB: "0", downBytes: 0, upBytes: 0, uptime: 0 };
+      this.wdtt = { state: 'stop', stateMsg: "", errorMsg: "", color: "", activeUsers: 0, sessions: 0, iface: "", ifaceShort: "wdtt0", mainPassword: "", downGB: "0", upGB: "0", downBytes: 0, upBytes: 0, uptime: 0, serverUptime: 0 };
+      this.wdttServerColor = "orange";
 
       if (data == null) {
         return;
@@ -868,6 +870,7 @@
             this.wdtt.stateMsg = 'Ошибка';
             break;
         }
+        this.wdttServerColor = this.wdtt.serverUptime > 0 ? "green" : this.wdtt.color;
       }
       switch (this.xray.state) {
         case 'running':
@@ -1406,10 +1409,7 @@
         this.loading(true);
         const msg = await HttpUtil.post('/panel/api/server/restartWdttService');
         this.loading(false);
-        if (msg.success) {
-          if (msg.msg) this.$message.success(msg.msg);
-          await this.getStatus();
-        }
+        if (msg.success) await this.getStatus();
       },
       openUsers() {
         location.href = basePath + 'panel/users';

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"log"
 	"net"
 	"net/http"
@@ -70,11 +71,15 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 	dbMutex.Lock()
 	for id, dev := range db.Devices {
 		if incoming.Devices == nil {
-			removePeerFromWG(wgDev, dev)
+			if wgDev != nil {
+				removePeerFromWG(wgDev, dev)
+			}
 			continue
 		}
 		if _, ok := incoming.Devices[id]; !ok {
-			removePeerFromWG(wgDev, dev)
+			if wgDev != nil {
+				removePeerFromWG(wgDev, dev)
+			}
 		}
 	}
 	if incoming.Passwords != nil {
@@ -93,23 +98,24 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 		dbMutex.Unlock()
 		return err
 	}
-	suspendExpiredPasswordsLocked(wgDev)
-	for deviceID, dev := range db.Devices {
-		pass := passwordForDeviceLocked(deviceID)
-		if pass == "" {
-			// Устройства главного пароля без привязки — резолвим к нему, пир сохраняем.
-			pass = bindOrphanDeviceToMainLocked(deviceID)
+	if wgDev != nil {
+		suspendExpiredPasswordsLocked(wgDev)
+		for deviceID, dev := range db.Devices {
+			pass := passwordForDeviceLocked(deviceID)
+			if pass == "" {
+				pass = bindOrphanDeviceToMainLocked(deviceID)
+			}
+			if pass == "" {
+				removePeerFromWG(wgDev, dev)
+				continue
+			}
+			entry := db.Passwords[pass]
+			if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
+				removePeerFromWG(wgDev, dev)
+				continue
+			}
+			upsertPeerInWG(wgDev, dev)
 		}
-		if pass == "" {
-			removePeerFromWG(wgDev, dev)
-			continue
-		}
-		entry := db.Passwords[pass]
-		if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
-			removePeerFromWG(wgDev, dev)
-			continue
-		}
-		upsertPeerInWG(wgDev, dev)
 	}
 	if trafficDirty.Load() {
 		if err := saveTrafficToSQLiteLocked(); err != nil {
@@ -134,7 +140,11 @@ func startAdminServer(ctx context.Context, wgDev *device.Device) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":         true,
+			"vpn_active": serverVPNActive.Load(),
+			"uptime_sec": serverUptimeSeconds(),
+		})
 	})
 	mux.HandleFunc("/admin/reload", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -164,10 +174,14 @@ func startAdminServer(ctx context.Context, wgDev *device.Device) {
 			return
 		}
 		adminReloadMu.Lock()
-		if err := reloadDBFromDisk(wgDev); err != nil {
-			adminReloadMu.Unlock()
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		if wgDev != nil {
+			if err := reloadDBFromDisk(wgDev); err != nil {
+				adminReloadMu.Unlock()
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			loadAdminReloadSecretFromDB()
 		}
 		adminReloadMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")

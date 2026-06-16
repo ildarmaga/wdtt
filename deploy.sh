@@ -18,6 +18,7 @@ readonly SSH_PORT="${WDTT_SSH_PORT:-22}"
 readonly WDTT_IFACE="wdtt0"
 readonly WDTT_CONFIG_DIR="/etc/wdtt"
 readonly WDTT_ACCESS_DB="passwords.json"
+readonly WDTT_PANEL_DB="panel.db"
 readonly IPT_COMMENT="WDTT_MANAGED"
 readonly IPT_MIRROR_COMMENT="WDTT_MIRRORED"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -338,8 +339,9 @@ fw_cleanup_wdtt_rules() {
 
 cleanup_config_dir_keep_access_db() {
     [ -d "$WDTT_CONFIG_DIR" ] || return 0
-    find "$WDTT_CONFIG_DIR" -mindepth 1 -maxdepth 1 ! -name "$WDTT_ACCESS_DB" -exec rm -rf {} + 2>/dev/null || true
+    find "$WDTT_CONFIG_DIR" -mindepth 1 -maxdepth 1 ! -name "$WDTT_ACCESS_DB" ! -name "$WDTT_PANEL_DB" -exec rm -rf {} + 2>/dev/null || true
     [ -f "$WDTT_CONFIG_DIR/$WDTT_ACCESS_DB" ] && chmod 600 "$WDTT_CONFIG_DIR/$WDTT_ACCESS_DB" 2>/dev/null || true
+    [ -f "$WDTT_CONFIG_DIR/$WDTT_PANEL_DB" ] && chmod 600 "$WDTT_CONFIG_DIR/$WDTT_PANEL_DB" 2>/dev/null || true
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -367,7 +369,7 @@ wdtt_cleanup() {
     rm -f /usr/local/bin/wdtt-app /usr/local/bin/wdtt-server 2>/dev/null || true
     cleanup_config_dir_keep_access_db
 
-    echo "✓ Очистка завершена (база доступа сохранена)"
+    echo "✓ Очистка завершена (passwords.json и panel.db сохранены)"
 }
 
 # ─── Sysctl тюнинг ───────────────────────────────────────────────────────────
@@ -442,6 +444,7 @@ setup_wdtt_binary() {
 
     mkdir -p "$WDTT_CONFIG_DIR"
     write_install_inbound_defaults
+    seed_install_main_password_env
 }
 
 write_install_inbound_defaults() {
@@ -451,6 +454,33 @@ DTLS_PORT=${DTLS_PORT}
 WG_PORT=${WG_PORT}
 EOF
     chmod 644 "${WDTT_CONFIG_DIR}/install-inbound.env"
+}
+
+write_install_main_password_env() {
+    local pass="$1"
+    [ -n "$pass" ] || return 0
+    mkdir -p "$WDTT_CONFIG_DIR"
+    chmod 700 "$WDTT_CONFIG_DIR" 2>/dev/null || true
+    cat > "${WDTT_CONFIG_DIR}/install-main-password.env" << EOF
+# Главный пароль VPN для первого seed panel.db (deploy.sh). Не дублируется в systemd.
+MAIN_PASSWORD=${pass}
+EOF
+    chmod 600 "${WDTT_CONFIG_DIR}/install-main-password.env"
+}
+
+seed_install_main_password_env() {
+    if [ -f "${WDTT_CONFIG_DIR}/${WDTT_PANEL_DB}" ] || [ -f "${WDTT_CONFIG_DIR}/install-main-password.env" ]; then
+        return 0
+    fi
+    local pass="${WDTT_PASSWORD:-}"
+    if [ -z "$pass" ]; then
+        if command -v openssl >/dev/null 2>&1; then
+            pass="$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 16)"
+        else
+            pass="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
+        fi
+    fi
+    write_install_main_password_env "$pass"
 }
 
 # ─── Systemd-сервис WDTT ─────────────────────────────────────────────────────

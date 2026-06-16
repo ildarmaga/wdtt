@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -211,6 +212,37 @@ func wdttServerRestart(adminAddr string) error {
 	return fmt.Errorf("VPN-сервер не ответил на /health после restart")
 }
 
+func fetchWdttServerUptimeSec() uint64 {
+	if !serviceActive(wdttServiceUnit) {
+		return 0
+	}
+	inbound, err := loadWdttInbound()
+	if err != nil {
+		return 0
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(wdttAdminURL("/health", inbound.AdminAddr))
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+	var payload struct {
+		OK        bool   `json:"ok"`
+		VPNActive bool   `json:"vpn_active"`
+		UptimeSec uint64 `json:"uptime_sec"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&payload); err != nil {
+		return 0
+	}
+	if !payload.OK || !payload.VPNActive {
+		return 0
+	}
+	return payload.UptimeSec
+}
+
 // applyWdttConfigChange сохраняет конфиг и применяет hot-reload; при ошибке — полный restart.
 func applyWdttConfigChange() error {
 	return applyWdttConfigChangeMaybeRestart(true)
@@ -222,17 +254,39 @@ func applyWdttConfigChangeHotOnly() error {
 }
 
 func applyWdttConfigChangeMaybeRestart(restartOnFail bool) error {
-	if err := wdttHotReload(); err == nil {
+	reloadErr := wdttHotReload()
+	if reloadErr == nil {
 		return nil
-	} else if !restartOnFail {
-		log.Printf("[panel] hot-reload не удался (%v)", err)
-		return nil
-	} else if isUnifiedDeployment() {
-		return fmt.Errorf("hot-reload не удался: %v", err)
-	} else {
-		log.Printf("[panel] hot-reload не удался (%v), перезапуск WDTT", err)
 	}
+	if !restartOnFail {
+		log.Printf("[panel] hot-reload не удался (%v)", reloadErr)
+		return nil
+	}
+	log.Printf("[panel] hot-reload не удался (%v)", reloadErr)
+	if isUnifiedDeployment() {
+		inbound, _ := loadWdttInbound()
+		if restartErr := wdttServerRestart(inbound.AdminAddr); restartErr == nil {
+			return nil
+		} else {
+			log.Printf("[panel] in-process restart не удался: %v", restartErr)
+		}
+	}
+	log.Printf("[panel] перезапуск WDTT через systemd")
 	return restartWdttWithDeps()
+}
+
+const wdttMtuRulesPath = "/usr/local/bin/wdtt-mtu-rules.sh"
+
+func applyWdttMtuRules(action string) {
+	if action != "up" && action != "down" {
+		return
+	}
+	if _, err := os.Stat(wdttMtuRulesPath); err != nil {
+		return
+	}
+	if _, err := runCmd("bash", wdttMtuRulesPath, action); err != nil {
+		log.Printf("[panel] wdtt-mtu-rules %s: %v", action, err)
+	}
 }
 
 // restartWdttWithDeps перезапускает WDTT и гарантированно поднимает Xray, если он включён в systemd.

@@ -87,10 +87,17 @@ func renewDTLSCert(restart bool, cfg *PanelConfig) (map[string]interface{}, erro
 		return nil, fmt.Errorf("не удалось перевыпустить DTLS: %w", err)
 	}
 	if restart {
-		if err := serviceRestart(wdttServiceUnit); err != nil {
+		if isUnifiedDeployment() {
+			inbound, _ := loadWdttInbound()
+			if err := wdttServerRestart(inbound.AdminAddr); err != nil {
+				return nil, fmt.Errorf("сертификат обновлён, но restart VPN не удался: %w", err)
+			}
+			if inbound.Enable {
+				applyWdttMtuRules("up")
+			}
+		} else if err := serviceRestart(wdttServiceUnit); err != nil {
 			return nil, fmt.Errorf("сертификат обновлён, но restart wdtt не удался: %w", err)
-		}
-		if !waitServiceActive(wdttServiceUnit, 20*time.Second) {
+		} else if !waitServiceActive(wdttServiceUnit, 20*time.Second) {
 			return nil, fmt.Errorf("сертификат обновлён, но wdtt-server не поднялся")
 		}
 	}
