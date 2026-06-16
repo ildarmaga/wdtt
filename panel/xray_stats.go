@@ -132,6 +132,20 @@ func isFilterFalse(v interface{}) bool {
 	return false
 }
 
+func isInternalXrayAccessLine(line string) bool {
+	if strings.Contains(line, "api -> api") {
+		return true
+	}
+	apiPort := xrayAPIPortFromConfig()
+	if strings.Contains(line, fmt.Sprintf("tcp:127.0.0.1:%d", apiPort)) {
+		return true
+	}
+	if strings.Contains(line, "[api ->") {
+		return true
+	}
+	return false
+}
+
 func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy interface{}) []XrayLogEntry {
 	freedoms, blackholes := getDefaultLogOutboundTags()
 	pathToAccessLog, err := getAccessLogPath()
@@ -139,26 +153,22 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 		return nil
 	}
 
-	tailLines := count * 200
-	if tailLines < 2000 {
-		tailLines = 2000
+	tailLines := count * 500
+	if tailLines < 5000 {
+		tailLines = 5000
 	}
-	if tailLines > 15000 {
-		tailLines = 15000
+	if tailLines > 20000 {
+		tailLines = 20000
 	}
 	rawLines, err := readTailLines(pathToAccessLog, tailLines)
 	if err != nil {
 		return nil
 	}
 
-	entries := parseXrayAccessLogLines(rawLines, count, filter, showDirect, showBlocked, showProxy, freedoms, blackholes, true)
-	if len(entries) == 0 {
-		entries = parseXrayAccessLogLines(rawLines, count, filter, showDirect, showBlocked, showProxy, freedoms, blackholes, false)
-	}
-	return entries
+	return parseXrayAccessLogLines(rawLines, count, filter, showDirect, showBlocked, showProxy, freedoms, blackholes)
 }
 
-func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDirect, showBlocked, showProxy interface{}, freedoms, blackholes []string, skipInternalAPI bool) []XrayLogEntry {
+func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDirect, showBlocked, showProxy interface{}, freedoms, blackholes []string) []XrayLogEntry {
 	const (
 		directEvent = iota
 		blockedEvent
@@ -171,7 +181,7 @@ func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDi
 		if line == "" {
 			continue
 		}
-		if skipInternalAPI && strings.Contains(line, "api -> api") {
+		if isInternalXrayAccessLine(line) {
 			continue
 		}
 		if !strings.Contains(line, " accepted ") && !strings.Contains(line, " rejected ") {

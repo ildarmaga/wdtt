@@ -31,4 +31,9 @@ func TestGetXrayLogsNonEmpty(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("expected xray access log entries, got none")
 	}
+	for _, e := range entries {
+		if e.Inbound == "api" && e.Outbound == "api" {
+			t.Fatalf("internal api traffic must be filtered: %+v", e)
+		}
+	}
 }

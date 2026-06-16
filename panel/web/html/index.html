@@ -1043,7 +1043,7 @@
         this.logs = logs;
         this.formattedLogs = '…';
         const render = () => {
-          this.formattedLogs = this.logs?.length > 0 ? this.formatLogs(this.logs) : 'No Record...';
+          this.formattedLogs = this.logs?.length > 0 ? this.formatLogs(this.logs) : 'Нет записей пользовательского трафика. Это не журнал VK — VK_HASH задаётся в карточке пользователя (ссылка vk.com/call/join/…).';
           Vue.nextTick(() => {
             const el = document.querySelector('#xraylog-modal .log-container');
             if (el) el.scrollTop = 0;
