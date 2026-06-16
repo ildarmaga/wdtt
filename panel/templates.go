@@ -26,12 +26,26 @@ var (
 )
 
 func initAssetsVer() {
-	data, err := assetsFS.ReadFile("web/assets/css/custom.min.css")
-	if err != nil {
+	var buf []byte
+	for _, path := range []string{
+		"web/assets/css/custom.min.css",
+		"web/assets/js/util/index.js",
+		"web/assets/js/csrf.js",
+		"web/assets/js/axios-init.js",
+		"web/assets/js/websocket.js",
+		"web/assets/js/wdtt-share.js",
+	} {
+		data, err := assetsFS.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		buf = append(buf, data...)
+	}
+	if len(buf) == 0 {
 		assetsVer = "0"
 		return
 	}
-	sum := sha256.Sum256(data)
+	sum := sha256.Sum256(buf)
 	assetsVer = hex.EncodeToString(sum[:4])
 }
 

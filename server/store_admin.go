@@ -194,23 +194,27 @@ func applyPanelUserUpdateLocked(wgDev *device.Device, req panelUserUpdateReq, ma
 	if err := refreshWrapKeysFromDBLocked(); err != nil {
 		return err
 	}
-	return saveDBLocked()
+	if newPassword != oldPassword {
+		return persistUserRenameSQLiteLocked(oldPassword, newPassword, &entry)
+	}
+	return persistUserEntrySQLiteLocked(savePass, &entry)
 }
 
 func finalizeDeviceChangeLocked(wgDev *device.Device, pass string, cur, entry *PasswordEntry) error {
+	removed := make([]string, 0)
 	for _, devID := range cur.DeviceIDs {
 		if entryHasDevice(entry, devID) {
 			continue
 		}
+		removed = append(removed, devID)
 		delete(db.Devices, devID)
 		removeWGDeviceLocked(wgDev, devID)
 	}
 	db.Passwords[pass] = entry
-	if err := saveDBLocked(); err != nil {
+	if err := persistUserDevicesSQLiteLocked(pass, entry, removed); err != nil {
 		return err
 	}
-	rememberUsersRevFromDisk()
-	return nil
+	return persistUserEntrySQLiteLocked(pass, entry)
 }
 
 func deletePanelUserLocked(wgDev *device.Device, pass string) error {
@@ -225,15 +229,15 @@ func deletePanelUserLocked(wgDev *device.Device, pass string) error {
 	if !ok {
 		return fmt.Errorf("пользователь не найден")
 	}
-	for _, devID := range allEntryDeviceIDs(entry) {
-		delete(db.Devices, devID)
+	devIDs := allEntryDeviceIDs(entry)
+	for _, devID := range devIDs {
 		removeWGDeviceLocked(wgDev, devID)
+		delete(db.Devices, devID)
 	}
 	delete(db.Passwords, pass)
-	if err := saveDBLocked(); err != nil {
+	if err := persistDeleteUserSQLiteLocked(pass, devIDs); err != nil {
 		return err
 	}
-	rememberUsersRevFromDisk()
 	if err := refreshWrapKeysFromDBLocked(); err != nil {
 		return err
 	}

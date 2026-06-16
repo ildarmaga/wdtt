@@ -133,3 +133,40 @@ func TestUpsertDevice(t *testing.T) {
 		t.Fatalf("ip = %q", ip)
 	}
 }
+
+func TestUserPatchIncremental(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	u := &User{
+		Comment:    "bot-user",
+		ExpiresAt:  999,
+		VkHash:     "hash",
+		Ports:      "56000,56001,9000",
+		SubID:      "sub1",
+		MaxDevices: 1,
+	}
+	if err := UpsertUser(db, "main", "pass1", u); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetUserDeactivated(db, "pass1", true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Users["pass1"].IsDeactivated {
+		t.Fatal("expected deactivated")
+	}
+	if err := DeleteUser(db, "pass1", nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = LoadStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Users) != 0 {
+		t.Fatalf("users left: %d", len(got.Users))
+	}
+}

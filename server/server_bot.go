@@ -188,7 +188,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 								}
 							}
 						}
-						saveDBLocked()
+						persistUserDeactivatedSQLiteLocked(pass, true)
 					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("⏸ Пароль `%s` деактивирован", pass), nil)
@@ -199,7 +199,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					entry, exists := db.Passwords[pass]
 					if exists && entry != nil {
 						entry.IsDeactivated = false
-						saveDBLocked()
+						persistUserDeactivatedSQLiteLocked(pass, false)
 					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Пароль `%s` активирован", pass), nil)
@@ -227,7 +227,9 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 								devID := entry.DeviceIDs[idx]
 								removeWGDeviceLocked(wgDev, devID)
 								removeDeviceFromEntry(entry, devID)
-								saveDBLocked()
+								if err := persistUserDevicesSQLiteLocked(pass, entry, []string{devID}); err != nil {
+									log.Printf("[DB] bot unbind device: %v", err)
+								}
 							}
 						}
 						dbMutex.Unlock()
@@ -239,8 +241,11 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					dbMutex.Lock()
 					entry, exists := db.Passwords[pass]
 					if exists && entry != nil {
+						devIDs := allEntryDeviceIDs(entry)
 						removeAllEntryDevicesLocked(wgDev, entry)
-						saveDBLocked()
+						if err := persistUserDevicesSQLiteLocked(pass, entry, devIDs); err != nil {
+							log.Printf("[DB] bot unbind all: %v", err)
+						}
 					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Все устройства отвязаны от `%s`", pass), nil)
@@ -249,14 +254,18 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					pass := strings.TrimPrefix(data, "delpass_")
 					dbMutex.Lock()
 					entry, exists := db.Passwords[pass]
+					devIDs := []string(nil)
 					if exists && entry != nil {
-						for _, devID := range allEntryDeviceIDs(entry) {
+						devIDs = allEntryDeviceIDs(entry)
+						for _, devID := range devIDs {
 							removeWGDeviceLocked(wgDev, devID)
 						}
 					}
 					delete(db.Passwords, pass)
 					serverWrapKeys.RemovePassword(pass)
-					saveDBLocked()
+					if err := persistDeleteUserSQLiteLocked(pass, devIDs); err != nil {
+						log.Printf("[DB] bot delpass: %v", err)
+					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Пароль `%s` и его устройство удалены", pass), nil)
 
@@ -265,16 +274,17 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					dbMutex.Lock()
 					dev, exists := db.Devices[devID]
 					if exists {
-						delete(db.Devices, devID)
 						pubHex, _ := b64ToHex(dev.PubKey)
 						wgIpcSet(wgDev, fmt.Sprintf("public_key=%s\nremove=true\n", pubHex))
-						// Очищаем привязку из пароля
 						for _, entry := range db.Passwords {
 							if entry != nil {
 								removeDeviceFromEntry(entry, devID)
 							}
 						}
-						saveDBLocked()
+						delete(db.Devices, devID)
+						if err := persistDeleteDeviceSQLiteLocked(devID); err != nil {
+							log.Printf("[DB] bot deldev: %v", err)
+						}
 					}
 					dbMutex.Unlock()
 					sendTelegram(token, adminID, fmt.Sprintf("✅ Устройство `%s` удалено", devID), nil)
@@ -402,7 +412,13 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 					Ports:     tempPorts,
 					SubID:     subID,
 				}
-				saveDBLocked()
+				if err := persistUserEntrySQLiteLocked(newPass, db.Passwords[newPass]); err != nil {
+					delete(db.Passwords, newPass)
+					serverWrapKeys.RemovePassword(newPass)
+					dbMutex.Unlock()
+					sendTelegram(token, adminID, "❌ Не удалось сохранить пароль в БД. Повторите /new.", nil)
+					continue
+				}
 				dbMutex.Unlock()
 
 				expDate := time.Unix(expiresAt, 0).Format("02.01.2006")

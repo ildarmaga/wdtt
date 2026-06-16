@@ -2,6 +2,12 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.16] — 2026-06-16
+
+### Изменено
+- **Row-level SQLite (bot/admin)** — Telegram-бот и `/admin/users/*` пишут точечно (`UpsertUser`, `PatchUserDeviceBindings`, `DeleteUser`, `DeleteDevice`) вместо полного `SaveStore`.
+- **Cache-bust assets** — `assets_ver` хэширует ключевые custom JS/CSS, не только `custom.min.css`.
+
 ## [1.4.15] — 2026-06-16
 
 ### Добавлено

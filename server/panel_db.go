@@ -97,6 +97,101 @@ func persistUserBindingsSQLiteLocked(password string, entry *PasswordEntry) erro
 	return nil
 }
 
+func persistUserEntrySQLiteLocked(password string, entry *PasswordEntry) error {
+	if entry == nil || !serverPanelDBReady() {
+		return fmt.Errorf("entry or panel.db unavailable")
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	if err := paneldb.UpsertUser(sqlDB, db.MainPassword, password, userToPaneldb(entry)); err != nil {
+		return err
+	}
+	rememberUsersRevFromDisk()
+	return nil
+}
+
+func persistUserRenameSQLiteLocked(oldPass, newPass string, entry *PasswordEntry) error {
+	if entry == nil || !serverPanelDBReady() {
+		return fmt.Errorf("entry or panel.db unavailable")
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	if oldPass != newPass {
+		if err := paneldb.RenameUserPassword(sqlDB, oldPass, newPass); err != nil {
+			return err
+		}
+	}
+	if err := paneldb.UpsertUser(sqlDB, db.MainPassword, newPass, userToPaneldb(entry)); err != nil {
+		return err
+	}
+	rememberUsersRevFromDisk()
+	return nil
+}
+
+func persistUserDevicesSQLiteLocked(password string, entry *PasswordEntry, removedDeviceIDs []string) error {
+	if entry == nil || !serverPanelDBReady() {
+		return fmt.Errorf("entry or panel.db unavailable")
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	if err := paneldb.PatchUserDeviceBindings(sqlDB, db.MainPassword, password, entry.DeviceIDs, removedDeviceIDs); err != nil {
+		return err
+	}
+	rememberUsersRevFromDisk()
+	return nil
+}
+
+func persistUserDeactivatedSQLiteLocked(password string, deactivated bool) error {
+	if !serverPanelDBReady() {
+		return fmt.Errorf("panel.db unavailable")
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	if err := paneldb.SetUserDeactivated(sqlDB, password, deactivated); err != nil {
+		return err
+	}
+	rememberUsersRevFromDisk()
+	return nil
+}
+
+func persistDeleteUserSQLiteLocked(password string, deviceIDs []string) error {
+	if !serverPanelDBReady() {
+		return fmt.Errorf("panel.db unavailable")
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	if err := paneldb.DeleteUser(sqlDB, password, deviceIDs); err != nil {
+		return err
+	}
+	rememberUsersRevFromDisk()
+	return nil
+}
+
+func persistDeleteDeviceSQLiteLocked(deviceID string) error {
+	if !serverPanelDBReady() {
+		return fmt.Errorf("panel.db unavailable")
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return err
+	}
+	if err := paneldb.DeleteDevice(sqlDB, deviceID); err != nil {
+		return err
+	}
+	rememberUsersRevFromDisk()
+	return nil
+}
+
 func trafficSnapshotLocked() map[string]paneldb.TrafficSnapshot {
 	out := make(map[string]paneldb.TrafficSnapshot, len(db.Passwords))
 	for pass, e := range db.Passwords {
