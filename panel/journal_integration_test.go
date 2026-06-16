@@ -12,10 +12,15 @@ func TestFetchFormattedServiceLogsWDTT(t *testing.T) {
 	if len(lines) == 0 {
 		t.Fatal("expected wdtt service logs, got none")
 	}
+	hasStat := false
 	for _, line := range lines {
 		if strings.Contains(line, "[СТАТ]") {
-			t.Fatalf("unexpected [СТАТ] in output: %q", line)
+			hasStat = true
+			break
 		}
+	}
+	if !hasStat {
+		t.Fatal("expected [СТАТ] lines in wdtt journal")
 	}
 }
 

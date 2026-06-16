@@ -113,6 +113,7 @@ func fetchServiceLogLines(count int, serviceKey, level string, syslog bool) []st
 		lines = filterUnifiedLogLines(lines, serviceKey, count)
 		if serviceKey == "wdtt" {
 			lines = collapseRepeatedLogLines(lines)
+			lines = prependWdttStatsSummary(lines)
 		}
 	} else if len(lines) > count {
 		lines = lines[:count]

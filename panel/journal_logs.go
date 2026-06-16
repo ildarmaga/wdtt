@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,7 +28,7 @@ func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool
 	lines := make([]string, 0, count)
 	for _, raw := range strings.Split(out, "\n") {
 		raw = strings.TrimSpace(raw)
-		if raw == "" || skipJournalNoise(raw, serviceKey) {
+		if raw == "" {
 			continue
 		}
 		if serviceKey == "panel" && needsUnifiedLogFilter(serviceKey, unit) {
@@ -44,11 +45,31 @@ func fetchFormattedServiceLogs(unit string, count int, level string, syslog bool
 	return lines
 }
 
-func skipJournalNoise(raw, serviceKey string) bool {
-	if serviceKey == "wdtt" && strings.Contains(raw, "[СТАТ]") {
-		return true
+func formatWdttStatsJournalLine(stats *ServerStats) string {
+	if stats == nil {
+		return ""
 	}
-	return false
+	nat := strings.TrimSpace(stats.NAT)
+	if nat == "" {
+		nat = "—"
+	}
+	msg := fmt.Sprintf("[СТАТ] Пользователей: %d | Сессий: %d | Всего: %d | NAT: %s | ↑%s ГБ | ↓%s ГБ",
+		stats.ActiveUsers, stats.Sessions, stats.Total, nat, stats.UpGB, stats.DownGB)
+	return formatJournalLine(msg, 6, "", "WDTT")
+}
+
+func prependWdttStatsSummary(lines []string) []string {
+	stats := loadServerStats()
+	summary := formatWdttStatsJournalLine(stats)
+	if summary == "" {
+		return lines
+	}
+	for _, line := range lines {
+		if strings.Contains(line, "[СТАТ]") {
+			return lines
+		}
+	}
+	return append([]string{summary}, lines...)
 }
 
 func normalizeLogLevelFilter(level string) string {

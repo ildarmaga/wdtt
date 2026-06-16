@@ -30,15 +30,28 @@ func TestFormatJournalLine(t *testing.T) {
 	}
 }
 
-func TestSkipJournalNoise(t *testing.T) {
-	if !skipJournalNoise("2026/06/08 15:00:00 [СТАТ] traffic", "wdtt") {
-		t.Fatal("expected [СТАТ] to be skipped for wdtt")
+func TestFormatWdttStatsJournalLine(t *testing.T) {
+	line := formatWdttStatsJournalLine(&ServerStats{
+		ActiveUsers: 1,
+		Sessions:    10,
+		Total:       42,
+		NAT:         "MASQUERADE iptables ✅",
+		UpGB:        "0.01",
+		DownGB:      "0.03",
+	})
+	if !strings.Contains(line, "[СТАТ] Пользователей: 1 | Сессий: 10") {
+		t.Fatalf("unexpected: %q", line)
 	}
-	if skipJournalNoise("2026/06/08 15:00:00 normal line", "wdtt") {
-		t.Fatal("normal line should not be skipped")
+}
+
+func TestPrependWdttStatsSummary(t *testing.T) {
+	lines := prependWdttStatsSummary([]string{"2026/06/16 10:00:00 INFO - WDTT: [WG] ok"})
+	if len(lines) != 2 || !strings.Contains(lines[0], "[СТАТ]") {
+		t.Fatalf("expected stats prepended, got %v", lines)
 	}
-	if skipJournalNoise("2026/06/08 15:00:00 [СТАТ] traffic", "xray") {
-		t.Fatal("[СТАТ] should only be skipped for wdtt service")
+	existing := []string{"2026/06/16 10:00:00 INFO - WDTT: [СТАТ] already"}
+	if got := prependWdttStatsSummary(existing); len(got) != 1 {
+		t.Fatalf("expected no duplicate stat line, got %v", got)
 	}
 }
 
