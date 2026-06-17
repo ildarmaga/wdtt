@@ -33,5 +33,5 @@ if [[ -n "$TAG" ]]; then
 else
   CLIENT_TAG="$(gh release view --repo "$REPO" --json tagName -q .tagName)"
 fi
-echo "OK: pwdtt-client (${CLIENT_TAG}) -> $OUT/pwdtt-client-linux-amd64, pwdtt-client-windows-amd64.exe"
+echo "OK: pwdtt-client (${CLIENT_TAG}) -> $OUT/pwdtt-client-linux-amd64, pwdtt-client-windows-amd64.exe" >&2
 echo "${CLIENT_TAG}"

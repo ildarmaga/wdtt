@@ -45,8 +45,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PWDTT_CLIENT_GH_TOKEN }}
         run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::error::Add secret PWDTT_CLIENT_GH_TOKEN (PAT with contents:read on ildarmaga/pwdtt-client). See docs/RELEASE.md"
+            exit 1
+          fi
           chmod +x scripts/fetch-pwdtt-client.sh
-          CLIENT_TAG="$(./scripts/fetch-pwdtt-client.sh dist | tail -1)"
+          CLIENT_TAG="$(./scripts/fetch-pwdtt-client.sh dist)"
           echo "PWDTT_CLIENT_TAG=${CLIENT_TAG}" >> "$GITHUB_ENV"
       - name: Release notes from CHANGELOG
         id: notes
