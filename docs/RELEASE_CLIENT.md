@@ -3,10 +3,7 @@
 
 ## Клиент для пользователей (PWDTT)
 
-Рекомендуемый десктоп-клиент: **[ildarmaga/pwdtt-client](https://github.com/ildarmaga/pwdtt-client)**
-
-Скачайте из **этого** релиза WDTT (файлы ниже) или всегда актуальную версию:  
-https://github.com/ildarmaga/pwdtt-client/releases/latest
+Рекомендуемый десктоп-клиент для Windows и Linux — скачайте **из этого релиза WDTT**:
 
 | Файл | Платформа |
 |------|-----------|

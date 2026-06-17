@@ -1,6 +1,6 @@
 # GitHub Release (CI)
 
-При теге `v*` workflow `.github/workflows/build-server.yml` собирает `wdtt-linux-amd64` / `arm64` и прикрепляет **PWDTT Client** из [ildarmaga/pwdtt-client](https://github.com/ildarmaga/pwdtt-client).
+При теге `v*` workflow `.github/workflows/build-server.yml` собирает `wdtt-linux-amd64` / `arm64` и прикрепляет **PWDTT Client** из `release-assets/` (бинарники лежат в репозитории, без внешних скачиваний в CI).
 
 ## Файлы в релизе
 
@@ -13,19 +13,14 @@
 
 Описание релиза дополняется блоком из `docs/RELEASE_CLIENT.md`.
 
-## Секрет для CI (обязательно)
+## Обновление клиента в репозитории
 
-Репозиторий **pwdtt-client** — private. В **Settings → Secrets → Actions** репозитория `wdtt` добавьте:
-
-- **`PWDTT_CLIENT_GH_TOKEN`** — fine-grained PAT (или classic) с правом **Contents: Read** на `ildarmaga/pwdtt-client`.
-
-Без секрета job `release` упадёт на шаге скачивания клиента.
-
-Локально: достаточно `gh auth login` — скрипт `scripts/fetch-pwdtt-client.sh` возьмёт токен из `gh`.
-
-## Локальная проверка
+Бинарники хранятся в `release-assets/`. Перед релизом (если вышла новая версия клиента):
 
 ```bash
-./scripts/fetch-pwdtt-client.sh dist
-ls dist/pwdtt-client-*
+./scripts/fetch-pwdtt-client.sh release-assets
+echo vX.Y.Z > release-assets/pwdtt-client-version
+git add release-assets/
 ```
+
+Локально для `fetch-pwdtt-client.sh` нужен `gh auth login` (доступ maintainer'а к исходному репо клиента). Пользователям скачивать оттуда не нужно — только из [релизов WDTT](https://github.com/ildarmaga/wdtt/releases).

@@ -41,17 +41,15 @@ jobs:
           pattern: wdtt-linux-*
           merge-multiple: true
           path: dist
-      - name: Download PWDTT Client (pwdtt-client release)
-        env:
-          GH_TOKEN: ${{ secrets.PWDTT_CLIENT_GH_TOKEN }}
+      - name: Attach PWDTT Client (vendored binaries)
         run: |
           set -euo pipefail
-          if [[ -z "${GH_TOKEN}" ]]; then
-            echo "::error::Add secret PWDTT_CLIENT_GH_TOKEN (PAT with contents:read on ildarmaga/pwdtt-client). See docs/RELEASE.md"
-            exit 1
-          fi
-          chmod +x scripts/fetch-pwdtt-client.sh
-          CLIENT_TAG="$(./scripts/fetch-pwdtt-client.sh dist)"
+          for f in pwdtt-client-linux-amd64 pwdtt-client-windows-amd64.exe pwdtt-client-version; do
+            test -f "release-assets/${f}" || { echo "::error::missing release-assets/${f}"; exit 1; }
+          done
+          cp release-assets/pwdtt-client-linux-amd64 dist/
+          cp release-assets/pwdtt-client-windows-amd64.exe dist/
+          CLIENT_TAG="$(tr -d '[:space:]' < release-assets/pwdtt-client-version)"
           echo "PWDTT_CLIENT_TAG=${CLIENT_TAG}" >> "$GITHUB_ENV"
       - name: Release notes from CHANGELOG
         id: notes

@@ -1,8 +1,8 @@
 #!/bin/bash
-# Скачивает бинарники PWDTT Client из релиза ildarmaga/pwdtt-client (репо private — нужен GH_TOKEN).
+# Maintainer: скачать бинарники клиента и положить в release-assets/ (для релизов WDTT).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="${1:-$ROOT/dist}"
+OUT="${1:-$ROOT/release-assets}"
 REPO="${PWDtt_CLIENT_REPO:-ildarmaga/pwdtt-client}"
 TAG="${PWDtt_CLIENT_TAG:-}"
 
@@ -34,4 +34,5 @@ else
   CLIENT_TAG="$(gh release view --repo "$REPO" --json tagName -q .tagName)"
 fi
 echo "OK: pwdtt-client (${CLIENT_TAG}) -> $OUT/pwdtt-client-linux-amd64, pwdtt-client-windows-amd64.exe" >&2
+echo "${CLIENT_TAG}" > "$OUT/pwdtt-client-version"
 echo "${CLIENT_TAG}"
