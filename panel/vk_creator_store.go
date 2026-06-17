@@ -25,16 +25,6 @@ func listVKCreatorSessions() ([]vkCreatorSession, error) {
 	return out, nil
 }
 
-func insertVKCreatorSession(s vkCreatorSession) error {
-	if !panelDBEnabled() {
-		return fmt.Errorf("база панели недоступна")
-	}
-	return paneldb.InsertVKCall(panelDB, paneldb.VKCall{
-		CallID: s.CallID, Password: s.Password, JoinLink: s.JoinLink,
-		VkHash: s.VkHash, StartedAt: s.StartedAt,
-	})
-}
-
 func findVKCreatorSessions(password, callID string) ([]vkCreatorSession, error) {
 	all, err := listVKCreatorSessions()
 	if err != nil {
@@ -58,6 +48,24 @@ func findVKCreatorSessions(password, callID string) ([]vkCreatorSession, error) 
 		}
 	}
 	return out, nil
+}
+
+func insertVKCreatorSession(s vkCreatorSession) error {
+	if !panelDBEnabled() {
+		return fmt.Errorf("база панели недоступна")
+	}
+	return paneldb.InsertVKCall(panelDB, paneldb.VKCall{
+		CallID: s.CallID, Password: s.Password, JoinLink: s.JoinLink,
+		VkHash: s.VkHash, StartedAt: s.StartedAt,
+	})
+}
+
+func countVKCreatorSessionsForPassword(password string) (int, error) {
+	sessions, err := findVKCreatorSessions(password, "")
+	if err != nil {
+		return 0, err
+	}
+	return len(sessions), nil
 }
 
 func markVKCreatorSessionFinishing(password, callID string) error {

@@ -159,6 +159,11 @@ func createVKCall(password string) (joinLink, hash string, sess vkCreatorSession
 		if p, err := resolveUserPassword(realPass); err == nil {
 			realPass = p
 		}
+		if n, err := countVKCreatorSessionsForPassword(realPass); err != nil {
+			return "", "", sess, err
+		} else if n >= vkhash.Max {
+			return "", "", sess, fmt.Errorf("не более %d звонков на профиль — завершите лишний", vkhash.Max)
+		}
 	}
 
 	created, err := vkCreateCallLink(cookieHeader)
