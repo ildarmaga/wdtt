@@ -92,13 +92,13 @@ func BuildQwdttLink(p QwdttLinkParams) string {
 	return "qwdtt://config?" + q.Encode() + "&pass=" + password
 }
 
-// BuildPanelLink — ссылка из панели/API: vpn, name, sub; без hash и без ps.
+// BuildPanelLink — ссылка из панели/API: vpn, name, sub, hash (если задан).
 func BuildPanelLink(p PanelLinkParams) (string, error) {
 	dtls := p.DtlsPort
 	if dtls <= 0 {
 		dtls = 56000
 	}
-	return Encode(Payload{
+	pl := Payload{
 		Vpn:  strings.TrimSpace(p.VpnName),
 		Name: strings.TrimSpace(p.UserName),
 		IP:   strings.TrimSpace(p.Host),
@@ -106,7 +106,11 @@ func BuildPanelLink(p PanelLinkParams) (string, error) {
 		Pass: strings.TrimSpace(p.Password),
 		Did:  strings.TrimSpace(p.DeviceID),
 		Sub:  strings.TrimSpace(p.SubURL),
-	})
+	}
+	if h := strings.TrimSpace(p.VkHash); h != "" {
+		pl.Hash = vkhash.FormatForLink(h, vkhash.FormatBare, vkhash.Max)
+	}
+	return Encode(pl)
 }
 
 // BuildBotLink — ссылка из Telegram-бота (legacy ps + optional hash).

@@ -41,6 +41,7 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 		UserName: userName,
 		VpnName:  vpnName,
 		DeviceID: deviceID,
+		VkHash:   vkHash,
 		SubURL:   subURL,
 		DtlsPort: dtls,
 	})
@@ -48,7 +49,11 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 
 // buildAllSubscriptionLinks — все форматы из вкладки «Подключения» профиля.
 func buildAllSubscriptionLinks(linkHost, password, remark, vpnTitle string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) (links, titles []string, err error) {
-	jsonLink, err := buildWdttShareLink(linkHost, password, remark, vpnTitle, "", "", entry, inbound, subURL)
+	vkHash := ""
+	if entry != nil {
+		vkHash = entry.VkHash
+	}
+	jsonLink, err := buildWdttShareLink(linkHost, password, remark, vpnTitle, "", vkHash, entry, inbound, subURL)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -64,10 +69,6 @@ func buildAllSubscriptionLinks(linkHost, password, remark, vpnTitle string, entr
 	}
 	if name == "" {
 		name = "WDTT"
-	}
-	vkHash := ""
-	if entry != nil {
-		vkHash = entry.VkHash
 	}
 	base := sharelink.ColonLinkParams{
 		Host: host, Password: password, Name: name, VkHash: vkHash,

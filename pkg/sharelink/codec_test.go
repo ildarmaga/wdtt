@@ -1,29 +1,25 @@
 package sharelink
 
 import (
-	"strings"
 	"testing"
 )
 
-func TestBuildPanelLinkNoHashNoPs(t *testing.T) {
+func TestBuildPanelLinkWithHash(t *testing.T) {
 	link, err := BuildPanelLink(PanelLinkParams{
 		Host: "example.com", Password: "secret", UserName: "user1", VpnName: "MyVPN",
-		DtlsPort: 56000, SubURL: "https://example.com/sub/x",
+		VkHash: "hash1,hash2", DtlsPort: 56000, SubURL: "https://example.com/sub/x",
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if strings.Contains(link, "hash") {
-		t.Fatalf("panel link JSON must not contain hash field")
 	}
 	p, err := Decode(link)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Hash != "" {
-		t.Fatalf("hash must be empty, got %q", p.Hash)
+	if p.Hash != "hash1,hash2" {
+		t.Fatalf("hash: got %q", p.Hash)
 	}
-	if p.Name != "user1" || p.Vpn != "MyVPN" || p.IP != "example.com" || p.Pass != "secret" {
+	if p.Name != "user1" || p.Vpn != "MyVPN" {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 }

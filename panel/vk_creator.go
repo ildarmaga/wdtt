@@ -159,18 +159,6 @@ func createVKCall(password string) (joinLink, hash string, sess vkCreatorSession
 		if p, err := resolveUserPassword(realPass); err == nil {
 			realPass = p
 		}
-		old, err := findVKCreatorSessions(realPass, "")
-		if err != nil {
-			return "", "", sess, err
-		}
-		if err := finishVKCalls(cookieHeader, old); err != nil {
-			return "", "", sess, err
-		}
-		for _, s := range old {
-			if err := dropVKCreatorSession(s); err != nil {
-				return "", "", sess, err
-			}
-		}
 	}
 
 	created, err := vkCreateCallLink(cookieHeader)

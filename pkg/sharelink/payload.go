@@ -13,13 +13,14 @@ type Payload struct {
 	Sub  string `json:"sub,omitempty"`
 }
 
-// PanelLinkParams — base64-ссылка из панели (без hash, без ps).
+// PanelLinkParams — base64-ссылка из панели (vpn, name, sub, optional hash).
 type PanelLinkParams struct {
 	Host     string
 	Password string
 	UserName string
 	VpnName  string
 	DeviceID string
+	VkHash   string
 	SubURL   string
 	DtlsPort int
 }
