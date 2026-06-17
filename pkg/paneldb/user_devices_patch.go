@@ -7,6 +7,7 @@ import (
 )
 
 // PatchUserDeviceBindings обновляет привязки одного пароля без полной перезаписи store.
+// max_devices не меняется — только device_id (legacy) и wdtt_user_devices.
 func PatchUserDeviceBindings(db *sql.DB, mainPassword, password string, deviceIDs []string, removeDeviceIDs []string) error {
 	if db == nil {
 		return fmt.Errorf("nil db")
@@ -17,10 +18,6 @@ func PatchUserDeviceBindings(db *sql.DB, mainPassword, password string, deviceID
 	}
 	u := &User{DeviceIDs: append([]string(nil), deviceIDs...)}
 	NormalizeUser(u)
-	maxDev := u.MaxDevices
-	if password == strings.TrimSpace(mainPassword) {
-		maxDev = 0
-	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -36,8 +33,8 @@ func PatchUserDeviceBindings(db *sql.DB, mainPassword, password string, deviceID
 			return err
 		}
 	}
-	if _, err := tx.Exec(`UPDATE wdtt_users SET device_id = ?, max_devices = ? WHERE password = ?`,
-		u.DeviceID, maxDev, password); err != nil {
+	if _, err := tx.Exec(`UPDATE wdtt_users SET device_id = ? WHERE password = ?`,
+		u.DeviceID, password); err != nil {
 		return err
 	}
 	seen := map[string]bool{}

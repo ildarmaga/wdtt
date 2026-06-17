@@ -1586,14 +1586,24 @@
       },
       async fetchServiceLogs() {
         logModal.loading = true;
-        const msg = await HttpUtil.post('/panel/api/server/logs/' + logModal.rows, {
-          level: logModal.level,
-          syslog: logModal.syslog,
-          service: logModal.service || 'panel',
-        });
-        logModal.loading = false;
-        if (!msg.success) return;
-        logModal.show(msg.obj);
+        try {
+          const msg = await HttpUtil.post('/panel/api/server/logs/' + logModal.rows, {
+            level: logModal.level,
+            syslog: logModal.syslog,
+            service: logModal.service || 'panel',
+          });
+          if (!msg.success) {
+            const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            logModal.formattedLogs = esc(msg.msg || 'Ошибка загрузки журнала');
+            return;
+          }
+          logModal.show(msg.obj);
+        } catch (e) {
+          console.error('fetchServiceLogs', e);
+          logModal.formattedLogs = 'Ошибка загрузки журнала';
+        } finally {
+          logModal.loading = false;
+        }
       },
       openXrayLogs() {
         xraylogModal.visible = true;

@@ -152,9 +152,23 @@ func (a *App) handleServerLogs(w http.ResponseWriter, r *http.Request) {
 	if count <= 0 {
 		count = 20
 	}
-	form, _ := parsePostForm(r)
-	syslog := form.Get("syslog") == "true"
-	lines := fetchServiceLogLines(count, form.Get("service"), form.Get("level"), syslog)
+	var req struct {
+		Level   string      `json:"level"`
+		Service string      `json:"service"`
+		Syslog  interface{} `json:"syslog"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		jsonMsg(w, "invalid request", false)
+		return
+	}
+	syslog := false
+	switch v := req.Syslog.(type) {
+	case bool:
+		syslog = v
+	case string:
+		syslog = v == "true" || v == "1"
+	}
+	lines := fetchServiceLogLines(count, req.Service, req.Level, syslog)
 	jsonOK(w, lines)
 }
 
