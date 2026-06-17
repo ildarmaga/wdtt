@@ -43,11 +43,11 @@ jobs:
           path: dist
       - name: Download PWDTT Client (pwdtt-client release)
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PWDTT_CLIENT_GH_TOKEN }}
         run: |
           chmod +x scripts/fetch-pwdtt-client.sh
-          ./scripts/fetch-pwdtt-client.sh dist
-          echo "PWDTT_CLIENT_TAG=$(gh release view --repo ildarmaga/pwdtt-client --json tagName -q .tagName)" >> "$GITHUB_ENV"
+          CLIENT_TAG="$(./scripts/fetch-pwdtt-client.sh dist | tail -1)"
+          echo "PWDTT_CLIENT_TAG=${CLIENT_TAG}" >> "$GITHUB_ENV"
       - name: Release notes from CHANGELOG
         id: notes
         run: |

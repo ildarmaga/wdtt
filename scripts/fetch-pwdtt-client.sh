@@ -1,22 +1,37 @@
 #!/bin/bash
-# Скачивает бинарники PWDTT Client из релиза ildarmaga/pwdtt-client.
+# Скачивает бинарники PWDTT Client из релиза ildarmaga/pwdtt-client (репо private — нужен GH_TOKEN).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-$ROOT/dist}"
 REPO="${PWDtt_CLIENT_REPO:-ildarmaga/pwdtt-client}"
 TAG="${PWDtt_CLIENT_TAG:-}"
 
-mkdir -p "$OUT/client-tmp"
-args=(release download --repo "$REPO" --dir "$OUT/client-tmp" -p 'wdtt-linux-amd64' -p 'wdtt-windows-amd64.exe')
-if [[ -n "$TAG" ]]; then
-  args+=( "$TAG" )
+if [[ -z "${GH_TOKEN:-}" ]] && command -v gh >/dev/null 2>&1; then
+  GH_TOKEN="$(gh auth token 2>/dev/null || true)"
+  export GH_TOKEN
 fi
-gh "${args[@]}"
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  echo "GH_TOKEN required to download from private repo ${REPO}" >&2
+  echo "CI: add secret PWDTT_CLIENT_GH_TOKEN (PAT with contents:read on pwdtt-client)" >&2
+  exit 1
+fi
+
+mkdir -p "$OUT/client-tmp"
+dl=(release download --repo "$REPO" --dir "$OUT/client-tmp" -p wdtt-linux-amd64 -p wdtt-windows-amd64.exe)
+if [[ -n "$TAG" ]]; then
+  dl+=("$TAG")
+fi
+gh "${dl[@]}"
 
 mv -f "$OUT/client-tmp/wdtt-linux-amd64" "$OUT/pwdtt-client-linux-amd64"
 mv -f "$OUT/client-tmp/wdtt-windows-amd64.exe" "$OUT/pwdtt-client-windows-amd64.exe"
 chmod +x "$OUT/pwdtt-client-linux-amd64"
-rmdir "$OUT/client-tmp" 2>/dev/null || rm -rf "$OUT/client-tmp"
+rm -rf "$OUT/client-tmp"
 
-CLIENT_TAG="$(gh release view --repo "$REPO" ${TAG:+"$TAG"} --json tagName -q .tagName 2>/dev/null || echo latest)"
-echo "OK: pwdtt-client ($CLIENT_TAG) -> $OUT/pwdtt-client-linux-amd64, pwdtt-client-windows-amd64.exe"
+if [[ -n "$TAG" ]]; then
+  CLIENT_TAG="$TAG"
+else
+  CLIENT_TAG="$(gh release view --repo "$REPO" --json tagName -q .tagName)"
+fi
+echo "OK: pwdtt-client (${CLIENT_TAG}) -> $OUT/pwdtt-client-linux-amd64, pwdtt-client-windows-amd64.exe"
+echo "${CLIENT_TAG}"
