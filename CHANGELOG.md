@@ -2,6 +2,11 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.41] — 2026-06-17
+
+### Добавлено
+- **Релизы** — в каждый GitHub Release WDTT добавляются бинарники **[pwdtt-client](https://github.com/ildarmaga/pwdtt-client)** (`pwdtt-client-linux-amd64`, `pwdtt-client-windows-amd64.exe`) и блок в описании релиза с ссылкой на клиент.
+
 ## [1.4.40] — 2026-06-17
 
 ### Исправлено
