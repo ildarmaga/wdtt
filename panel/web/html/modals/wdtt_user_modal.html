@@ -461,7 +461,6 @@
             apply: this.userModal.isEdit,
           });
           if (!msg.success) {
-            this.$message.error(msg.msg || 'Не удалось создать VK hash');
             return;
           }
           const hash = (msg.obj && msg.obj.vk_hash) || '';

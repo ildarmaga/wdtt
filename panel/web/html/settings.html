@@ -719,7 +719,6 @@
         try {
           const msg = await HttpUtil.post('/panel/api/vk/call/create', { password, apply: true });
           if (!msg || !msg.success) {
-            this.$message.error((msg && msg.msg) || 'Не удалось создать звонок');
             return;
           }
           const hash = (msg.obj && msg.obj.vk_hash) || '';
