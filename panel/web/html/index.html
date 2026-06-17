@@ -1004,6 +1004,7 @@
   const logModal = {
     visible: false,
     logs: [],
+    formattedLogs: '',
     rows: 30,
     level: 'info',
     syslog: false,
@@ -1012,19 +1013,11 @@
     show(logs) {
       this.visible = true;
       this.logs = logs;
-      this.formattedLogs = '…';
-      const render = () => {
-        this.formattedLogs = this.logs?.length > 0 ? this.formatLogs(this.logs) : 'No Record...';
-        Vue.nextTick(() => {
-          const el = document.querySelector('#log-modal .log-container');
-          if (el) el.scrollTop = 0;
-        });
-      };
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(render);
-      } else {
-        render();
-      }
+      this.formattedLogs = this.logs?.length > 0 ? this.formatLogs(this.logs) : 'No Record...';
+      Vue.nextTick(() => {
+        const el = document.querySelector('#log-modal .log-container');
+        if (el) el.scrollTop = 0;
+      });
     },
     formatLogs(logs) {
       const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1078,6 +1071,7 @@
   const xraylogModal = {
       visible: false,
       logs: [],
+      formattedLogs: '',
       rows: 20,
       showDirect: true,
       showBlocked: true,
@@ -1086,19 +1080,11 @@
       show(logs) {
         this.visible = true;
         this.logs = logs;
-        this.formattedLogs = '…';
-        const render = () => {
-          this.formattedLogs = this.logs?.length > 0 ? this.formatLogs(this.logs) : 'Нет записей пользовательского трафика. Это не журнал VK — VK_HASH задаётся в карточке пользователя (ссылка vk.com/call/join/…).';
-          Vue.nextTick(() => {
-            const el = document.querySelector('#xraylog-modal .log-container');
-            if (el) el.scrollTop = 0;
-          });
-        };
-        if (typeof requestAnimationFrame === 'function') {
-          requestAnimationFrame(render);
-        } else {
-          render();
-        }
+        this.formattedLogs = this.logs?.length > 0 ? this.formatLogs(this.logs) : 'Нет записей пользовательского трафика. Это не журнал VK — VK_HASH задаётся в карточке пользователя (ссылка vk.com/call/join/…).';
+        Vue.nextTick(() => {
+          const el = document.querySelector('#xraylog-modal .log-container');
+          if (el) el.scrollTop = 0;
+        });
       },
       formatLogs(logs) {
         let formattedLogs = `<table><tr>
