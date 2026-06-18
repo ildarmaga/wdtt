@@ -3,6 +3,7 @@ package panel
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"time"
 )
+
+var xrayDNSAnswerRe = regexp.MustCompile(`got answer:\s+(\S+)\s+->\s+\[([^\]]*)\]`)
 
 const defaultXrayAPIPort = 62789
 
@@ -171,6 +174,49 @@ func getXrayLogs(count int, filter string, showDirect, showBlocked, showProxy in
 	return parseXrayAccessLogLines(rawLines, count, filter, showDirect, showBlocked, showProxy, freedoms, blackholes, apiPort)
 }
 
+func buildDNSIPDomainMap(lines []string) map[string]string {
+	m := make(map[string]string)
+	for _, line := range lines {
+		match := xrayDNSAnswerRe.FindStringSubmatch(line)
+		if len(match) != 3 {
+			continue
+		}
+		domain := strings.TrimSuffix(match[1], ".")
+		if domain == "" {
+			continue
+		}
+		ipsPart := strings.TrimSpace(match[2])
+		if ipsPart == "" {
+			continue
+		}
+		for _, ip := range strings.Split(ipsPart, ",") {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				m[ip] = domain
+			}
+		}
+	}
+	return m
+}
+
+func enrichToAddressWithDNS(to string, dnsMap map[string]string) string {
+	if len(dnsMap) == 0 {
+		return to
+	}
+	proto, rest, ok := strings.Cut(to, ":")
+	if !ok {
+		return to
+	}
+	host, port, ok := strings.Cut(rest, ":")
+	if !ok || net.ParseIP(host) == nil {
+		return to
+	}
+	if domain, ok := dnsMap[host]; ok && domain != "" {
+		return proto + ":" + domain + ":" + port
+	}
+	return to
+}
+
 func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDirect, showBlocked, showProxy interface{}, freedoms, blackholes []string, apiPort int) []XrayLogEntry {
 	const (
 		directEvent = iota
@@ -178,6 +224,7 @@ func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDi
 		proxiedEvent
 	)
 
+	dnsMap := buildDNSIPDomainMap(rawLines)
 	var entries []XrayLogEntry
 	for _, line := range rawLines {
 		line = strings.TrimSpace(line)
@@ -207,7 +254,7 @@ func parseXrayAccessLogLines(rawLines []string, count int, filter string, showDi
 			if part == "from" && i+1 < len(parts) {
 				entry.FromAddress = strings.TrimLeft(parts[i+1], "/")
 			} else if part == "accepted" && i+1 < len(parts) {
-				entry.ToAddress = strings.TrimLeft(parts[i+1], "/")
+				entry.ToAddress = enrichToAddressWithDNS(strings.TrimLeft(parts[i+1], "/"), dnsMap)
 			} else if strings.HasPrefix(part, "[") {
 				entry.Inbound = part[1:]
 			} else if strings.HasSuffix(part, "]") {

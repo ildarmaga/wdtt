@@ -197,6 +197,7 @@ func writeXrayConfig(raw string) error {
 	if err := json.Unmarshal([]byte(merged), &cfg); err != nil {
 		return err
 	}
+	ensureRedirectInSniffingForAccessLog(cfg)
 	ensureXrayLogFiles(cfg)
 	mergedBytes, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -230,6 +231,27 @@ func defaultXrayPolicy() map[string]interface{} {
 			"statsOutboundDownlink": false,
 			"statsOutboundUplink":   false,
 		},
+	}
+}
+
+// ensureRedirectInSniffingForAccessLog keeps redirect-in sniffing enabled with routeOnly=false
+// so Xray access logs show SNI/Host domains (tcp:example.com:443) instead of raw IPs.
+func ensureRedirectInSniffingForAccessLog(cfg map[string]interface{}) {
+	inbounds, _ := cfg["inbounds"].([]interface{})
+	for _, ib := range inbounds {
+		m, _ := ib.(map[string]interface{})
+		if tag, _ := m["tag"].(string); tag != protectedInboundTCP {
+			continue
+		}
+		sniffing, _ := m["sniffing"].(map[string]interface{})
+		if sniffing == nil {
+			sniffing = map[string]interface{}{}
+			m["sniffing"] = sniffing
+		}
+		sniffing["enabled"] = true
+		sniffing["routeOnly"] = false
+		sniffing["destOverride"] = []interface{}{"http", "tls", "quic", "fakedns"}
+		return
 	}
 }
 
@@ -309,6 +331,7 @@ func mergeXrayConfigDefaults(raw string) (string, error) {
 		policy["system"] = def["system"]
 	}
 	ensureXrayStatsAPI(cfg)
+	ensureRedirectInSniffingForAccessLog(cfg)
 	ensureXrayLogFiles(cfg)
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -328,6 +351,7 @@ func patchXrayStatsAPIOnDisk() error {
 	}
 	before, _ := json.Marshal(cfg)
 	ensureXrayStatsAPI(cfg)
+	ensureRedirectInSniffingForAccessLog(cfg)
 	ensureXrayLogFiles(cfg)
 	after, _ := json.Marshal(cfg)
 	if string(before) == string(after) {
