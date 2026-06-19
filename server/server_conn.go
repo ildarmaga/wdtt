@@ -381,7 +381,7 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			if err != nil {
 				return
 			}
-			// Skip DTLS keepalive packets (1-byte 0xFF ping from client)
+			// DTLS keepalive ping (1-byte 0xFF) — echo pong so client consent-freshness works.
 			if nn == 1 && (*b)[0] == 0xFF {
 				if relaySess != nil {
 					relaySess.touch()
@@ -389,6 +389,8 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				if sessionEntered {
 					userTouchActivity(connDeviceID)
 				}
+				_ = clientConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				_, _ = clientConn.Write([]byte{0xFF})
 				continue
 			}
 			atomic.AddInt64(&totalBytesFromClient, int64(nn))
