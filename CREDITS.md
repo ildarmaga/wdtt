@@ -1,5 +1,17 @@
 # Благодарности и происхождение кода
 
+## [PWDTT](https://github.com/luminescq/PWDTT) — десктопный клиент
+
+**Автор:** [luminescq](https://github.com/luminescq) — Copyright © 2026
+
+Бинарники `pwdtt-client-linux-amd64` и `pwdtt-client-windows-amd64.exe` в [релизах WDTT](https://github.com/ildarmaga/wdtt/releases) — **модифицированная версия** проекта **PWDTT**, распространяемая на условиях **GNU GPL v3.0**.
+
+| | |
+|---|---|
+| Оригинал | https://github.com/luminescq/PWDTT |
+| Исходники модифицированной версии | https://github.com/ildarmaga/pwdtt-client |
+| Справка по GPL | [release-assets/PWDTT-SOURCE.md](release-assets/PWDTT-SOURCE.md) |
+
 ## [proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android)
 
 **Автор:** [amurcanov](https://github.com/amurcanov)
@@ -47,6 +59,8 @@ WDTT также использует **GPL v3** — см. [LICENSE](LICENSE).
 ## Ссылки
 
 - Upstream VPN: https://github.com/amurcanov/proxy-turn-vk-android
+- PWDTT (оригинал): https://github.com/luminescq/PWDTT
+- PWDTT (модифицированная версия): https://github.com/ildarmaga/pwdtt-client
 - iOS-клиент: https://github.com/anton48/vk-turn-proxy-ios
 - WDTT (этот репозиторий): https://github.com/ildarmaga/wdtt
 - Установщик: https://github.com/ildarmaga/wdtt-install

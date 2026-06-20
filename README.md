@@ -31,7 +31,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 |--------|-----------|---------------|
 | **VK Turn Proxy** | iOS | `wdtt://` (colon), 1-й хеш или `VK_HASH` |
 | **WDTT** | Android | `wdtt://` (colon), до 4 хешей через `,` или `VK_HASH` |
-| **PWDTT** | Desktop Win/Linux | `wdtt://` (colon), до 4 хешей через `,` или `VK_HASH` — `pwdtt-client-*` из [релизов WDTT](https://github.com/ildarmaga/wdtt/releases/latest) |
+| **PWDTT** | Desktop Win/Linux | `wdtt://` (colon), до 4 хешей — `pwdtt-client-*` из [релизов WDTT](https://github.com/ildarmaga/wdtt/releases/latest); исходники: [ildarmaga/pwdtt-client](https://github.com/ildarmaga/pwdtt-client) (модифицированная версия [luminescq/PWDTT](https://github.com/luminescq/PWDTT), GPL-3.0) |
 | **WDTT** | Windows | `wdtt://` (colon), до 4 хешей через `,` или `VK_HASH` |
 | **qWDTT** | Android (fork) | `qwdtt://`, `hashes=h1,h2,…` (bare, до 4) или `VK_HASH` |
 | **WDTT** (qwdtt) | Windows | `qwdtt://`, `hashes=h1,h2,…` (bare, до 4) или `VK_HASH` |
@@ -85,6 +85,7 @@ sudo ./install-local.sh amd64
 | Репозиторий | Назначение |
 |-------------|------------|
 | [ildarmaga/wdtt](https://github.com/ildarmaga/wdtt) | Сервер + панель + **PWDTT Client** (`pwdtt-client-*` в [релизах](https://github.com/ildarmaga/wdtt/releases/latest)) |
+| [ildarmaga/pwdtt-client](https://github.com/ildarmaga/pwdtt-client) | Исходники десктопного клиента PWDTT (модифицированная версия [luminescq/PWDTT](https://github.com/luminescq/PWDTT), GPL-3.0) |
 | [ildarmaga/wdtt-install](https://github.com/ildarmaga/wdtt-install) | Установщик одной строкой |
 | [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) | iOS-клиент |
 | [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Android-клиент / исходный VPN-протокол |
