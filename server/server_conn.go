@@ -381,7 +381,20 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 			if err != nil {
 				return
 			}
-			// DTLS keepalive ping (1-byte 0xFF) — echo pong so client consent-freshness works.
+			// DTLS keepalive ping клиента (1 байт 0xFF): обновляем presence и
+			// эхо-отвечаем 0xFF (нужно старым клиентам для consent-freshness).
+			//
+			// ВАЖНО: эхо-запись идёт БЕЗ SetWriteDeadline. В v1.4.50 здесь
+			// стоял write-deadline 5s, и он протекал на горутину «WG → Клиент»
+			// (она пишет в тот же clientConn): клиент шлёт keepalive раз в 10s,
+			// дедлайн истекал через 5s, и в окне 5–10s любая запись обратного
+			// трафика падала по таймауту → сервер рвал сессию, а клиент видел
+			// EOF и считал это «VK обновил relay». Отсюда массовые 16-секундные
+			// смерти воркеров на v1.4.50, которых нет на v1.4.49. 1-байтовая
+			// DTLS-запись поверх UDP не блокируется, поэтому дедлайн не нужен;
+			// без него обратный трафик (тоже пишется без дедлайна) больше не
+			// рвётся. Записи в clientConn из двух горутин безопасны —
+			// pion/dtls сериализует Write внутренним локом.
 			if nn == 1 && (*b)[0] == 0xFF {
 				if relaySess != nil {
 					relaySess.touch()
@@ -389,7 +402,6 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 				if sessionEntered {
 					userTouchActivity(connDeviceID)
 				}
-				_ = clientConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				_, _ = clientConn.Write([]byte{0xFF})
 				continue
 			}
