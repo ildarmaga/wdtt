@@ -87,9 +87,10 @@ type serviceUsage struct {
 var (
 	statusMu       sync.Mutex
 	cachedStatus   *serverStatus
-	lastCPUIdle    uint64
+	lastCPUIdleAll uint64
 	lastCPUTotal   uint64
 	hasCPUSample   bool
+	emaCPU         float64
 	lastVpnRx      uint64
 	lastVpnTx      uint64
 	hasVpnSample   bool
@@ -317,27 +318,71 @@ func readCPUPercent() float64 {
 	if len(fields) < 5 || fields[0] != "cpu" {
 		return 0
 	}
-	var total, idle uint64
+	var nums []uint64
 	for i := 1; i < len(fields); i++ {
-		v, _ := strconv.ParseUint(fields[i], 10, 64)
-		total += v
-		if i == 4 {
-			idle = v
+		v, err := strconv.ParseUint(fields[i], 10, 64)
+		if err != nil {
+			break
 		}
+		nums = append(nums, v)
 	}
+	if len(nums) < 4 {
+		return 0
+	}
+	var user, nice, system, idle, iowait, irq, softirq, steal uint64
+	user = nums[0]
+	if len(nums) > 1 {
+		nice = nums[1]
+	}
+	if len(nums) > 2 {
+		system = nums[2]
+	}
+	if len(nums) > 3 {
+		idle = nums[3]
+	}
+	if len(nums) > 4 {
+		iowait = nums[4]
+	}
+	if len(nums) > 5 {
+		irq = nums[5]
+	}
+	if len(nums) > 6 {
+		softirq = nums[6]
+	}
+	if len(nums) > 7 {
+		steal = nums[7]
+	}
+	idleAll := idle + iowait
+	nonIdle := user + nice + system + irq + softirq + steal
+	total := idleAll + nonIdle
+
 	statusMu.Lock()
 	defer statusMu.Unlock()
 	if !hasCPUSample {
-		lastCPUIdle, lastCPUTotal, hasCPUSample = idle, total, true
+		lastCPUIdleAll, lastCPUTotal, hasCPUSample = idleAll, total, true
 		return 0
 	}
-	idleDelta := float64(idle - lastCPUIdle)
 	totalDelta := float64(total - lastCPUTotal)
-	lastCPUIdle, lastCPUTotal = idle, total
+	idleDelta := float64(idleAll - lastCPUIdleAll)
+	lastCPUIdleAll, lastCPUTotal = idleAll, total
 	if totalDelta <= 0 {
-		return 0
+		return emaCPU
 	}
-	return (1.0 - idleDelta/totalDelta) * 100
+	busy := totalDelta - idleDelta
+	pct := busy / totalDelta * 100
+	if pct > 100 {
+		pct = 100
+	}
+	if pct < 0 {
+		pct = 0
+	}
+	const alpha = 0.3
+	if emaCPU == 0 {
+		emaCPU = pct
+	} else {
+		emaCPU = alpha*pct + (1-alpha)*emaCPU
+	}
+	return emaCPU
 }
 
 func readCPUSpeedMhz() float64 {
