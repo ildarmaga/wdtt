@@ -2,6 +2,11 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.58] — 2026-06-24
+
+### Обновлено
+- **PWDTT Client v0.3.45** — fix VK auth: откат okcdn `anonymLogin` к v0.3.40 (version:2 без auth_token); toggle OFF = anonymous VK Calls, toggle ON = cookies only.
+
 ## [1.4.57] — 2026-06-24
 
 ### Обновлено
