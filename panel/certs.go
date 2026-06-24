@@ -650,11 +650,6 @@ func applyPanelCert(cfg *PanelConfig, certFile, keyFile string, restart bool) er
 	}
 	cfg.WebCertFile = certFile
 	cfg.WebKeyFile = keyFile
-	if cfg.WebDomain == "" {
-		if d := domainFromCertPath(certFile); d != "" {
-			cfg.WebDomain = d
-		}
-	}
 	syncSubCertFromPanel(cfg)
 	if err := savePanelConfig(cfg); err != nil {
 		return err

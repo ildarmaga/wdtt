@@ -177,11 +177,6 @@ func (a *App) handleSettingUpdate(w http.ResponseWriter, r *http.Request) {
 
 	a.cfg.WebListen = strings.TrimSpace(req.WebListen)
 	a.cfg.WebDomain = strings.TrimSpace(req.WebDomain)
-	if a.cfg.WebDomain == "" && req.WebCertFile != "" {
-		if d := domainFromCertPath(req.WebCertFile); d != "" {
-			a.cfg.WebDomain = d
-		}
-	}
 	a.cfg.Port = req.WebPort
 	if req.WebBasePath != "" {
 		a.cfg.WebBasePath = req.WebBasePath

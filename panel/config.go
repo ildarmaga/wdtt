@@ -96,12 +96,6 @@ func finalizePanelConfig(cfg *PanelConfig) (*PanelConfig, error) {
 		}
 	}
 	normalizePanelConfig(cfg)
-	if cfg.WebDomain == "" && panelTLSEnabled(cfg) {
-		if d := domainFromCertPath(cfg.WebCertFile); d != "" {
-			cfg.WebDomain = d
-			_ = savePanelConfig(cfg)
-		}
-	}
 	syncPanelPollDefaults(cfg)
 	return cfg, nil
 }
