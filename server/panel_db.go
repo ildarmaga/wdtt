@@ -331,7 +331,8 @@ func syncPanelDeviceEditsLocked() {
 	if err != nil || !ok {
 		return
 	}
-	mergeTrafficIntoDatabase(incoming, trafficSnapshotLocked())
+	// users_rev bump means panel changed users (incl. «Сбросить трафик»). Trust panel.db
+	// counters — merging in-memory traffic back restored old ↑↓ after reset.
 
 	for pass := range db.Passwords {
 		if _, ok := incoming.Passwords[pass]; !ok {
