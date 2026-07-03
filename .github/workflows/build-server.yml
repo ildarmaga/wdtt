@@ -41,15 +41,17 @@ jobs:
           pattern: wdtt-linux-*
           merge-multiple: true
           path: dist
-      - name: Attach PWDTT Client (vendored binaries)
+      - name: Fetch PWDTT Client from GitHub Release
         run: |
           set -euo pipefail
-          for f in pwdtt-client-linux-amd64 pwdtt-client-windows-amd64.exe pwdtt-client-version; do
-            test -f "release-assets/${f}" || { echo "::error::missing release-assets/${f}"; exit 1; }
-          done
-          cp release-assets/pwdtt-client-linux-amd64 dist/
-          cp release-assets/pwdtt-client-windows-amd64.exe dist/
           CLIENT_TAG="$(tr -d '[:space:]' < release-assets/pwdtt-client-version)"
+          test -n "$CLIENT_TAG"
+          mkdir -p dist/client-dl
+          gh release download "$CLIENT_TAG" --repo ildarmaga/pwdtt-client \
+            -D dist/client-dl -p wdtt-linux-amd64 -p wdtt-windows-amd64.exe
+          mv dist/client-dl/wdtt-linux-amd64 dist/pwdtt-client-linux-amd64
+          mv dist/client-dl/wdtt-windows-amd64.exe dist/pwdtt-client-windows-amd64.exe
+          chmod +x dist/pwdtt-client-linux-amd64
           echo "PWDTT_CLIENT_TAG=${CLIENT_TAG}" >> "$GITHUB_ENV"
       - name: Release notes from CHANGELOG
         id: notes

@@ -1,4 +1,7 @@
-# Binaries
+# PWDTT client binaries — собираются в CI pwdtt-client, в wdtt только version-файл
+release-assets/pwdtt-client-linux-amd64
+release-assets/pwdtt-client-windows-amd64.exe
+
 wdtt-server
 wdtt-server-*
 wdtt-panel

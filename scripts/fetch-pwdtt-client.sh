@@ -11,9 +11,7 @@ if [[ -z "${GH_TOKEN:-}" ]] && command -v gh >/dev/null 2>&1; then
   export GH_TOKEN
 fi
 if [[ -z "${GH_TOKEN:-}" ]]; then
-  echo "GH_TOKEN required to download from private repo ${REPO}" >&2
-  echo "CI: add secret PWDTT_CLIENT_GH_TOKEN (PAT with contents:read on pwdtt-client)" >&2
-  exit 1
+  echo "GH_TOKEN not set — trying unauthenticated download (public repo)" >&2
 fi
 
 mkdir -p "$OUT/client-tmp"
