@@ -299,6 +299,29 @@ func rememberUsersRev(rev int64) {
 	}
 }
 
+func panelUsersRevOnDisk() int64 {
+	if !serverPanelDBReady() {
+		return 0
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return 0
+	}
+	rev, err := paneldb.LoadUsersRev(sqlDB)
+	if err != nil {
+		return 0
+	}
+	return rev
+}
+
+// trustPanelTrafficCounters — panel.db authoritative after users_rev bump
+// (incl. «Сбросить трафик»); do not merge stale in-memory ↑↓ back.
+func trustPanelTrafficCounters(diskRev int64) bool {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	return diskRev > appliedUsersRev
+}
+
 func rememberUsersRevFromDisk() {
 	if !serverPanelDBReady() {
 		return

@@ -57,16 +57,24 @@ func loadAdminReloadSecretFromDB() {
 }
 
 func reloadDBFromDisk(wgDev *device.Device) error {
-	dbMutex.Lock()
-	memTraffic := trafficSnapshotLocked()
-	dbMutex.Unlock()
+	diskRev := panelUsersRevOnDisk()
+	trustDisk := trustPanelTrafficCounters(diskRev)
+
+	var memTraffic map[string]paneldb.TrafficSnapshot
+	if !trustDisk {
+		dbMutex.Lock()
+		memTraffic = trafficSnapshotLocked()
+		dbMutex.Unlock()
+	}
 
 	data, err := loadDatabaseFromDiskSource()
 	if err != nil {
 		return err
 	}
 	incoming := *data
-	mergeTrafficIntoDatabase(&incoming, memTraffic)
+	if !trustDisk {
+		mergeTrafficIntoDatabase(&incoming, memTraffic)
+	}
 
 	dbMutex.Lock()
 	for id, dev := range db.Devices {
@@ -118,9 +126,11 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 		}
 	}
 	if trafficDirty.Load() {
-		if err := saveTrafficToSQLiteLocked(); err != nil {
-			dbMutex.Unlock()
-			return err
+		if !trustDisk {
+			if err := saveTrafficToSQLiteLocked(); err != nil {
+				dbMutex.Unlock()
+				return err
+			}
 		}
 		trafficDirty.Store(false)
 	}
@@ -130,7 +140,11 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 	syncAllSpeedLimits()
 	syncVPNLocalServices(wgIfaceName)
 	loadAdminReloadSecretFromDB()
-	rememberUsersRevFromDisk()
+	if diskRev > 0 {
+		rememberUsersRev(diskRev)
+	} else {
+		rememberUsersRevFromDisk()
+	}
 	log.Printf("[ADMIN] Конфиг перезагружен из %s", panelDBPath)
 	return nil
 }
