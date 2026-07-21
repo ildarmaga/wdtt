@@ -45,8 +45,11 @@ function wdttStripVkHashBare(raw) {
     return '';
   } else {
     const prefixes = [
+      'https://vk.ru/call/join/', 'http://vk.ru/call/join/',
       'https://vk.com/call/join/', 'http://vk.com/call/join/',
+      'https://m.vk.ru/call/join/', 'http://m.vk.ru/call/join/',
       'https://m.vk.com/call/join/', 'http://m.vk.com/call/join/',
+      'm.vk.ru/call/join/', 'vk.ru/call/join/',
       'm.vk.com/call/join/', 'vk.com/call/join/',
       'https://vk.me/join/', 'http://vk.me/join/', 'vk.me/join/',
     ];
@@ -85,7 +88,7 @@ function wdttParseVkHashes(raw) {
 /**
  * format:
  *   bare      — bare-токены через запятую (colon wdtt://, qwdtt hashes=)
- *   join-url  — https://vk.com/call/join/TOKEN (по одному на хеш, через запятую)
+ *   join-url  — https://vk.ru/call/join/TOKEN (по одному на хеш, через запятую)
  * limit — макс. число хешей (iOS = 1)
  * Пустое поле → плейсхолдер VK_HASH.
  */
@@ -94,7 +97,7 @@ function wdttFormatVkHashes(raw, format, limit) {
   if (typeof limit === 'number' && limit > 0) list = list.slice(0, limit);
   if (!list.length) return WDTT_VK_HASH_PLACEHOLDER;
   if (format === 'join-url') {
-    return list.map((h) => 'https://vk.com/call/join/' + h).join(',');
+    return list.map((h) => 'https://vk.ru/call/join/' + h).join(',');
   }
   return list.join(',');
 }

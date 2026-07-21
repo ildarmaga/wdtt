@@ -42,11 +42,11 @@ func TestVKCreateCallLink(t *testing.T) {
 	defer func() { vkCallHTTPClient = old }()
 
 	rewrite := func(u string) string {
-		if strings.HasPrefix(u, "https://login.vk.com") {
+		if strings.HasPrefix(u, "https://login.vk.ru") {
 			return srv.URL + "/login?" + strings.SplitN(u, "?", 2)[1]
 		}
-		if strings.HasPrefix(u, "https://api.vk.com/method/") {
-			method := strings.TrimPrefix(u, "https://api.vk.com/method/")
+		if strings.HasPrefix(u, "https://api.vk.ru/method/") {
+			method := strings.TrimPrefix(u, "https://api.vk.ru/method/")
 			if i := strings.Index(method, "?"); i >= 0 {
 				return srv.URL + "/" + method[:i] + "?" + method[i+1:]
 			}
@@ -92,10 +92,10 @@ func TestVKForceFinishCall(t *testing.T) {
 	oldPost := vkHTTPPostDo
 	vkHTTPPostDo = func(endpoint string, form url.Values, headers map[string]string) ([]byte, error) {
 		u := endpoint
-		if strings.HasPrefix(u, "https://login.vk.com") {
+		if strings.HasPrefix(u, "https://login.vk.ru") {
 			u = srv.URL + "/login?" + strings.SplitN(u, "?", 2)[1]
-		} else if strings.HasPrefix(u, "https://api.vk.com/method/") {
-			u = srv.URL + "/" + strings.TrimPrefix(u, "https://api.vk.com/method/")
+		} else if strings.HasPrefix(u, "https://api.vk.ru/method/") {
+			u = srv.URL + "/" + strings.TrimPrefix(u, "https://api.vk.ru/method/")
 		}
 		return oldPost(u, form, headers)
 	}
@@ -126,10 +126,10 @@ func TestVKCallAlive(t *testing.T) {
 	oldPost := vkHTTPPostDo
 	vkHTTPPostDo = func(endpoint string, form url.Values, headers map[string]string) ([]byte, error) {
 		u := endpoint
-		if strings.HasPrefix(u, "https://login.vk.com") {
+		if strings.HasPrefix(u, "https://login.vk.ru") {
 			u = srv.URL + "/login?" + strings.SplitN(u, "?", 2)[1]
-		} else if strings.HasPrefix(u, "https://api.vk.com/method/") {
-			method := strings.TrimPrefix(u, "https://api.vk.com/method/")
+		} else if strings.HasPrefix(u, "https://api.vk.ru/method/") {
+			method := strings.TrimPrefix(u, "https://api.vk.ru/method/")
 			u = srv.URL + "/" + method
 		}
 		return oldPost(u, form, headers)

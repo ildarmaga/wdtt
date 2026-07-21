@@ -2,6 +2,13 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.61] — 2026-07-21
+
+### Изменено — VK `vk.com` → `vk.ru` (как anton48 builds 169–171)
+- VK Creator cookie API: `login.vk.ru` / `api.vk.ru`, Origin `vk.ru`.
+- `vkhash` + share: join-url → `https://vk.ru/call/join/…`, парсер accept-both (`vk.com` и `vk.ru`).
+- Password-login flow пока на `vk.com` (отдельный риск; cookie/creator путь уже на `.ru`).
+
 ## [1.4.60] — 2026-07-05
 
 ### Исправлено

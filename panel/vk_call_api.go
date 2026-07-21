@@ -13,6 +13,8 @@ import (
 const (
 	vkCallAppID      = "6287487"
 	vkCallAPIVersion = "5.280"
+	// Cookie/creator API host — flipped vk.com→vk.ru (anton48 build 171).
+	vkCallWebHost    = "vk.ru"
 	vkCallUserAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 )
 
@@ -60,8 +62,8 @@ var vkHTTPPostDo = func(endpoint string, form url.Values, headers map[string]str
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", vkCallUserAgent)
-	req.Header.Set("Origin", "https://vk.com")
-	req.Header.Set("Referer", "https://vk.com/")
+	req.Header.Set("Origin", "https://"+vkCallWebHost)
+	req.Header.Set("Referer", "https://"+vkCallWebHost+"/")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -88,7 +90,7 @@ func vkParseAPIError(body []byte) error {
 }
 
 func vkWebToken(cookieHeader string) (string, error) {
-	body, err := vkHTTPPost("https://login.vk.com/?act=web_token",
+	body, err := vkHTTPPost("https://login."+vkCallWebHost+"/?act=web_token",
 		url.Values{"version": {"1"}, "app_id": {vkCallAppID}},
 		map[string]string{"Cookie": cookieHeader})
 	if err != nil {
@@ -109,7 +111,7 @@ func vkWebToken(cookieHeader string) (string, error) {
 }
 
 func vkCurrentUserID(token string) (string, error) {
-	body, err := vkHTTPPost("https://api.vk.com/method/users.get",
+	body, err := vkHTTPPost("https://api."+vkCallWebHost+"/method/users.get",
 		url.Values{"v": {vkCallAPIVersion}},
 		map[string]string{"Authorization": "Bearer " + token})
 	if err != nil {
@@ -147,7 +149,7 @@ func vkCreateCallLink(cookieHeader string) (vkCallCreateResult, error) {
 	if err != nil {
 		return out, err
 	}
-	body, err := vkHTTPPost("https://api.vk.com/method/calls.start",
+	body, err := vkHTTPPost("https://api."+vkCallWebHost+"/method/calls.start",
 		url.Values{"v": {vkCallAPIVersion}, "peer_id": {peerID}},
 		map[string]string{"Authorization": "Bearer " + token})
 	if err != nil {
@@ -185,7 +187,7 @@ func vkForceFinishCall(cookieHeader, callID string) error {
 	if err != nil {
 		return err
 	}
-	body, err := vkHTTPPost("https://api.vk.com/method/calls.forceFinish",
+	body, err := vkHTTPPost("https://api."+vkCallWebHost+"/method/calls.forceFinish",
 		url.Values{"v": {vkCallAPIVersion}, "call_id": {callID}},
 		map[string]string{"Authorization": "Bearer " + token})
 	if err != nil {
@@ -207,7 +209,7 @@ func vkForceFinishCall(cookieHeader, callID string) error {
 }
 
 func vkAnonToken() (string, error) {
-	body, err := vkHTTPPost("https://login.vk.com/?act=get_anonym_token",
+	body, err := vkHTTPPost("https://login."+vkCallWebHost+"/?act=get_anonym_token",
 		url.Values{"client_id": {vkCallAppID}}, nil)
 	if err != nil {
 		return "", err
@@ -235,7 +237,7 @@ func vkCallAlive(joinLink string) bool {
 	if err != nil {
 		return false
 	}
-	body, err := vkHTTPPost("https://api.vk.com/method/calls.getCallPreview",
+	body, err := vkHTTPPost("https://api."+vkCallWebHost+"/method/calls.getCallPreview",
 		url.Values{"v": {vkCallAPIVersion}, "vk_join_link": {joinLink}},
 		map[string]string{"Authorization": "Bearer " + token})
 	if err != nil {

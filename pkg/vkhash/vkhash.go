@@ -5,6 +5,8 @@ import "strings"
 const (
 	Max         = 4
 	Placeholder = "VK_HASH"
+	// JoinURLBase — ссылка, которую кладём в colon/qwdtt (VK мигрирует vk.com→vk.ru).
+	JoinURLBase = "https://vk.ru/call/join/"
 )
 
 // Format — как хеши подставляются в colon / qwdtt ссылки.
@@ -15,7 +17,8 @@ const (
 	FormatJoinURL
 )
 
-// StripOne извлекает bare-токен из хеша или ссылки vk.com/call/join/….
+// StripOne извлекает bare-токен из хеша или ссылки …/call/join/….
+// Accept-both: vk.com и vk.ru (и m.*) — VK мигрирует домены.
 func StripOne(raw string) string {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -28,8 +31,11 @@ func StripOne(raw string) string {
 		return ""
 	} else {
 		prefixes := []string{
+			"https://vk.ru/call/join/", "http://vk.ru/call/join/",
 			"https://vk.com/call/join/", "http://vk.com/call/join/",
+			"https://m.vk.ru/call/join/", "http://m.vk.ru/call/join/",
 			"https://m.vk.com/call/join/", "http://m.vk.com/call/join/",
+			"m.vk.ru/call/join/", "vk.ru/call/join/",
 			"m.vk.com/call/join/", "vk.com/call/join/",
 			"https://vk.me/join/", "http://vk.me/join/", "vk.me/join/",
 		}
@@ -86,7 +92,7 @@ func FormatForLink(raw string, format Format, limit int) string {
 	if format == FormatJoinURL {
 		urls := make([]string, len(list))
 		for i, h := range list {
-			urls[i] = "https://vk.com/call/join/" + h
+			urls[i] = JoinURLBase + h
 		}
 		return strings.Join(urls, ",")
 	}

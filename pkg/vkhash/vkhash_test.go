@@ -14,6 +14,10 @@ func TestNormalize(t *testing.T) {
 			"hash1,hash2",
 		},
 		{
+			"https://vk.ru/call/join/hash1, hash2",
+			"hash1,hash2",
+		},
+		{
 			"hash1\nhash2;hash3 hash4",
 			"hash1,hash2,hash3,hash4",
 		},
@@ -40,7 +44,7 @@ func TestFormatForLink(t *testing.T) {
 	if got := FormatForLink("abc", FormatBare, 1); got != "abc" {
 		t.Fatalf("bare: %q", got)
 	}
-	if got := FormatForLink("abc", FormatJoinURL, 1); got != "https://vk.com/call/join/abc" {
+	if got := FormatForLink("abc", FormatJoinURL, 1); got != "https://vk.ru/call/join/abc" {
 		t.Fatalf("join: %q", got)
 	}
 	if got := FormatForLink("h1,h2", FormatBare, 1); got != "h1" {
