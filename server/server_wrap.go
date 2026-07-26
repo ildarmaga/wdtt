@@ -341,7 +341,8 @@ func obfsIsRTPPacket(wire []byte) bool {
 		return false
 	}
 	pt := wire[1] & 0x7F
-	return pt == 111
+	// audio (OPUS PT111) or video (VP8-like PT96)
+	return pt == 111 || pt == 96
 }
 
 func listenWrapped(addr *net.UDPAddr, keys *wrapKeyStore) (dtlsnet.PacketListener, error) {
@@ -391,7 +392,7 @@ type wrapPacketConn struct {
 
 func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	// Extra space for RTP header (12) + AEAD tag (16) + padding.
-	buf := make([]byte, len(p)+80)
+	buf := make([]byte, len(p)+100)
 	n, addr, err := c.inner.ReadFrom(buf)
 	if err != nil {
 		return 0, addr, err
@@ -413,10 +414,18 @@ func (c *wrapPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 		c.authPassword = pass
 		registerWrapAuth(addr, pass)
 		c.obfsCfg = NewObfsConfig()
+		// Mirror client PT so return path looks like the same media type
+		if len(raw) > 1 {
+			pt := raw[1] & 0x7F
+			c.obfsCfg.PayloadType = pt
+			if pt == 96 {
+				c.obfsCfg.PaddingMax = 60
+			}
+		}
 		c.obfsWrite = NewObfsState()
 		atomic.StoreInt32(&c.selected, 1)
 		if atomic.CompareAndSwapInt32(&c.authLog, 0, 1) {
-			log.Printf("[WRAP] OK: ключ выбран для %s (keys=%d)", addr.String(), c.keys.Count())
+			log.Printf("[WRAP] OK: ключ выбран для %s (keys=%d), PT=%d", addr.String(), c.keys.Count(), c.obfsCfg.PayloadType)
 		}
 		return m, addr, nil
 	}
