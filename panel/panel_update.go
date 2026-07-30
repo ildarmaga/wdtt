@@ -3,6 +3,7 @@ package panel
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -61,12 +62,16 @@ func fetchWdttPanelReleases() ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API HTTP %d", resp.StatusCode)
+		return nil, githubAPIError(resp.StatusCode, body)
 	}
 	var releases []wdttGitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return nil, err
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil, githubAPIError(resp.StatusCode, body)
 	}
 	tags := make([]string, 0, len(releases))
 	for _, rel := range releases {

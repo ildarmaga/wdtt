@@ -59,6 +59,19 @@ func xrayVersionShort() string {
 	return v
 }
 
+func githubAPIError(status int, body []byte) error {
+	var gh struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &gh) == nil && gh.Message != "" {
+		if status == http.StatusForbidden || strings.Contains(strings.ToLower(gh.Message), "rate limit") {
+			return fmt.Errorf("GitHub rate limit: %s", gh.Message)
+		}
+		return fmt.Errorf("GitHub API HTTP %d: %s", status, gh.Message)
+	}
+	return fmt.Errorf("GitHub API HTTP %d", status)
+}
+
 func fetchXrayReleases() ([]XrayRelease, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get("https://api.github.com/repos/XTLS/Xray-core/releases?per_page=15")
@@ -66,9 +79,16 @@ func fetchXrayReleases() ([]XrayRelease, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	var releases []XrayRelease
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, githubAPIError(resp.StatusCode, body)
+	}
+	var releases []XrayRelease
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil, githubAPIError(resp.StatusCode, body)
 	}
 	return releases, nil
 }
