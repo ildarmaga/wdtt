@@ -59,6 +59,8 @@ func xrayVersionShort() string {
 	return v
 }
 
+const githubAPIMaxBody = 8 << 20 // Xray releases JSON is ~2MB for per_page=15
+
 func githubAPIError(status int, body []byte) error {
 	var gh struct {
 		Message string `json:"message"`
@@ -79,7 +81,7 @@ func fetchXrayReleases() ([]XrayRelease, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, githubAPIMaxBody))
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +90,7 @@ func fetchXrayReleases() ([]XrayRelease, error) {
 	}
 	var releases []XrayRelease
 	if err := json.Unmarshal(body, &releases); err != nil {
-		return nil, githubAPIError(resp.StatusCode, body)
+		return nil, fmt.Errorf("GitHub releases JSON: %w", err)
 	}
 	return releases, nil
 }

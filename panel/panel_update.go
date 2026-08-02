@@ -62,7 +62,7 @@ func fetchWdttPanelReleases() ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, githubAPIMaxBody))
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func fetchWdttPanelReleases() ([]string, error) {
 	}
 	var releases []wdttGitHubRelease
 	if err := json.Unmarshal(body, &releases); err != nil {
-		return nil, githubAPIError(resp.StatusCode, body)
+		return nil, fmt.Errorf("GitHub releases JSON: %w", err)
 	}
 	tags := make([]string, 0, len(releases))
 	for _, rel := range releases {
