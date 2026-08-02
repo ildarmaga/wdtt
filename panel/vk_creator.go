@@ -64,6 +64,7 @@ func resolveUserPassword(key string) (string, error) {
 }
 
 func vkCreatorStatus() map[string]interface{} {
+	reconcileUserSessionFields()
 	cookiesOK, cookieHint, cookiesPresent, cookiesExpired := vkCookiesStatus()
 	sessions, _ := listVKCreatorSessions()
 	active := make([]map[string]interface{}, 0, len(sessions))

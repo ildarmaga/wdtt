@@ -119,6 +119,8 @@ func (a *App) enrichUserSub(u map[string]interface{}, entry *PasswordEntry) {
 }
 
 func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
+	// VK_HASH в таблице пользователей = живые vk_calls.
+	reconcileUserSessionFields()
 	db, err := loadPasswords()
 	if err != nil {
 		jsonError(w, err.Error(), 500)
