@@ -204,7 +204,9 @@ func applyPanelUserUpdateLocked(wgDev *device.Device, req panelUserUpdateReq, ma
 			return err
 		}
 		if newPassword != oldPassword {
-			return refreshWrapKeysFromDBLocked()
+			if err := refreshWrapKeysFromDBLocked(); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -212,7 +214,6 @@ func applyPanelUserUpdateLocked(wgDev *device.Device, req panelUserUpdateReq, ma
 		return err
 	}
 	if newPassword != oldPassword {
-		// Already renamed above.
 		return nil
 	}
 	return persistUserEntrySQLiteLocked(savePass, &entry)
@@ -285,6 +286,11 @@ func registerStoreAdminRoutes(mux *http.ServeMux, wgDev *device.Device) {
 			writeAdminJSON(w, false, err.Error())
 			return
 		}
+		applyPass := strings.TrimSpace(req.Password)
+		if applyPass == "" {
+			applyPass = strings.TrimSpace(req.OldPassword)
+		}
+		applySpeedLimitForPassword(applyPass)
 		log.Printf("[ADMIN] пользователь обновлён: %s", maskPassword(req.OldPassword))
 		writeAdminJSON(w, true, "")
 	})

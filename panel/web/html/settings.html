@@ -226,6 +226,8 @@
       },
       vkCreator: {
         cookies_ok: false,
+        cookies_present: false,
+        cookies_expired: false,
         cookies_hint: '',
         sessions: [],
         cookiesText: '',
@@ -708,6 +710,8 @@
         if (msg && msg.success && msg.obj) {
           this.vkCreator.sessions = msg.obj.sessions || [];
           this.vkCreator.cookies_ok = msg.obj.cookies_ok;
+          this.vkCreator.cookies_present = !!msg.obj.cookies_present;
+          this.vkCreator.cookies_expired = !!msg.obj.cookies_expired;
           this.vkCreator.cookies_hint = msg.obj.cookies_hint;
         }
         if (!silent) this.vkCreator.sessionsLoading = false;
@@ -726,6 +730,8 @@
           if (msg.obj && msg.obj.sessions) {
             this.vkCreator.sessions = msg.obj.sessions;
             this.vkCreator.cookies_ok = msg.obj.cookies_ok;
+            this.vkCreator.cookies_present = !!msg.obj.cookies_present;
+            this.vkCreator.cookies_expired = !!msg.obj.cookies_expired;
           } else {
             await this.refreshVkSessions();
           }
@@ -859,6 +865,8 @@
         if (msg.success) {
           this.vkCreator.sessions = (msg.obj && msg.obj.sessions) || [];
           this.vkCreator.cookies_ok = msg.obj && msg.obj.cookies_ok;
+          this.vkCreator.cookies_present = !!(msg.obj && msg.obj.cookies_present);
+          this.vkCreator.cookies_expired = !!(msg.obj && msg.obj.cookies_expired);
           this.vkCreator.cookies_hint = msg.obj && msg.obj.cookies_hint;
           this.$message.success('Запрос на завершение отправлен');
         } else {

@@ -3,30 +3,13 @@
   <a-row :gutter="[16,16]">
     <a-col :xs="24" :md="12">
       <div class="text-muted" style="margin-bottom:8px">Статус</div>
-      <a-tag :color="vkCreator.cookies_ok ? 'green' : 'orange'">Cookies: [[ vkCreator.cookies_ok ? 'OK' : 'нет' ]]</a-tag>
-      <a-tag v-if="vkCreator.auth_logged_in" color="blue" style="margin-left:8px">VK login: OK</a-tag>
-      <div style="margin-top:8px;font-size:12px;color:#888">[[ vkCreator.cookies_hint || '' ]]</div>
+      <a-tag :color="vkCreator.cookies_ok ? 'green' : (vkCreator.cookies_expired ? 'red' : 'orange')">
+        Cookies: [[ vkCreator.cookies_ok ? 'OK' : (vkCreator.cookies_expired ? 'устарели' : 'нет') ]]
+      </a-tag>
+      <div style="margin-top:8px;font-size:12px" :style="{ color: vkCreator.cookies_expired ? '#ff4d4f' : '#888' }">[[ vkCreator.cookies_hint || '' ]]</div>
     </a-col>
     <a-col :xs="24" :md="12">
-      <div class="text-muted" style="margin-bottom:8px">Вход по паролю (рекомендуется)</div>
-      <a-input v-model="vkCreator.authLogin" placeholder="Телефон или email" style="margin-bottom:8px"></a-input>
-      <a-input-password v-model="vkCreator.authPassword" placeholder="Пароль VK" style="margin-bottom:8px"></a-input-password>
-      <a-input v-if="vkCreator.authNeed2fa || vkCreator.authNeedCaptcha" v-model="vkCreator.authCode" placeholder="Код 2FA или текст капчи" style="margin-bottom:8px"></a-input>
-      <div v-if="vkCreator.authCaptchaImg" style="margin-bottom:8px">
-        <img :src="vkCreator.authCaptchaImg" alt="captcha" style="max-width:100%;border:1px solid #ddd">
-      </div>
-      <a-space>
-        <a-button type="primary" icon="login" :loading="vkCreator.authLoggingIn" @click="submitVkPasswordLogin">Войти</a-button>
-        <a-button :loading="vkCreator.authLoggingIn" @click="clearVkAuthSession">Сбросить сессию</a-button>
-      </a-space>
-      <div v-if="vkCreator.authLoginMessage" style="margin-top:8px;font-size:12px;color:#888">[[ vkCreator.authLoginMessage ]]</div>
-    </a-col>
-  </a-row>
-  <a-divider></a-divider>
-  <a-row :gutter="[16,16]">
-    <a-col :xs="24" :md="12">
-      <div class="text-muted" style="margin-bottom:8px">Вставка remixsid (надёжный способ)</div>
-      <div style="font-size:12px;color:#888;margin-bottom:8px">Chrome → vk.ru (где вы вошли) → F12 → Application → Cookies → vk.ru → скопируйте значение <code>remixsid</code> и вставьте ниже.</div>
+      <div class="text-muted" style="margin-bottom:8px">Cookies</div>
       <a-textarea v-model="vkCreator.cookiesText" :rows="4"
         placeholder='remixsid=ЗНАЧЕНИЕ   или   [{"name":"remixsid","value":"..."}]'></a-textarea>
       <a-space style="margin-top:8px">
@@ -63,7 +46,10 @@
       <a-button icon="reload" style="margin-left:8px" :loading="vkCreator.sessionsLoading" @click="refreshVkSessions"></a-button>
     </a-col>
   </a-row>
-  <div v-if="!vkCreator.cookies_ok" class="text-muted" style="font-size:12px;margin-bottom:12px">
+  <div v-if="vkCreator.cookies_expired" class="text-muted" style="font-size:12px;margin-bottom:12px;color:#ff4d4f">
+    Cookies устарели — обновите remixsid, затем создавайте звонки.
+  </div>
+  <div v-else-if="!vkCreator.cookies_ok" class="text-muted" style="font-size:12px;margin-bottom:12px">
     Сначала получите cookies (статус «Cookies: OK»), затем создавайте звонки.
   </div>
 
@@ -77,9 +63,9 @@
     </a-table-column>
     <a-table-column title="Состояние" key="running" width="140">
       <template slot-scope="text, row">
-        <span class="vk-dot" :class="row.finishing && row.running ? 'vk-dot-finishing' : (row.running ? 'vk-dot-alive' : 'vk-dot-dead')"></span>
-        <span :style="{ color: row.finishing && row.running ? '#fa8c16' : (row.running ? '#52c41a' : '#ff4d4f') }">
-          [[ row.finishing && row.running ? 'завершается' : (row.running ? 'живой' : 'мёртвый') ]]
+        <span class="vk-dot" :class="row.finishing ? 'vk-dot-finishing' : (row.running ? 'vk-dot-alive' : 'vk-dot-dead')"></span>
+        <span :style="{ color: row.finishing ? '#fa8c16' : (row.running ? '#52c41a' : '#ff4d4f') }">
+          [[ row.finishing ? 'завершается' : (row.running ? 'живой' : 'мёртвый') ]]
         </span>
       </template>
     </a-table-column>

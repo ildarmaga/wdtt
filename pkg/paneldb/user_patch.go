@@ -77,6 +77,12 @@ func RenameUserPassword(db *sql.DB, oldPass, newPass string) error {
 	if _, err := tx.Exec(`UPDATE wdtt_user_devices SET password = ? WHERE password = ?`, newPass, oldPass); err != nil {
 		return err
 	}
+	// Best-effort: table may be absent on very old DBs; ignore "no such table".
+	if _, err := tx.Exec(`UPDATE vk_calls SET password = ? WHERE password = ?`, newPass, oldPass); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return err
+		}
+	}
 	if err := bumpUsersRevInTx(tx); err != nil {
 		return err
 	}
@@ -120,6 +126,11 @@ func DeleteUser(db *sql.DB, password string, deviceIDs []string) error {
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM wdtt_user_devices WHERE password = ?`, password); err != nil {
 		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM vk_calls WHERE password = ?`, password); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return err
+		}
 	}
 	if _, err := tx.Exec(`DELETE FROM wdtt_users WHERE password = ?`, password); err != nil {
 		return err

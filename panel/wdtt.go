@@ -547,6 +547,7 @@ func deleteUserPassword(pass string) error {
 	if pass == "" {
 		return fmt.Errorf("пароль не указан")
 	}
+	_ = stopVKCreatorSession(pass, "")
 	return serverDeleteUser(pass)
 }
 

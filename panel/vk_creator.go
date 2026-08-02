@@ -13,7 +13,21 @@ import (
 
 var vkCreatorMu sync.Mutex
 
-const vkAuthCookieName = "remixsid"
+const (
+	vkAuthCookieName     = "remixsid"
+	vkCookiesValidTTL    = 3 * time.Minute
+	vkCookiesExpiredHint = "Cookies устарели — обновите remixsid (войдите на vk.com и сохраните заново)."
+)
+
+var (
+	vkCookiesValidMu      sync.Mutex
+	vkCookiesValidAt      time.Time
+	vkCookiesValidOK      bool
+	vkCookiesValidateLive = func(cookieHeader string) error {
+		_, err := vkWebToken(cookieHeader)
+		return err
+	}
+)
 
 type vkCookieEntry struct {
 	Name  string `json:"name"`
@@ -50,12 +64,13 @@ func resolveUserPassword(key string) (string, error) {
 }
 
 func vkCreatorStatus() map[string]interface{} {
-	cookiesOK, cookieHint := vkCookiesStatus()
+	cookiesOK, cookieHint, cookiesPresent, cookiesExpired := vkCookiesStatus()
 	sessions, _ := listVKCreatorSessions()
 	active := make([]map[string]interface{}, 0, len(sessions))
 	for _, s := range sessions {
 		running := vkCallAlive(s.JoinLink)
 		if s.Finishing && !running {
+			// forceFinish уже ушёл — убираем строку только когда VK preview мёртв.
 			_ = dropVKCreatorSession(s)
 			continue
 		}
@@ -70,21 +85,55 @@ func vkCreatorStatus() map[string]interface{} {
 		})
 	}
 	return map[string]interface{}{
-		"cookies_ok":   cookiesOK,
-		"cookies_hint": cookieHint,
-		"sessions":     active,
+		"cookies_ok":      cookiesOK,
+		"cookies_present": cookiesPresent,
+		"cookies_expired": cookiesExpired,
+		"cookies_hint":    cookieHint,
+		"sessions":        active,
 	}
 }
 
-func vkCookiesStatus() (ok bool, hint string) {
+func invalidateVKCookiesStatusCache() {
+	vkCookiesValidMu.Lock()
+	vkCookiesValidAt = time.Time{}
+	vkCookiesValidMu.Unlock()
+}
+
+func vkCookiesLiveValid(cookieHeader string) error {
+	vkCookiesValidMu.Lock()
+	defer vkCookiesValidMu.Unlock()
+	if !vkCookiesValidAt.IsZero() && time.Since(vkCookiesValidAt) < vkCookiesValidTTL {
+		if vkCookiesValidOK {
+			return nil
+		}
+		return fmt.Errorf(vkCookiesExpiredHint)
+	}
+	err := vkCookiesValidateLive(cookieHeader)
+	vkCookiesValidAt = time.Now()
+	vkCookiesValidOK = err == nil
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func vkCookiesStatus() (ok bool, hint string, present bool, expired bool) {
 	data, err := loadVKCookiesFromStore()
 	if err != nil || len(data) == 0 {
-		return false, "Войдите в VK через кнопку ниже или загрузите cookies вручную."
+		return false, "Войдите в VK через кнопку ниже или загрузите cookies вручную.", false, false
 	}
 	if err := validateVKCookiesJSON(data); err != nil {
-		return false, err.Error()
+		return false, err.Error(), false, false
 	}
-	return true, "VK cookies настроены (remixsid найден)."
+	present = true
+	cookieHeader, err := vkCookieHeaderFromStore()
+	if err != nil {
+		return false, err.Error(), present, false
+	}
+	if err := vkCookiesLiveValid(cookieHeader); err != nil {
+		return false, vkCookiesExpiredHint, present, true
+	}
+	return true, "VK cookies действительны.", present, false
 }
 
 func validateVKCookiesJSON(data []byte) error {
@@ -115,6 +164,7 @@ func saveVKCookies(raw []byte) error {
 	if err := validateVKCookiesJSON(raw); err != nil {
 		return err
 	}
+	invalidateVKCookiesStatusCache()
 	return saveVKCookiesToStore(raw)
 }
 
@@ -140,6 +190,7 @@ func saveVKCookieString(cookieStr string) error {
 }
 
 func clearVKCookies() error {
+	invalidateVKCookiesStatusCache()
 	return clearVKCookiesFromStore()
 }
 
@@ -147,7 +198,7 @@ func createVKCall(password string) (joinLink, hash string, sess vkCreatorSession
 	vkCreatorMu.Lock()
 	defer vkCreatorMu.Unlock()
 
-	if ok, hint := vkCookiesStatus(); !ok {
+	if ok, hint, _, _ := vkCookiesStatus(); !ok {
 		return "", "", sess, fmt.Errorf("%s", hint)
 	}
 	cookieHeader, err := vkCookieHeaderFromStore()

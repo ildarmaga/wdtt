@@ -27,9 +27,43 @@ func TestSaveVKCookieStringDB(t *testing.T) {
 	if err := saveVKCookies([]byte("remixsid=test123; remixlang=0")); err != nil {
 		t.Fatal(err)
 	}
-	ok, _ := vkCookiesStatus()
-	if !ok {
+	oldValidate := vkCookiesValidateLive
+	vkCookiesValidateLive = func(string) error { return nil }
+	defer func() { vkCookiesValidateLive = oldValidate }()
+	invalidateVKCookiesStatusCache()
+	ok, _, _, expired := vkCookiesStatus()
+	if !ok || expired {
 		t.Fatal("expected cookies ok")
+	}
+}
+
+func TestVKCookiesStatusExpired(t *testing.T) {
+	dir := t.TempDir()
+	oldPath := panelDBPath
+	panelDBPath = dir + "/panel.db"
+	defer func() {
+		if panelDB != nil {
+			panelDB.Close()
+			panelDB = nil
+		}
+		panelDBPath = oldPath
+	}()
+	if err := initPanelDB(); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveVKCookies([]byte("remixsid=expired; remixlang=0")); err != nil {
+		t.Fatal(err)
+	}
+	oldValidate := vkCookiesValidateLive
+	vkCookiesValidateLive = func(string) error { return fmt.Errorf("empty token") }
+	defer func() { vkCookiesValidateLive = oldValidate }()
+	invalidateVKCookiesStatusCache()
+	ok, hint, present, expired := vkCookiesStatus()
+	if ok || !present || !expired {
+		t.Fatalf("expected expired cookies, ok=%v present=%v expired=%v hint=%q", ok, present, expired, hint)
+	}
+	if hint != vkCookiesExpiredHint {
+		t.Fatalf("hint=%q", hint)
 	}
 }
 
