@@ -85,12 +85,17 @@ func vkCreatorStatus() map[string]interface{} {
 			continue
 		}
 		running := vkCallAlive(s.JoinLink)
+		if !running {
+			// Мёртвый preview — сами убираем из таблицы (Завершить на нём даёт VK API 8).
+			_ = dropVKCreatorSession(s)
+			continue
+		}
 		active = append(active, map[string]interface{}{
 			"password":   s.Password,
 			"join_link":  s.JoinLink,
 			"vk_hash":    s.VkHash,
 			"call_id":    s.CallID,
-			"running":    running,
+			"running":    true,
 			"finishing":  false,
 			"started_at": s.StartedAt,
 		})
@@ -288,15 +293,22 @@ func stopVKCreatorSessionLocked(password, callID string) error {
 	if len(toFinish) == 0 {
 		return fmt.Errorf("звонок не найден")
 	}
-	cookieHeader, err := vkCookieHeaderFromStore()
-	if err != nil {
-		return err
+	needFinish := false
+	for _, s := range toFinish {
+		if vkCallAlive(s.JoinLink) {
+			needFinish = true
+			break
+		}
 	}
-	if err := finishVKCalls(cookieHeader, toFinish); err != nil {
-		return err
+	if needFinish {
+		cookieHeader, err := vkCookieHeaderFromStore()
+		if err != nil {
+			return err
+		}
+		// Best-effort: уже завершённый звонок → VK API 8 Invalid request — всё равно снимаем.
+		_ = finishVKCalls(cookieHeader, toFinish)
 	}
-	// finishing → vkCreatorStatus один раз отдаст «завершается» и снимет строку
-	// (getCallPreview после forceFinish не «умирает»).
+	// finishing → status один раз покажет «завершается» и снимет строку.
 	if callID != "" {
 		return markVKCreatorSessionFinishing("", callID)
 	}
