@@ -138,7 +138,13 @@ func refreshTunnelLocalServiceRules() {
 }
 
 // wdttHotReload просит wdtt-server перечитать users/inbound из panel.db (fallback JSON) без перезапуска.
+var wdttHotReloadFn = wdttHotReloadImpl
+
 func wdttHotReload() error {
+	return wdttHotReloadFn()
+}
+
+func wdttHotReloadImpl() error {
 	if !serviceActive(wdttServiceUnit) {
 		return fmt.Errorf("WDTT не запущен")
 	}
@@ -260,7 +266,7 @@ func applyWdttConfigChangeMaybeRestart(restartOnFail bool) error {
 	}
 	if !restartOnFail {
 		log.Printf("[panel] hot-reload не удался (%v)", reloadErr)
-		return nil
+		return fmt.Errorf("hot-reload не удался: %w", reloadErr)
 	}
 	log.Printf("[panel] hot-reload не удался (%v)", reloadErr)
 	if isUnifiedDeployment() {

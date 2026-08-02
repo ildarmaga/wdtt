@@ -146,16 +146,20 @@ func (a *App) handleVKCreatorCreateCall(w http.ResponseWriter, r *http.Request) 
 		jsonMsg(w, err.Error(), false)
 		return
 	}
+	outHash := hash
 	if req.Apply && req.Password != "" {
-		if err := applyVKHashToUser(req.Password, hash); err != nil {
+		merged, err := applyVKHashToUser(req.Password, hash)
+		if err != nil {
 			jsonMsg(w, "hash получен, но не сохранён: "+err.Error(), false)
 			return
 		}
+		// Full user CSV after merge — UI must not replace multi-hash with only the new token.
+		outHash = merged
 	}
 	st := vkCreatorStatus()
 	jsonOK(w, map[string]interface{}{
 		"join_link":  joinLink,
-		"vk_hash":    hash,
+		"vk_hash":    outHash,
 		"session":    sess,
 		"sessions":   st["sessions"],
 		"cookies_ok": st["cookies_ok"],

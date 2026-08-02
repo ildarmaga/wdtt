@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -11,6 +12,10 @@ import (
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	_ "modernc.org/sqlite"
 )
+
+// errTrafficFlushFenced — panel.db users_rev ahead of applied (reset/edit in flight).
+// Stale RAM ↑↓ must not overwrite disk zeros / panel writes.
+var errTrafficFlushFenced = errors.New("traffic flush fenced: panel users_rev ahead")
 
 var panelDBPath = "/etc/wdtt/panel.db"
 
@@ -236,6 +241,10 @@ func saveTrafficToSQLiteLocked() error {
 	sqlDB, err := openServerPanelDB()
 	if err != nil {
 		return err
+	}
+	diskRev, revErr := paneldb.LoadUsersRev(sqlDB)
+	if revErr == nil && diskRev > appliedUsersRev {
+		return errTrafficFlushFenced
 	}
 	return paneldb.UpdateUsersTraffic(sqlDB, trafficSnapshotLocked())
 }

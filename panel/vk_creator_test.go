@@ -115,3 +115,14 @@ func TestSubtractVKHashes(t *testing.T) {
 		t.Fatal("expected empty")
 	}
 }
+
+func TestMergeVKHashesKeepsExistingOnApply(t *testing.T) {
+	// API create+apply must expose this merged value as vk_hash (not only the new token).
+	got := mergeVKHashes("aaa,bbb", "ccc")
+	if got != "aaa,bbb,ccc" {
+		t.Fatalf("got %q want aaa,bbb,ccc", got)
+	}
+	if mergeVKHashes("aaa", "aaa") != "aaa" {
+		t.Fatal("dedup failed")
+	}
+}

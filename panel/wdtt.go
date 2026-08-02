@@ -285,12 +285,14 @@ func passwordsTrafficTotals(db *PasswordsDB) (up, down int64) {
 	return up, down
 }
 
-func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig, serverIP, vpnTitle string) map[string]interface{} {
+func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig, serverIP, vpnTitle, subURL string) map[string]interface{} {
 	upBytes := int64(0)
 	downBytes := int64(0)
 	deviceIDs := []string{}
 	devicesBound := 0
+	var mainEntry *PasswordEntry
 	if entry, ok := db.Passwords[db.MainPassword]; ok && entry != nil {
+		mainEntry = entry
 		upBytes = entry.UpBytes
 		downBytes = entry.DownBytes
 		normalizeEntryDevices(entry)
@@ -298,7 +300,20 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 		devicesBound = len(entry.DeviceIDs)
 	}
 	used := upBytes + downBytes
-	dtlsPort, wgPort, clientPort := resolveUserPorts(nil, inbound)
+	dtlsPort, wgPort, clientPort := resolveUserPorts(mainEntry, inbound)
+	vkHash := ""
+	ports := ""
+	linkEntry := &PasswordEntry{Comment: paneldb.MainUserComment}
+	if mainEntry != nil {
+		vkHash = mainEntry.VkHash
+		ports = mainEntry.Ports
+		linkEntry = &PasswordEntry{
+			Comment: paneldb.MainUserComment,
+			Ports:   mainEntry.Ports,
+			VkHash:  mainEntry.VkHash,
+			SubID:   mainEntry.SubID,
+		}
+	}
 	return map[string]interface{}{
 		"password":         maskPassword(db.MainPassword),
 		"password_key":     db.MainPassword,
@@ -321,11 +336,12 @@ func mainUserRow(db *PasswordsDB, stats *ServerStats, inbound WdttInboundConfig,
 		"traffic_exceeded": false,
 		"active":           true,
 		"online":           userOnlineFromStats(db.MainPassword, strings.Join(deviceIDs, ", "), true, stats),
-		"ports":            "",
+		"ports":            ports,
+		"vk_hash":          vkHash,
 		"dtls_port":        dtlsPort,
 		"wg_port":          wgPort,
 		"client_port":      clientPort,
-		"link":             buildWdttLink(serverIP, db.MainPassword, vpnTitle, "", &PasswordEntry{Comment: paneldb.MainUserComment}, inbound, ""),
+		"link":             buildWdttLink(serverIP, db.MainPassword, vpnTitle, vkHash, linkEntry, inbound, subURL),
 	}
 }
 

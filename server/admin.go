@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -128,11 +129,17 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 	if trafficDirty.Load() {
 		if !trustDisk {
 			if err := saveTrafficToSQLiteLocked(); err != nil {
-				dbMutex.Unlock()
-				return err
+				if !errors.Is(err, errTrafficFlushFenced) {
+					dbMutex.Unlock()
+					return err
+				}
+				// Fenced: keep dirty until a later flush after appliedUsersRev catches up.
+			} else {
+				trafficDirty.Store(false)
 			}
+		} else {
+			trafficDirty.Store(false)
 		}
-		trafficDirty.Store(false)
 	}
 	dbMutex.Unlock()
 

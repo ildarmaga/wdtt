@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -151,7 +152,10 @@ func statsLoop(ctx context.Context, configDir string) {
 		if trafficDirty.Load() {
 			dbMutex.Lock()
 			if err := saveTrafficToSQLiteLocked(); err != nil {
-				log.Printf("[DB] save traffic: %v", err)
+				if !errors.Is(err, errTrafficFlushFenced) {
+					log.Printf("[DB] save traffic: %v", err)
+				}
+				// Keep dirty when fenced — reload will trust panel.db.
 			} else {
 				trafficDirty.Store(false)
 			}

@@ -239,23 +239,24 @@ func stopVKCreatorSessionLocked(password, callID string) error {
 	return markVKCreatorSessionFinishing(password, "")
 }
 
-func applyVKHashToUser(password, hash string) error {
+func applyVKHashToUser(password, hash string) (string, error) {
 	realPass, err := resolveUserPassword(password)
 	if err != nil {
-		return err
+		return "", err
 	}
 	hash = vkhash.Normalize(hash)
 	if hash == "" {
-		return fmt.Errorf("hash пуст")
+		return "", fmt.Errorf("hash пуст")
 	}
 	db, err := loadPasswords()
 	if err != nil {
-		return err
+		return "", err
 	}
 	entry, ok := db.Passwords[realPass]
 	if !ok || entry == nil {
-		return fmt.Errorf("пользователь не найден")
+		return "", fmt.Errorf("пользователь не найден")
 	}
+	merged := mergeVKHashes(entry.VkHash, hash)
 	active := !entry.IsDeactivated
 	req := userAPIReq{
 		Password:    realPass,
@@ -266,10 +267,13 @@ func applyVKHashToUser(password, hash string) error {
 		MaxUpMBps:   entry.MaxUpMBps,
 		Active:      &active,
 		Ports:       entry.Ports,
-		VkHash:      mergeVKHashes(entry.VkHash, hash),
+		VkHash:      merged,
 		MaxDevices:  entry.MaxDevices,
 	}
-	return updateUser(realPass, realPass, req, false)
+	if err := updateUser(realPass, realPass, req, false); err != nil {
+		return "", err
+	}
+	return merged, nil
 }
 
 func removeVKHashFromUser(password, hash string) error {

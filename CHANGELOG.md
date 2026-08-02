@@ -2,6 +2,15 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.65] — 2026-08-02
+
+### Исправлено — data-loss / sync
+- Смена пароля пользователя из модалки (всегда с `device_ids`) снова делает `RenameUserPassword` + refresh WRAP — старый пароль больше не остаётся в SQLite.
+- Сброс трафика: flush не перезаписывает нули, пока `users_rev` на диске впереди applied (`errTrafficFlushFenced`).
+- Update всегда применяет `vk_hash` (в т.ч. очистку) через `vkhash.Normalize`; выкл. своих портов очищает `ports`.
+- VK Creator create+apply возвращает merged CSV хешей; модалка не затирает мультихеш одним новым.
+- Main link / link_main учитывают `vk_hash`, ports и sub_url; bot `ports_def` берёт порты из inbound; HotOnly при fail hot-reload возвращает ошибку; JSON preview включает `hash`.
+
 ## [1.4.64] — 2026-08-02
 
 ### Исправлено

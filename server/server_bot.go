@@ -11,9 +11,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	"github.com/ildarmaga/wdtt/pkg/vkhash"
 	"golang.zx2c4.com/wireguard/device"
 )
+
+
+func defaultInboundPortsCSV() string {
+	const fallback = "56000,56001,9000"
+	if !serverPanelDBReady() {
+		return fallback
+	}
+	sqlDB, err := openServerPanelDB()
+	if err != nil {
+		return fallback
+	}
+	in, err := paneldb.LoadInbound(sqlDB)
+	if err != nil || in == nil {
+		return fallback
+	}
+	if in.DtlsPort > 0 && in.WgPort > 0 && in.ClientPort > 0 {
+		return fmt.Sprintf("%d,%d,%d", in.DtlsPort, in.WgPort, in.ClientPort)
+	}
+	return fallback
+}
 
 func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 	if token == "" || adminIDstr == "" {
@@ -292,7 +313,7 @@ func botLoop(token string, adminIDstr string, wgDev *device.Device) {
 				} else if data == "backlist" {
 					sendPasswordList(token, adminID, wgDev)
 				} else if data == "ports_def" {
-					tempPorts = "56000,56001,9000"
+					tempPorts = defaultInboundPortsCSV()
 					waitingForHash = true
 					sendTelegram(token, adminID, "🔑 Укажите VK хеш (или несколько через запятую):", nil)
 				} else if data == "ports_custom" {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ildarmaga/wdtt/pkg/vkhash"
 	"golang.zx2c4.com/wireguard/device"
 )
 
@@ -125,12 +126,15 @@ func applyPanelUserUpdateLocked(wgDev *device.Device, req panelUserUpdateReq, ma
 	entry.MaxDownMBps = req.MaxDownMBps
 	entry.MaxUpMBps = req.MaxUpMBps
 	entry.IsDeactivated = !active
-	if req.Ports != "" || req.UseCustomPorts {
+	// UI: use_custom_ports=false + empty ports → clear. VK Creator sends Ports without the flag.
+	if req.UseCustomPorts {
 		entry.Ports = portsFromPanelReq(req)
+	} else if strings.TrimSpace(req.Ports) != "" {
+		entry.Ports = strings.TrimSpace(req.Ports)
+	} else {
+		entry.Ports = ""
 	}
-	if strings.TrimSpace(req.VkHash) != "" {
-		entry.VkHash = strings.TrimSpace(req.VkHash)
-	}
+	entry.VkHash = vkhash.Normalize(req.VkHash)
 	if req.MaxDevices > 0 {
 		entry.MaxDevices = req.MaxDevices
 	}
@@ -188,14 +192,28 @@ func applyPanelUserUpdateLocked(wgDev *device.Device, req panelUserUpdateReq, ma
 	if len(entry.DeviceIDs) > entryMaxDevices(&entry) && savePass != db.MainPassword {
 		return fmt.Errorf("привязано %d устройств — лимит %d, сначала отвяжите лишние", len(entry.DeviceIDs), entryMaxDevices(&entry))
 	}
+	// UI always sends device_ids → manageDevices=true. Password rename must still
+	// RenameUserPassword + refresh WRAP; finalize alone only Upserts the new key.
+	if newPassword != oldPassword {
+		if err := persistUserRenameSQLiteLocked(oldPassword, newPassword, &entry); err != nil {
+			return err
+		}
+	}
 	if manageDevices {
-		return finalizeDeviceChangeLocked(wgDev, savePass, cur, &entry)
+		if err := finalizeDeviceChangeLocked(wgDev, savePass, cur, &entry); err != nil {
+			return err
+		}
+		if newPassword != oldPassword {
+			return refreshWrapKeysFromDBLocked()
+		}
+		return nil
 	}
 	if err := refreshWrapKeysFromDBLocked(); err != nil {
 		return err
 	}
 	if newPassword != oldPassword {
-		return persistUserRenameSQLiteLocked(oldPassword, newPassword, &entry)
+		// Already renamed above.
+		return nil
 	}
 	return persistUserEntrySQLiteLocked(savePass, &entry)
 }

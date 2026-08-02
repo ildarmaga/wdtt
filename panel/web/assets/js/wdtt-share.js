@@ -13,6 +13,11 @@ function wdttBuildShareLink(opts) {
   };
   if (opts.deviceId) obj.did = opts.deviceId;
   if (opts.subUrl) obj.sub = opts.subUrl;
+  if (typeof wdttFormatVkHashes === 'function') {
+    obj.hash = wdttFormatVkHashes(opts.vkHash, 'bare');
+  } else if (opts.vkHash) {
+    obj.hash = String(opts.vkHash).trim();
+  }
   return 'wdtt://' + Base64.encode(JSON.stringify(obj));
 }
 

@@ -127,7 +127,11 @@ func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
 	inbound, _ := loadWdttInbound()
 	linkHost := a.resolveLinkHost(inbound)
 	stats := loadServerStats()
-	users := []map[string]interface{}{mainUserRow(db, stats, inbound, linkHost, a.cfg.SubTitle)}
+	mainSub := ""
+	if mainEntry, ok := db.Passwords[db.MainPassword]; ok && mainEntry != nil {
+		mainSub = a.buildSubURL(mainEntry.SubID)
+	}
+	users := []map[string]interface{}{mainUserRow(db, stats, inbound, linkHost, a.cfg.SubTitle, mainSub)}
 	if mainEntry, ok := db.Passwords[db.MainPassword]; ok {
 		a.enrichUserSub(users[0], mainEntry)
 	}

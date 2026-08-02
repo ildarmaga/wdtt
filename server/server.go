@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -433,7 +434,9 @@ func addTrafficLocked(password string, bytes int64, isDownload bool) bool {
 		e.IsDeactivated = true
 		trafficDirty.Store(true)
 		if err := saveTrafficToSQLiteLocked(); err != nil {
-			log.Printf("[DB] save traffic deactivate: %v", err)
+			if !errors.Is(err, errTrafficFlushFenced) {
+				log.Printf("[DB] save traffic deactivate: %v", err)
+			}
 		} else {
 			trafficDirty.Store(false)
 		}

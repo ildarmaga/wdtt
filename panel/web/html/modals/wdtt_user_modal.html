@@ -287,6 +287,7 @@
           wg: p.wg,
           clientPort: p.client,
           subUrl: this.userForm.sub_url,
+          vkHash: this.connVkHash,
         });
         return link || '—';
       },
@@ -466,6 +467,7 @@
           const hash = (msg.obj && msg.obj.vk_hash) || '';
           const link = (msg.obj && msg.obj.join_link) || '';
           if (hash) {
+            // Edit+apply returns merged CSV from server; create appends locally (apply=false).
             this.userForm.vk_hash = this.userModal.isEdit
               ? hash
               : (this.userForm.vk_hash ? (this.userForm.vk_hash + ',' + hash) : hash);
@@ -506,7 +508,8 @@
           || !!f.use_custom_ports !== !!s.use_custom_ports
           || Number(f.dtls_port) !== Number(s.dtls_port)
           || Number(f.wg_port) !== Number(s.wg_port)
-          || Number(f.client_port) !== Number(s.client_port);
+          || Number(f.client_port) !== Number(s.client_port)
+          || (f.vk_hash || '').trim() !== (s.vk_hash || '').trim();
       },
       resetForm() {
         const inbound = this.modalInbound;

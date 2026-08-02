@@ -9,14 +9,31 @@ import (
 func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
 	db, _ := loadPasswords()
 	mainPass := ""
+	var mainEntry *PasswordEntry
 	if db != nil {
 		mainPass = db.MainPassword
+		if e, ok := db.Passwords[db.MainPassword]; ok && e != nil {
+			mainEntry = e
+		}
 	}
 	st := collectWdttInboundStatus(cfg)
 	stats := loadServerStats()
 	upBytes, downBytes := inboundTrafficTotals(db, stats)
 	trafficUsed := upBytes + downBytes
 	serviceActive := st.ServiceActive
+	mainVk := ""
+	mainSub := ""
+	linkEntry := &PasswordEntry{Comment: paneldb.MainUserComment}
+	if mainEntry != nil {
+		mainVk = mainEntry.VkHash
+		mainSub = a.buildSubURL(mainEntry.SubID)
+		linkEntry = &PasswordEntry{
+			Comment: paneldb.MainUserComment,
+			Ports:   mainEntry.Ports,
+			VkHash:  mainEntry.VkHash,
+			SubID:   mainEntry.SubID,
+		}
+	}
 	return map[string]interface{}{
 		"configured":        isWdttInboundConfigured(),
 		"tag":               cfg.Tag,
@@ -27,7 +44,7 @@ func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
 		"server_ip":        a.serverIP(),
 		"default_link_host": a.defaultLinkHost(),
 		"panel_tls":        panelTLSEnabled(a.cfg),
-		"link_main":        buildWdttLink(a.resolveLinkHost(cfg), mainPass, a.cfg.SubTitle, "", &PasswordEntry{Comment: paneldb.MainUserComment}, cfg, ""),
+		"link_main":        buildWdttLink(a.resolveLinkHost(cfg), mainPass, a.cfg.SubTitle, mainVk, linkEntry, cfg, mainSub),
 		"remark":           cfg.Remark,
 		"server_host":      cfg.ServerHost,
 		"client_port":      cfg.ClientPort,
