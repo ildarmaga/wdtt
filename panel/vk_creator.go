@@ -68,19 +68,30 @@ func vkCreatorStatus() map[string]interface{} {
 	sessions, _ := listVKCreatorSessions()
 	active := make([]map[string]interface{}, 0, len(sessions))
 	for _, s := range sessions {
-		running := vkCallAlive(s.JoinLink)
-		if s.Finishing && !running {
-			// forceFinish уже ушёл — убираем строку только когда VK preview мёртв.
+		if s.Finishing {
+			// forceFinish уже выполнен. getCallPreview всё равно отдаёт ok_join_link
+			// (пустая join-страница) — ждать !vkCallAlive нельзя. Отдаём «завершается»
+			// в этом ответе и сразу снимаем из БД; следующий poll строки уже не будет.
+			active = append(active, map[string]interface{}{
+				"password":   s.Password,
+				"join_link":  s.JoinLink,
+				"vk_hash":    s.VkHash,
+				"call_id":    s.CallID,
+				"running":    false,
+				"finishing":  true,
+				"started_at": s.StartedAt,
+			})
 			_ = dropVKCreatorSession(s)
 			continue
 		}
+		running := vkCallAlive(s.JoinLink)
 		active = append(active, map[string]interface{}{
 			"password":   s.Password,
 			"join_link":  s.JoinLink,
 			"vk_hash":    s.VkHash,
 			"call_id":    s.CallID,
 			"running":    running,
-			"finishing":  s.Finishing,
+			"finishing":  false,
 			"started_at": s.StartedAt,
 		})
 	}
@@ -284,6 +295,8 @@ func stopVKCreatorSessionLocked(password, callID string) error {
 	if err := finishVKCalls(cookieHeader, toFinish); err != nil {
 		return err
 	}
+	// finishing → vkCreatorStatus один раз отдаст «завершается» и снимет строку
+	// (getCallPreview после forceFinish не «умирает»).
 	if callID != "" {
 		return markVKCreatorSessionFinishing("", callID)
 	}
