@@ -6,17 +6,21 @@ import (
 	"strings"
 )
 
-// ReconcileVKHashesSync выравнивает wdtt_users.vk_hash с активными vk_calls.
-// Источник истины — незавершённые vk_calls профиля (CSV в порядке started_at).
-// Возвращает число изменённых профилей.
+// ReconcileVKHashesSync подтягивает живые vk_calls в wdtt_users.vk_hash и
+// снимает только finishing-хеши creator'а.
+//
+// Ручные хеши (есть в профиле, нет строк в vk_calls) не трогаем — иначе
+// сохранение из модалки затиралось при следующем списке пользователей
+// (github.com/ildarmaga/wdtt/issues/23).
 func ReconcileVKHashesSync(db *sql.DB) (int, error) {
 	if db == nil {
 		return 0, fmt.Errorf("nil db")
 	}
-	wantByPass := map[string][]string{}
+	activeByPass := map[string][]string{}
+	finishingByPass := map[string]map[string]bool{}
 	crows, err := db.Query(`
-		SELECT password, vk_hash FROM vk_calls
-		WHERE finishing = 0 AND TRIM(vk_hash) != ''
+		SELECT password, vk_hash, finishing FROM vk_calls
+		WHERE TRIM(vk_hash) != ''
 		ORDER BY password, started_at ASC`)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
@@ -26,7 +30,8 @@ func ReconcileVKHashesSync(db *sql.DB) (int, error) {
 	}
 	for crows.Next() {
 		var pass, h string
-		if err := crows.Scan(&pass, &h); err != nil {
+		var finishing int
+		if err := crows.Scan(&pass, &h, &finishing); err != nil {
 			crows.Close()
 			return 0, err
 		}
@@ -34,7 +39,14 @@ func ReconcileVKHashesSync(db *sql.DB) (int, error) {
 		if h == "" {
 			continue
 		}
-		list := wantByPass[pass]
+		if finishing != 0 {
+			if finishingByPass[pass] == nil {
+				finishingByPass[pass] = map[string]bool{}
+			}
+			finishingByPass[pass][h] = true
+			continue
+		}
+		list := activeByPass[pass]
 		dup := false
 		for _, x := range list {
 			if x == h {
@@ -43,7 +55,7 @@ func ReconcileVKHashesSync(db *sql.DB) (int, error) {
 			}
 		}
 		if !dup {
-			wantByPass[pass] = append(list, h)
+			activeByPass[pass] = append(list, h)
 		}
 	}
 	crows.Close()
@@ -64,7 +76,7 @@ func ReconcileVKHashesSync(db *sql.DB) (int, error) {
 		if err := urows.Scan(&pass, &have); err != nil {
 			return 0, err
 		}
-		want := strings.Join(wantByPass[pass], ",")
+		want := mergeVKHashReconcile(have, activeByPass[pass], finishingByPass[pass])
 		have = normalizeHashCSV(have)
 		if have != want {
 			fixes = append(fixes, fix{pass, want})
@@ -94,6 +106,33 @@ func ReconcileVKHashesSync(db *sql.DB) (int, error) {
 		return 0, err
 	}
 	return len(fixes), nil
+}
+
+// mergeVKHashReconcile: keep manual hashes, drop finishing creator hashes, add active.
+func mergeVKHashReconcile(have string, active []string, finishing map[string]bool) string {
+	parts := strings.Split(normalizeHashCSV(have), ",")
+	out := make([]string, 0, len(parts)+len(active))
+	seen := map[string]bool{}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] {
+			continue
+		}
+		if finishing[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for _, h := range active {
+		h = strings.TrimSpace(h)
+		if h == "" || seen[h] {
+			continue
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	return strings.Join(out, ",")
 }
 
 func normalizeHashCSV(s string) string {

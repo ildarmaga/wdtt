@@ -2,7 +2,8 @@ package panel
 
 import "github.com/ildarmaga/wdtt/pkg/paneldb"
 
-// reconcileUserSessionFields выравнивает wdtt_users.vk_hash с активными vk_calls.
+// reconcileUserSessionFields: live vk_calls → профиль, finishing снимаем;
+// ручные хеши (без строк в vk_calls) сохраняются.
 func reconcileUserSessionFields() {
 	if !panelDBEnabled() {
 		return

@@ -119,7 +119,7 @@ func (a *App) enrichUserSub(u map[string]interface{}, entry *PasswordEntry) {
 }
 
 func (a *App) handleUsersList(w http.ResponseWriter, r *http.Request) {
-	// VK_HASH в таблице пользователей = живые vk_calls.
+	// Подтянуть live vk_calls / снять finishing; ручные хеши не затираем (#23).
 	reconcileUserSessionFields()
 	db, err := loadPasswords()
 	if err != nil {
