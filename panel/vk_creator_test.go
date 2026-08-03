@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
@@ -62,7 +63,7 @@ func TestVKCookiesStatusExpired(t *testing.T) {
 	if ok || !present || !expired {
 		t.Fatalf("expected expired cookies, ok=%v present=%v expired=%v hint=%q", ok, present, expired, hint)
 	}
-	if hint != vkCookiesExpiredHint {
+	if !strings.HasPrefix(hint, vkCookiesExpiredHint) {
 		t.Fatalf("hint=%q", hint)
 	}
 }

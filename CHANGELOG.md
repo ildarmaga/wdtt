@@ -2,6 +2,11 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.71] — 2026-08-03
+
+### Исправлено
+- **VK cookies «сохранило, но пусто»** ([#22](https://github.com/ildarmaga/wdtt/issues/22)): после F5 textarea remixsid была пустой (статус не отдавал `cookies_text`). Save в БД работал; «Cookies: устарели» = live `web_token` отверг remixsid. Теперь поле восстанавливается из БД; при Save+reject — warning, не «успех».
+
 ## [1.4.70] — 2026-08-03
 
 ### Исправлено

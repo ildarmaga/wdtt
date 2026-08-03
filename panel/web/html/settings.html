@@ -686,7 +686,10 @@
       async loadVkCreator() {
         const msg = await HttpUtil.get('/panel/api/vk/status');
         if (msg && msg.success && msg.obj) {
-          Object.assign(this.vkCreator, msg.obj, { cookiesText: this.vkCreator.cookiesText });
+          Object.assign(this.vkCreator, msg.obj);
+          if (msg.obj.cookies_text != null) {
+            this.vkCreator.cookiesText = msg.obj.cookies_text || '';
+          }
         }
         await this.pollVkAuthStatus();
         await this.loadVkUsers();
@@ -822,8 +825,17 @@
         const msg = await HttpUtil.post('/panel/api/vk/auth/save', {});
         this.vkCreator.authSaving = false;
         if (msg.success) {
-          this.$message.success('VK cookies сохранены из сессии входа');
-          Object.assign(this.vkCreator, msg.obj || {}, { cookiesText: this.vkCreator.cookiesText });
+          Object.assign(this.vkCreator, msg.obj || {});
+          if (msg.obj && msg.obj.cookies_text != null) {
+            this.vkCreator.cookiesText = msg.obj.cookies_text || '';
+          }
+          if (msg.obj && msg.obj.cookies_expired) {
+            this.$message.warning('Сохранено, но VK не принял remixsid — обновите cookies');
+          } else if (msg.obj && !msg.obj.cookies_ok) {
+            this.$message.warning(msg.obj.cookies_hint || 'Cookies сохранены, проверка не прошла');
+          } else {
+            this.$message.success('VK cookies сохранены из сессии входа');
+          }
         } else {
           this.$message.error(msg.msg || 'ошибка');
         }
@@ -833,8 +845,18 @@
         const msg = await HttpUtil.post('/panel/api/vk/cookies', { cookies_json: this.vkCreator.cookiesText || '' });
         this.vkCreator.saving = false;
         if (msg.success) {
-          this.$message.success('VK cookies сохранены');
-          Object.assign(this.vkCreator, msg.obj || {}, { cookiesText: this.vkCreator.cookiesText });
+          Object.assign(this.vkCreator, msg.obj || {});
+          if (msg.obj && msg.obj.cookies_text != null) {
+            this.vkCreator.cookiesText = msg.obj.cookies_text || '';
+          }
+          // Save в БД ок; «устарели» = live web_token отверг remixsid (#22).
+          if (msg.obj && msg.obj.cookies_expired) {
+            this.$message.warning('Сохранено в БД, но VK не принял remixsid (устарели или неверные)');
+          } else if (msg.obj && !msg.obj.cookies_ok) {
+            this.$message.warning(msg.obj.cookies_hint || 'Cookies сохранены, проверка не прошла');
+          } else {
+            this.$message.success('VK cookies сохранены');
+          }
         } else {
           this.$message.error(msg.msg || 'ошибка');
         }

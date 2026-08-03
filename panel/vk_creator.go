@@ -106,6 +106,7 @@ func vkCreatorStatus() map[string]interface{} {
 		"cookies_present": cookiesPresent,
 		"cookies_expired": cookiesExpired,
 		"cookies_hint":    cookieHint,
+		"cookies_text":    vkCookiesTextForUI(),
 		"sessions":        active,
 	}
 }
@@ -148,9 +149,49 @@ func vkCookiesStatus() (ok bool, hint string, present bool, expired bool) {
 		return false, err.Error(), present, false
 	}
 	if err := vkCookiesLiveValid(cookieHeader); err != nil {
-		return false, vkCookiesExpiredHint, present, true
+		// Сеть/API ≠ «устарели»: иначе после Save кажется, что cookies не записались (#22).
+		if isVKCookiesTransportErr(err) {
+			return false, "Cookies сохранены, но проверка VK недоступна: " + err.Error(), present, false
+		}
+		return false, vkCookiesExpiredHint + " (" + truncateErr(err, 120) + ")", present, true
 	}
 	return true, "VK cookies действительны.", present, false
+}
+
+func isVKCookiesTransportErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "timeout") ||
+		strings.Contains(s, "connection") ||
+		strings.Contains(s, "network") ||
+		strings.Contains(s, "temporary") ||
+		strings.Contains(s, "eof") ||
+		strings.Contains(s, "tls") ||
+		strings.Contains(s, "no such host") ||
+		strings.Contains(s, "i/o timeout")
+}
+
+func truncateErr(err error, n int) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// vkCookiesTextForUI — строка для textarea после reload (иначе поле пустое и
+// кажется, что Save ничего не записал — issue #22).
+func vkCookiesTextForUI() string {
+	header, err := vkCookieHeaderFromStore()
+	if err != nil || strings.TrimSpace(header) == "" {
+		return ""
+	}
+	return header
 }
 
 func validateVKCookiesJSON(data []byte) error {
