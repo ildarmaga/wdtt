@@ -18,7 +18,31 @@
                     Создать WDTT
                   </a-button>
                 </template>
-                <a-table :columns="wdttCols" :data-source="wdttRows" :pagination="false"
+                <div v-if="!wdttConfigured" class="text-muted">WDTT не настроен</div>
+                <div v-else-if="isMobile" class="conn-mobile-list">
+                  <div v-for="row in wdttRows" :key="row.key" class="conn-mobile-card">
+                    <div class="conn-mobile-head">
+                      <div>
+                        <div class="conn-mobile-title">[[ row.remark || 'WDTT' ]]</div>
+                        <div class="conn-mobile-tags">
+                          <a-tag color="purple">WDTT</a-tag>
+                          <a-tag color="blue">DTLS [[ row.dtls_port ]]</a-tag>
+                          <a-tag color="green">WG [[ row.wg_port ]]</a-tag>
+                        </div>
+                      </div>
+                      <a-switch :checked="row.enable !== false" :loading="row.toggling"
+                        @change="checked => toggleWdttEnable(row, checked)"></a-switch>
+                    </div>
+                    <div class="conn-mobile-meta">
+                      <span>Онлайн: <a @click="goUsers">[[ row.active_users || 0 ]]</a></span>
+                      <span>[[ row.traffic_used_fmt || '0 B' ]] / ∞</span>
+                    </div>
+                    <div class="conn-mobile-actions">
+                      <a-button size="small" icon="edit" @click="openWdttEdit(row)">Изменить</a-button>
+                    </div>
+                  </div>
+                </div>
+                <a-table v-else :columns="wdttCols" :data-source="wdttRows" :pagination="false"
                   :row-key="row => row.key" bordered size="middle"
                   :locale='{ emptyText: "WDTT не настроен" }'>
                   <template slot="wdttOperate" slot-scope="_, row">
@@ -29,18 +53,6 @@
                         <a-menu-item @click="openWdttEdit(row)">
                           <a-icon type="edit"></a-icon>
                           <span>Изменить WDTT</span>
-                        </a-menu-item>
-                        <a-menu-item @click="copyMainLink(row)">
-                          <a-icon type="link"></a-icon>
-                          <span>{{ i18n "pages.inbounds.copyLink" }}</span>
-                        </a-menu-item>
-                        <a-menu-item @click="restartWdtt">
-                          <a-icon type="reload"></a-icon>
-                          <span>Перезапустить WDTT</span>
-                        </a-menu-item>
-                        <a-menu-item @click="goUsers">
-                          <a-icon type="team"></a-icon>
-                          <span>{{ i18n "menu.users" }}</span>
                         </a-menu-item>
                       </a-menu>
                     </a-dropdown>
@@ -102,22 +114,41 @@
                 </template>
 
                 <a-row :gutter="[8, 8]" style="margin-bottom:12px">
-                  <a-col :xs="24" :sm="12">
-                    <a-space wrap>
-                      <a-button type="primary" icon="plus" @click="openXrayCreate">
+                  <a-col :span="24">
+                    <div class="conn-mobile-toolbar" :class="{ 'conn-mobile-toolbar--row': !isMobile }">
+                      <a-button type="primary" icon="plus" :block="isMobile" @click="openXrayCreate">
                         {{ i18n "pages.inbounds.addInbound" }}
                       </a-button>
-                      <a-button icon="eye" @click="openFirewallPorts">
+                      <a-button icon="eye" :block="isMobile" @click="openFirewallPorts">
                         Посмотреть порты
                       </a-button>
-                    </a-space>
-                  </a-col>
-                  <a-col :xs="24" :sm="12" :style="{ textAlign: isMobile ? 'left' : 'right' }">
-                    <a-input-search v-model="searchText" placeholder="Поиск..." allow-clear style="max-width:280px"></a-input-search>
+                      <a-input-search v-model="searchText" placeholder="Поиск..." allow-clear
+                        :style="isMobile ? { width: '100%' } : { maxWidth: '280px', marginLeft: 'auto' }"></a-input-search>
+                    </div>
                   </a-col>
                 </a-row>
 
-                <a-table :columns="xrayCols" :data-source="filteredXrayRows" :pagination="false"
+                <div v-if="isMobile" class="conn-mobile-list">
+                  <div v-if="!filteredXrayRows.length" class="text-muted" style="padding:8px 0">Нет подключений</div>
+                  <div v-for="row in filteredXrayRows" :key="row.tag" class="conn-mobile-card">
+                    <div class="conn-mobile-head">
+                      <div>
+                        <div class="conn-mobile-title">[[ row.remark || row.tag ]]</div>
+                        <div class="conn-mobile-tags">
+                          <a-tag color="purple">[[ row.protocol ]]</a-tag>
+                          <a-tag color="blue">порт [[ row.port ]]</a-tag>
+                        </div>
+                      </div>
+                      <a-switch :checked="row.enable" :loading="row.toggling"
+                        @change="checked => toggleXrayEnable(row, checked)"></a-switch>
+                    </div>
+                    <div class="conn-mobile-actions">
+                      <a-button size="small" icon="edit" @click="openXrayEdit(row)">Изменить</a-button>
+                      <a-button size="small" type="danger" icon="delete" @click="deleteXrayInbound(row)">Удалить</a-button>
+                    </div>
+                  </div>
+                </div>
+                <a-table v-else :columns="xrayCols" :data-source="filteredXrayRows" :pagination="false"
                   :row-key="row => row.tag" bordered size="middle"
                   :locale='{ filterConfirm: `{{ i18n "confirm" }}`, filterReset: `{{ i18n "reset" }}` }'>
                   <template slot="xrayOperate" slot-scope="_, row">
@@ -163,16 +194,86 @@
 <style>
   @media (min-width: 769px) {
     .connections-page .ant-layout-content { margin: 24px 16px; }
+    .connections-page .ant-table-content > table {
+      table-layout: fixed;
+      width: 100%;
+    }
+    .connections-page .ant-table-thead > tr > th,
+    .connections-page .ant-table-tbody > tr > td {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
-  .connections-page .ant-table-content > table {
-    table-layout: fixed;
-    width: 100%;
+  @media (max-width: 768px) {
+    .connections-page .ant-layout-content {
+      margin: 8px 0 !important;
+      padding: 0 8px;
+    }
+    .connections-page .ant-card { margin-bottom: 12px !important; }
+    .connections-page .ant-card-head {
+      min-height: auto;
+      padding: 10px 12px;
+    }
+    .connections-page .ant-card-head-title {
+      white-space: normal;
+      overflow: visible;
+      padding: 0;
+    }
+    .connections-page .ant-card-body { padding: 10px 12px; }
   }
-  .connections-page .ant-table-thead > tr > th,
-  .connections-page .ant-table-tbody > tr > td {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .conn-mobile-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .conn-mobile-toolbar--row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .conn-mobile-list { display: flex; flex-direction: column; gap: 10px; }
+  .conn-mobile-card {
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 10px;
+    padding: 12px;
+    background: rgba(255,255,255,.03);
+  }
+  body:not(.dark) .conn-mobile-card {
+    border-color: rgba(0,0,0,.08);
+    background: rgba(0,0,0,.02);
+  }
+  .conn-mobile-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .conn-mobile-title {
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 6px;
+    word-break: break-word;
+  }
+  .conn-mobile-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .conn-mobile-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-top: 10px;
+    font-size: 12px;
+    opacity: .8;
+  }
+  .conn-mobile-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
   }
   .connections-page span.ant-tag { text-align: center; }
   .connections-page .connections-port-cell {

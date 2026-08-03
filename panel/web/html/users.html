@@ -44,10 +44,46 @@
                     </a-popover>
                   </a-button-group>
                 </template>
-                <a-button type="primary" icon="plus" @click="openAddModal" style="margin-bottom:12px">
+                <a-button type="primary" icon="plus" @click="openAddModal" :block="isMobile" style="margin-bottom:12px">
                   Добавить пользователя
                 </a-button>
-                <a-table :columns="userCols" :data-source="users" :pagination="false" :row-key="rowKey" size="middle">
+                <div v-if="isMobile" class="user-mobile-list">
+                  <div v-if="!users.length" class="text-muted">Нет пользователей</div>
+                  <div v-for="row in users" :key="rowKey(row)" class="user-mobile-card">
+                    <div class="user-mobile-head">
+                      <div>
+                        <a-tag v-if="row.is_main" color="gold" style="margin-bottom:4px">главный</a-tag>
+                        <div class="user-mobile-pass"><code>[[ row.password ]]</code></div>
+                        <div class="text-muted" style="font-size:12px;margin-top:2px">[[ row.comment || '—' ]]</div>
+                      </div>
+                      <div class="user-mobile-status">
+                        <a-tag :color="row.active ? 'green' : 'red'">[[ row.active ? 'активен' : 'выкл' ]]</a-tag>
+                        <a-tag v-if="row.online" color="green">{{ i18n "online" }}</a-tag>
+                        <a-tag v-else>{{ i18n "offline" }}</a-tag>
+                      </div>
+                    </div>
+                    <div class="user-mobile-grid">
+                      <div><span class="user-mobile-label">VK_HASH</span><code v-if="row.vk_hash">[[ formatVkHashCell(row.vk_hash) ]]</code><span v-else class="text-muted">—</span></div>
+                      <div><span class="user-mobile-label">Устройства</span>
+                        <span v-if="row.is_main">[[ row.device_id || '—' ]] <span v-if="row.devices_bound" class="text-muted">([[ row.devices_bound ]])</span></span>
+                        <span v-else>[[ row.devices_bound || 0 ]]/[[ row.max_devices || 1 ]]</span>
+                      </div>
+                      <div><span class="user-mobile-label">Срок</span>[[ row.expires || '—' ]]</div>
+                      <div class="user-mobile-span2"><span class="user-mobile-label">Трафик</span>
+                        [[ row.traffic_used_fmt || '0 B' ]]
+                        <span class="text-muted"> / [[ Number(row.total_gb) > 0 ? (Number(row.total_gb).toFixed(1) + ' GB') : '∞' ]]</span>
+                        <div class="text-muted" style="font-size:11px">↑ [[ row.up || '0 B' ]] ↓ [[ row.down || '0 B' ]]</div>
+                      </div>
+                    </div>
+                    <div class="user-mobile-actions">
+                      <a-button size="small" icon="link" @click="copyUserLink(row)">Ссылка</a-button>
+                      <a-button size="small" icon="qrcode" @click="openShareModal(row)">QR</a-button>
+                      <a-button size="small" icon="edit" @click="openEditModal(row)">Изменить</a-button>
+                      <a-button v-if="!row.is_main" type="danger" size="small" icon="delete" @click="delUser(row.password_key || row.password)">Удалить</a-button>
+                    </div>
+                  </div>
+                </div>
+                <a-table v-else :columns="userCols" :data-source="users" :pagination="false" :row-key="rowKey" size="middle">
                   <span slot="password" slot-scope="text, row">
                     <a-tag v-if="row.is_main" color="gold" style="margin-right:6px">главный</a-tag>
                     <code>[[ text ]]</code>
@@ -110,6 +146,53 @@
     .users-page .ant-layout-content {
       margin: 24px 16px;
     }
+  }
+  @media (max-width: 768px) {
+    .users-page .ant-layout-content {
+      margin: 8px 0 !important;
+      padding: 0 8px;
+    }
+    .users-page .ant-card-body { padding: 12px; }
+    .users-page .ant-card-head-title { white-space: normal; overflow: visible; }
+  }
+  .user-mobile-list { display: flex; flex-direction: column; gap: 10px; }
+  .user-mobile-card {
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 10px;
+    padding: 12px;
+    background: rgba(255,255,255,.03);
+  }
+  body:not(.dark) .user-mobile-card {
+    border-color: rgba(0,0,0,.08);
+    background: rgba(0,0,0,.02);
+  }
+  .user-mobile-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .user-mobile-pass { font-size: 15px; font-weight: 600; word-break: break-all; }
+  .user-mobile-status { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .user-mobile-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    margin-top: 12px;
+    font-size: 12px;
+  }
+  .user-mobile-span2 { grid-column: 1 / -1; }
+  .user-mobile-label {
+    display: block;
+    opacity: .55;
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+  .user-mobile-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
   }
   .text-muted { color: rgba(0,0,0,.45); }
   body.dark .text-muted { color: rgba(255,255,255,.45); }
