@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -128,22 +129,16 @@ func parseLoginForm(r *http.Request) (loginForm, error) {
 		return form, err
 	}
 	defer r.Body.Close()
-	for _, pair := range strings.Split(string(body), "&") {
-		kv := strings.SplitN(pair, "=", 2)
-		if len(kv) != 2 {
-			continue
-		}
-		key := kv[0]
-		val := strings.ReplaceAll(kv[1], "+", " ")
-		switch key {
-		case "username":
-			form.Username = val
-		case "password":
-			form.Password = val
-		case "twoFactorCode":
-			form.TwoFactorCode = val
-		}
+	// Как parsePanelUserReq: axios шлёт Qs.stringify → %40/%20 и т.п.
+	// Раньше только "+"→" " без url.QueryUnescape → пароли со спецсимволами
+	// сохранялись верно, а логин сравнивал ещё закодированную строку (#27).
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return form, err
 	}
+	form.Username = values.Get("username")
+	form.Password = values.Get("password")
+	form.TwoFactorCode = values.Get("twoFactorCode")
 	return form, nil
 }
 
