@@ -16,7 +16,6 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
-
 func defaultInboundPortsCSV() string {
 	const fallback = "56000,56001,9000"
 	if !serverPanelDBReady() {
@@ -504,10 +503,10 @@ func countActivePasswordsLocked() int {
 	return n
 }
 
-// Отключает истёкших от WG, но оставляет в базе для продления в панели.
+// Отключает истёкших от WG/RAW, но оставляет в базе для продления в панели.
 func suspendExpiredPasswordsLocked(wgDev *device.Device) int {
 	suspended := 0
-	for _, entry := range db.Passwords {
+	for pass, entry := range db.Passwords {
 		if entry == nil || !isPasswordExpired(entry) {
 			continue
 		}
@@ -515,7 +514,9 @@ func suspendExpiredPasswordsLocked(wgDev *device.Device) int {
 			if dev, ok := db.Devices[devID]; ok {
 				removePeerFromWG(wgDev, dev)
 			}
+			cancelRawSessionsForDevice(devID)
 		}
+		cancelRawSessionsForPassword(pass)
 		suspended++
 	}
 	return suspended

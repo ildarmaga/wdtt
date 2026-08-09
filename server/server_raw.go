@@ -1026,24 +1026,31 @@ func runRawRelay(ctx context.Context, clientConn net.Conn, deviceID, ip, passwor
 	relaySess := relaySessionRegister(sessionIdentity, pcancel)
 	defer relaySessionUnregister(sessionIdentity, relaySess)
 
-	flushRaw := func() {
+	// Как WG flushTraffic: начисление + mid-session отказ по квоте/expiry/deactivate.
+	flushRaw := func() bool {
 		up := atomic.SwapInt64(&sess.up, 0)
 		down := atomic.SwapInt64(&sess.down, 0)
-		if up == 0 && down == 0 {
-			return
-		}
 		dbMutex.Lock()
+		defer dbMutex.Unlock()
 		pass := resolveTrafficPassword(password, isMain, deviceID)
-		if pass != "" {
-			// Как WG: client→server = UpBytes, server→client = DownBytes.
-			if up > 0 {
-				addTrafficLocked(pass, up, false)
-			}
-			if down > 0 {
-				addTrafficLocked(pass, down, true)
-			}
+		if pass == "" {
+			return true
 		}
-		dbMutex.Unlock()
+		e, ok := db.Passwords[pass]
+		if !ok || e == nil {
+			return true
+		}
+		if isPasswordExpired(e) || e.IsDeactivated || isTrafficExceeded(e) {
+			return false
+		}
+		okAcc := true
+		if up > 0 && !addTrafficLocked(pass, up, false) {
+			okAcc = false
+		}
+		if down > 0 && !addTrafficLocked(pass, down, true) {
+			okAcc = false
+		}
+		return okAcc
 	}
 	defer flushRaw()
 
@@ -1056,7 +1063,10 @@ func runRawRelay(ctx context.Context, clientConn net.Conn, deviceID, ip, passwor
 				flushRaw()
 				return
 			case <-flush.C:
-				flushRaw()
+				if !flushRaw() {
+					pcancel()
+					return
+				}
 			}
 		}
 	}()
@@ -1227,4 +1237,68 @@ func trimPreview(s string, n int) string {
 
 func isRawConfPacket(firstStr string) bool {
 	return strings.HasPrefix(firstStr, "RAWCONF:") || strings.HasPrefix(firstStr, "GETCONF_RAW:")
+}
+
+// cancelRawSessionsForPassword рвёт все RAW-сессии пароля (аналог removePeerFromWG).
+func cancelRawSessionsForPassword(password string) int {
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return 0
+	}
+	n := 0
+	rawSessionsByIP.Range(func(_, v any) bool {
+		group, ok := v.(*rawSessionGroup)
+		if !ok || group == nil {
+			return true
+		}
+		var cancels []context.CancelFunc
+		group.mu.Lock()
+		for _, sess := range group.sessions {
+			if sess == nil || sess.cancel == nil {
+				continue
+			}
+			if sess.password == password {
+				cancels = append(cancels, sess.cancel)
+			}
+		}
+		group.mu.Unlock()
+		for _, c := range cancels {
+			c()
+			n++
+		}
+		return true
+	})
+	return n
+}
+
+// cancelRawSessionsForDevice рвёт RAW-сессии deviceID (как снос WG peer).
+func cancelRawSessionsForDevice(deviceID string) int {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return 0
+	}
+	n := 0
+	rawSessionsByIP.Range(func(_, v any) bool {
+		group, ok := v.(*rawSessionGroup)
+		if !ok || group == nil {
+			return true
+		}
+		var cancels []context.CancelFunc
+		group.mu.Lock()
+		for _, sess := range group.sessions {
+			if sess == nil || sess.cancel == nil {
+				continue
+			}
+			if sess.deviceID == deviceID || strings.HasPrefix(sess.registryID, deviceID+":") {
+				cancels = append(cancels, sess.cancel)
+			}
+		}
+		group.mu.Unlock()
+		for _, c := range cancels {
+			c()
+			n++
+		}
+		return true
+	})
+	return n
 }

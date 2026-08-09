@@ -83,12 +83,14 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 			if wgDev != nil {
 				removePeerFromWG(wgDev, dev)
 			}
+			cancelRawSessionsForDevice(id)
 			continue
 		}
 		if _, ok := incoming.Devices[id]; !ok {
 			if wgDev != nil {
 				removePeerFromWG(wgDev, dev)
 			}
+			cancelRawSessionsForDevice(id)
 		}
 	}
 	if incoming.Passwords != nil {
@@ -107,8 +109,8 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 		dbMutex.Unlock()
 		return err
 	}
+	suspendExpiredPasswordsLocked(wgDev)
 	if wgDev != nil {
-		suspendExpiredPasswordsLocked(wgDev)
 		for deviceID, dev := range db.Devices {
 			pass := passwordForDeviceLocked(deviceID)
 			if pass == "" {
@@ -116,14 +118,30 @@ func reloadDBFromDisk(wgDev *device.Device) error {
 			}
 			if pass == "" {
 				removePeerFromWG(wgDev, dev)
+				cancelRawSessionsForDevice(deviceID)
 				continue
 			}
 			entry := db.Passwords[pass]
 			if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
 				removePeerFromWG(wgDev, dev)
+				cancelRawSessionsForDevice(deviceID)
+				cancelRawSessionsForPassword(pass)
 				continue
 			}
 			upsertPeerInWG(wgDev, dev)
+		}
+	} else {
+		for deviceID := range db.Devices {
+			pass := passwordForDeviceLocked(deviceID)
+			if pass == "" {
+				cancelRawSessionsForDevice(deviceID)
+				continue
+			}
+			entry := db.Passwords[pass]
+			if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
+				cancelRawSessionsForDevice(deviceID)
+				cancelRawSessionsForPassword(pass)
+			}
 		}
 	}
 	if trafficDirty.Load() {

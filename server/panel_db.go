@@ -409,6 +409,7 @@ func syncPanelDeviceEditsLocked() {
 		for id, dev := range oldDevices {
 			if _, ok := db.Devices[id]; !ok {
 				removePeerFromWG(wgDev, dev)
+				cancelRawSessionsForDevice(id)
 			}
 		}
 		suspendExpiredPasswordsLocked(wgDev)
@@ -419,14 +420,37 @@ func syncPanelDeviceEditsLocked() {
 			}
 			if pass == "" {
 				removePeerFromWG(wgDev, dev)
+				cancelRawSessionsForDevice(deviceID)
 				continue
 			}
 			entry := db.Passwords[pass]
 			if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
 				removePeerFromWG(wgDev, dev)
+				cancelRawSessionsForDevice(deviceID)
+				cancelRawSessionsForPassword(pass)
 				continue
 			}
 			upsertPeerInWG(wgDev, dev)
+		}
+	} else {
+		// RAW-only: даже без wgDev рвём сессии по panel sync.
+		for id := range oldDevices {
+			if _, ok := db.Devices[id]; !ok {
+				cancelRawSessionsForDevice(id)
+			}
+		}
+		suspendExpiredPasswordsLocked(nil)
+		for deviceID := range db.Devices {
+			pass := passwordForDeviceLocked(deviceID)
+			if pass == "" {
+				cancelRawSessionsForDevice(deviceID)
+				continue
+			}
+			entry := db.Passwords[pass]
+			if entry == nil || isPasswordExpired(entry) || entry.IsDeactivated || isTrafficExceeded(entry) {
+				cancelRawSessionsForDevice(deviceID)
+				cancelRawSessionsForPassword(pass)
+			}
 		}
 	}
 	rememberUsersRev(rev)

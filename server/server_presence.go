@@ -283,7 +283,11 @@ func userSessionEnter(deviceID, ip, label, password string) bool {
 	}
 	if !wasOnline {
 		atomic.AddInt32(&activeUsers, 1)
-		log.Printf("[ПОДКЛ] %s | %s | WG %s", info.Label, deviceID, info.IP)
+		mode := "WG"
+		if strings.HasPrefix(info.IP, "10.70.") {
+			mode = "RAW"
+		}
+		log.Printf("[ПОДКЛ] %s | %s | %s %s", info.Label, deviceID, mode, info.IP)
 	}
 	touchPass := password
 	onlineUsersMutex.Unlock()
@@ -313,7 +317,11 @@ func userSessionLeave(deviceID string) {
 	delete(onlineUsers, deviceID)
 	onlineUsersMutex.Unlock()
 	atomic.AddInt32(&activeUsers, -1)
-	log.Printf("[ОТКЛ] %s | %s | WG %s", label, deviceID, ip)
+	mode := "WG"
+	if strings.HasPrefix(ip, "10.70.") {
+		mode = "RAW"
+	}
+	log.Printf("[ОТКЛ] %s | %s | %s %s", label, deviceID, mode, ip)
 	if password != "" {
 		touchUserLastSeen(password)
 	}
@@ -440,16 +448,36 @@ func forEachOnlinePassword(fn func(string)) {
 	if fn == nil {
 		return
 	}
-	wgActivityMu.Lock()
-	defer wgActivityMu.Unlock()
-	for _, s := range wgActivity {
-		if s == nil {
-			continue
+	seen := make(map[string]struct{})
+	emit := func(pass string) {
+		pass = strings.TrimSpace(pass)
+		if pass == "" {
+			return
 		}
-		if pass := strings.TrimSpace(s.password); pass != "" {
-			fn(pass)
+		if _, ok := seen[pass]; ok {
+			return
+		}
+		seen[pass] = struct{}{}
+		fn(pass)
+	}
+	wgActivityMu.Lock()
+	for _, s := range wgActivity {
+		if s != nil {
+			emit(s.password)
 		}
 	}
+	wgActivityMu.Unlock()
+	// RAW-only пользователи тоже получают last_seen / учёт «онлайн».
+	rawSessionsByIP.Range(func(_, v any) bool {
+		group, ok := v.(*rawSessionGroup)
+		if !ok || group == nil {
+			return true
+		}
+		if sess := group.first(); sess != nil {
+			emit(sess.password)
+		}
+		return true
+	})
 }
 
 // syncTrafficFromWGPeers начисляет трафик по дельте rx/tx WireGuard-пиров.
