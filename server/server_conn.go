@@ -69,9 +69,10 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	firstPacket := buf[:n]
 	firstStr := string(firstPacket)
 
-	// RAW: IP over WRAP/DTLS без WireGuard (qWDTT-совместимый RAWCONF / GETCONF_RAW).
+	// Старый RAW поверх DTLS убран: только direct WRAP на DTLS+3.
 	if isRawConfPacket(firstStr) {
-		handleRawConf(ctx, clientConn, firstStr, wrapAuthPass)
+		log.Printf("[DTLS] RAWCONF отклонён с %s — нужен direct RAW (DTLS+3)", clientConn.RemoteAddr())
+		_, _ = clientConn.Write([]byte("NOCONF"))
 		return
 	}
 

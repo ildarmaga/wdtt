@@ -1,9 +1,11 @@
-package panel
+package backend
 
-// panelVersion задаётся при сборке: -ldflags "-X wdtt-panel.panelVersion=1.4.0"
-// или через build.sh / GitHub Actions (тег v*).
-var panelVersion = "1.4.135"
+// AppVersion is injected at build time via -ldflags "-X pwdtt-desktop/backend.AppVersion=...".
+var AppVersion = "0.3.275"
 
-func FormatPanelVersion() string {
-	return panelVersion
+func (a *App) GetAppVersion() string {
+	if AppVersion == "" {
+		return "dev"
+	}
+	return AppVersion
 }
