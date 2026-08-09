@@ -2,6 +2,15 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.74] — 2026-08-10
+
+### Добавлено
+- **RAW direct** (WRAP AEAD на `DTLS+3`, без DTLS): CHUNK1, RAWCHAL, plain TUN.
+- Учёт RAW как WG: online/last_seen, трафик в panel.db, обрыв при квоте/expiry/deactivate.
+
+### Изменено
+- Старый RAWCONF поверх DTLS отключён (`NOCONF`); рабочий путь — только direct.
+
 ## [1.4.73] — 2026-08-07
 
 ### Исправлено
