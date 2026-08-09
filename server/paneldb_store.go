@@ -81,6 +81,7 @@ func userToPaneldb(e *PasswordEntry) *paneldb.User {
 		Comment:       e.Comment,
 		Ports:         e.Ports,
 		VkHash:        e.VkHash,
+		WbRoom:        e.WbRoom,
 		SubID:         e.SubID,
 		LastSeenAt:    e.LastSeenAt,
 	}
@@ -101,6 +102,7 @@ func userFromPaneldb(u *paneldb.User) *PasswordEntry {
 		Comment:       u.Comment,
 		Ports:         u.Ports,
 		VkHash:        u.VkHash,
+		WbRoom:        u.WbRoom,
 		SubID:         u.SubID,
 		LastSeenAt:    u.LastSeenAt,
 	}

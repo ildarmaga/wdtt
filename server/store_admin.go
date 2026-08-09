@@ -30,6 +30,7 @@ type panelUserUpdateReq struct {
 	ClientPort  int       `json:"client_port"`
 	UseCustomPorts bool   `json:"use_custom_ports"`
 	VkHash         string    `json:"vk_hash"`
+	WbRoom         string    `json:"wb_room"`
 }
 
 func readAdminJSON(r *http.Request, v interface{}) error {
@@ -135,6 +136,11 @@ func applyPanelUserUpdateLocked(wgDev *device.Device, req panelUserUpdateReq, ma
 		entry.Ports = ""
 	}
 	entry.VkHash = vkhash.Normalize(req.VkHash)
+	// User modal does not send wb_room — empty must not wipe WB Creator link.
+	// Explicit non-empty updates; clear only via SetUserWbRoom / stop room.
+	if w := strings.TrimSpace(req.WbRoom); w != "" {
+		entry.WbRoom = w
+	}
 	if req.MaxDevices > 0 {
 		entry.MaxDevices = req.MaxDevices
 	}
@@ -286,6 +292,7 @@ func registerStoreAdminRoutes(mux *http.ServeMux, wgDev *device.Device) {
 			writeAdminJSON(w, false, err.Error())
 			return
 		}
+		// After unlock: live tc class replace (1→5 Mbit) without client reconnect.
 		applyPass := strings.TrimSpace(req.Password)
 		if applyPass == "" {
 			applyPass = strings.TrimSpace(req.OldPassword)

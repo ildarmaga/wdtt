@@ -10,7 +10,7 @@ import (
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
-const dbSchemaVersion = 14
+const dbSchemaVersion = 15
 
 const schemaV2DDL = `
 CREATE TABLE IF NOT EXISTS panel_config (

@@ -32,6 +32,7 @@ type User struct {
 	Comment       string
 	Ports         string
 	VkHash        string
+	WbRoom        string
 	SubID         string
 	LastSeenAt    int64
 }

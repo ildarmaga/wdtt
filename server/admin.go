@@ -1,10 +1,10 @@
 package server
 
 import (
+	"errors"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
-	"errors"
 	"log"
 	"net"
 	"net/http"

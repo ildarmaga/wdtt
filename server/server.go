@@ -12,30 +12,43 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/pion/dtls/v3"
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
+	"github.com/pion/dtls/v3"
 
 	"golang.zx2c4.com/wireguard/device"
 )
 
+func rawDirectListenAddr(dtlsAddr string) (string, error) {
+	host, portText, err := net.SplitHostPort(dtlsAddr)
+	if err != nil {
+		return "", err
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65532 {
+		return "", fmt.Errorf("invalid DTLS port %q", portText)
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port+rawDirectPortOffset)), nil
+}
+
 const (
-	wgIfaceName           = "wdtt0"
-	wgServerAddr          = "10.66.66.1"
-	wgServerCIDR          = wgServerAddr + "/24"
-	defaultInternalWGPort = 56001
-	defaultClientDNS      = "1.1.1.1"
-	defaultMaxUsers       = 10
-	maxUsersSubnetLimit   = 249
-	defaultWgMTU          = 1280
-	defaultPanelTCPPort   = 2860 // fallback до panel.db
-	defaultSubTCPPort     = 2096
-	keepalive             = 25 // default; overridden from panel.db via wgKeepaliveSec
+	wgIfaceName             = "wdtt0"
+	wgServerAddr            = "10.66.66.1"
+	wgServerCIDR            = wgServerAddr + "/24"
+	defaultInternalWGPort   = 56001
+	defaultClientDNS        = "1.1.1.1"
+	defaultMaxUsers         = 10
+	maxUsersSubnetLimit     = 249
+	defaultWgMTU            = 1280
+	defaultPanelTCPPort     = 2860 // fallback до panel.db
+	defaultSubTCPPort       = 2096
+	keepalive               = 25 // default; overridden from panel.db via wgKeepaliveSec
 	defaultStatsIntervalSec = 2
 )
 
@@ -75,6 +88,7 @@ type PasswordEntry struct {
 	MaxUpMBps     float64  `json:"max_up_mbps,omitempty"`   // 0 = без лимита, MB/s
 	Comment       string   `json:"comment,omitempty"`
 	VkHash        string   `json:"vk_hash,omitempty"`
+	WbRoom        string   `json:"wb_room,omitempty"`
 	Ports         string   `json:"ports,omitempty"` // "dtls,wg,tun"
 	IsDeactivated bool     `json:"is_deactivated,omitempty"`
 	SubID         string   `json:"sub_id,omitempty"`
@@ -600,18 +614,60 @@ func runServerOnce(ctx context.Context, cfg ServerConfig) {
 	context.AfterFunc(ctx, func() { listener.Close() })
 
 	wgEndpoint := fmt.Sprintf("127.0.0.1:%d", cfg.WgPort)
+	var wg sync.WaitGroup
+
+	rawAcceptDone := make(chan struct{})
+	close(rawAcceptDone) // default: no direct listener
+	rawListen, err := rawDirectListenAddr(cfg.Listen)
+	if err != nil {
+		log.Printf("[RAW-DIRECT] address: %v — WG/DTLS продолжают работать", err)
+	} else {
+		rawAddr, resolveErr := net.ResolveUDPAddr("udp", rawListen)
+		if resolveErr != nil {
+			log.Printf("[RAW-DIRECT] resolve %s: %v — WG/DTLS продолжают работать", rawListen, resolveErr)
+		} else {
+			rawWrapListener, listenErr := listenWrapped(rawAddr, serverWrapKeys)
+			if listenErr != nil {
+				log.Printf("[RAW-DIRECT] listen %s: %v — WG/DTLS продолжают работать", rawListen, listenErr)
+			} else {
+				ensureRawDirectFirewall(rawListen)
+				rawAcceptDone = make(chan struct{})
+				context.AfterFunc(ctx, func() { _ = rawWrapListener.Close() })
+				go func() {
+					defer close(rawAcceptDone)
+					for {
+						pc, remoteAddr, acceptErr := rawWrapListener.Accept()
+						if acceptErr != nil {
+							if ctx.Err() != nil {
+								return
+							}
+							continue
+						}
+						wg.Add(1)
+						go func(packetConn net.PacketConn, addr net.Addr) {
+							defer wg.Done()
+							conn := &rawDirectConn{pc: packetConn, addr: addr}
+							defer conn.Close()
+							handleDirectRawConn(ctx, conn)
+						}(pc, remoteAddr)
+					}
+				}()
+				log.Printf("   RAW direct (no DTLS): %s", rawListen)
+			}
+		}
+	}
 
 	log.Printf("   DTLS: %s | WG: %s | NAT: %s", cfg.Listen, wgEndpoint, natType)
 	log.Printf("   WRAP: password HKDF + RTP AEAD | keys: %d", serverWrapKeys.Count())
 	log.Println("[SERVER] Готов")
 	markServerVPNActive(true)
 
-	var wg sync.WaitGroup
 	for {
 		dtlsConn, err := listener.Accept()
 		if err != nil {
 			select {
 			case <-ctx.Done():
+				<-rawAcceptDone
 				drain := make(chan struct{})
 				go func() {
 					wg.Wait()

@@ -47,6 +47,7 @@ type WdttInboundConfig struct {
 	WgKeepaliveSec      int    `json:"wg_keepalive_sec"`
 	StatsIntervalSec    int    `json:"stats_interval_sec"`
 	AdminAddr           string `json:"admin_addr"`
+	RawEnable           bool   `json:"raw_enable"`
 	Create              bool   `json:"create"`
 }
 
@@ -63,6 +64,8 @@ type WdttInboundStatus struct {
 	OnlineUsers   int    `json:"online_users"`
 	MaxUsers      int    `json:"max_users"`
 	XrayActive    bool   `json:"xray_active"`
+	RawIfaceUp    bool   `json:"raw_iface_up"`
+	RawSessions   int    `json:"raw_sessions"`
 }
 
 func defaultWdttInbound() WdttInboundConfig {
@@ -83,6 +86,7 @@ func defaultWdttInbound() WdttInboundConfig {
 		WgKeepaliveSec:      defaultWgKeepaliveSec,
 		StatsIntervalSec:    defaultStatsIntervalSec,
 		AdminAddr:           "127.0.0.1:2861",
+		RawEnable:           true,
 	}
 }
 
@@ -250,6 +254,7 @@ func collectWdttInboundStatus(cfg WdttInboundConfig) WdttInboundStatus {
 		XrayActive:    serviceActive(xrayServiceUnit),
 	}
 	st.IfaceUp = st.IfaceAddr != ""
+	st.RawIfaceUp = getRawIface() != ""
 	st.DtlsFirewall = iptablesUDPPortOpen(cfg.DtlsPort)
 	st.WgFirewall = iptablesUDPPortOpen(cfg.WgPort)
 	st.DtlsListening = udpPortListening(cfg.DtlsPort)
@@ -260,6 +265,7 @@ func collectWdttInboundStatus(cfg WdttInboundConfig) WdttInboundStatus {
 	}
 	if stats := loadServerStats(); stats != nil {
 		st.OnlineUsers = stats.ActiveUsers
+		st.RawSessions = stats.RawSessions
 	}
 	return st
 }
@@ -408,16 +414,22 @@ func ensureWdttFirewallPort(port int) {
 func ensureWdttFirewallPorts(cfg WdttInboundConfig) {
 	ensureWdttFirewallPort(cfg.DtlsPort)
 	ensureWdttFirewallPort(cfg.WgPort)
+	// RAW direct (WRAP, no DTLS) слушает DTLS+3
+	if cfg.DtlsPort > 0 {
+		ensureWdttFirewallPort(cfg.DtlsPort + 3)
+	}
 }
 
 // writeWdttServiceFile — минимальный unit: параметры VPN читаются из panel.db, не из ExecStart.
 func writeWdttServiceFile(cfg WdttInboundConfig) error {
 	cfg.normalize()
 	sshPort := detectSSHPort()
+	rawDirectPort := cfg.DtlsPort + 3
 	iptPre := fmt.Sprintf(
-		`ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p tcp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport %d -m comment --comment %s -j ACCEPT; fi"`,
+		`ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p tcp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport %d -m comment --comment %s -j ACCEPT; fi"`,
 		cfg.DtlsPort, wdttIptComment, cfg.DtlsPort, wdttIptComment,
 		cfg.WgPort, wdttIptComment, cfg.WgPort, wdttIptComment,
+		rawDirectPort, wdttIptComment, rawDirectPort, wdttIptComment,
 		sshPort, wdttIptComment, sshPort, wdttIptComment,
 	)
 	content := fmt.Sprintf(`[Unit]
@@ -510,6 +522,9 @@ func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
 	unified := isUnifiedDeployment()
 	if old.DtlsPort != cfg.DtlsPort {
 		removeWdttFirewallPort(old.DtlsPort)
+		if old.DtlsPort > 0 {
+			removeWdttFirewallPort(old.DtlsPort + 3)
+		}
 	}
 	if old.WgPort != cfg.WgPort {
 		removeWdttFirewallPort(old.WgPort)

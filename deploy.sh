@@ -16,6 +16,8 @@ readonly WDTT_BIN="/usr/local/bin/wdtt-app"
 readonly LOG_FILE="/var/log/wdtt-install.log"
 readonly WG_PORT="${WDTT_WG_PORT:-56001}"
 readonly DTLS_PORT="${WDTT_DTLS_PORT:-56000}"
+# RAW direct (WRAP/AEAD, без DTLS) = DTLS+3, как listen-raw в qWDTT
+readonly RAW_DIRECT_PORT="${WDTT_RAW_PORT:-$((DTLS_PORT + 3))}"
 readonly SSH_PORT="${WDTT_SSH_PORT:-22}"
 readonly WDTT_IFACE="wdtt0"
 readonly WDTT_CONFIG_DIR="/etc/wdtt"
@@ -327,6 +329,7 @@ fw_cleanup_wdtt_rules() {
             done
             iptables -D INPUT -p udp --dport ${DTLS_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             iptables -D INPUT -p udp --dport ${WG_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
+            iptables -D INPUT -p udp --dport ${RAW_DIRECT_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             iptables -D INPUT -p tcp --dport ${SSH_PORT} -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             iptables -D INPUT -p tcp --dport 22 -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
             iptables -D FORWARD -i "$WDTT_IFACE" -m comment --comment "$IPT_COMMENT" -j ACCEPT 2>/dev/null || true
@@ -474,9 +477,10 @@ setup_nat_and_firewall() {
     log_info "WAN-интерфейс: $iface"
 
     # === WDTT порты ===
-    fw_add_input_udp "$DTLS_PORT"   # 56000 — DTLS сервер
-    fw_add_input_udp "$WG_PORT"     # 56001 — WireGuard
-    fw_add_input_tcp "$SSH_PORT"    # SSH порт, указанный пользователем в приложении
+    fw_add_input_udp "$DTLS_PORT"         # 56000 — DTLS сервер
+    fw_add_input_udp "$WG_PORT"           # 56001 — WireGuard
+    fw_add_input_udp "$RAW_DIRECT_PORT"   # 56003 — RAW direct (no DTLS)
+    fw_add_input_tcp "$SSH_PORT"          # SSH порт, указанный пользователем в приложении
 
     # === Forward ===
     fw_add_forward
@@ -491,7 +495,7 @@ setup_nat_and_firewall() {
     else
         echo "✓ NAT: MASQUERADE на $iface для 10.66.66.0/24"
     fi
-    echo "✓ Порты: ${DTLS_PORT}/udp(DTLS), ${WG_PORT}/udp(WG), ${SSH_PORT}/tcp(SSH)"
+    echo "✓ Порты: ${DTLS_PORT}/udp(DTLS), ${WG_PORT}/udp(WG), ${RAW_DIRECT_PORT}/udp(RAW), ${SSH_PORT}/tcp(SSH)"
     echo "✓ MTU: MSS clamp + DF-clear (wdtt-mtu-rules.sh)"
 }
 
@@ -569,7 +573,7 @@ Wants=network-online.target
 Type=simple
 SyslogIdentifier=wdtt
 ExecStartPre=-/usr/bin/env bash -c "ip link show ${WDTT_IFACE} >/dev/null 2>&1 && ip link del ${WDTT_IFACE} 2>/dev/null || true"
-ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; fi"
+ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${DTLS_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${WG_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p udp --dport ${RAW_DIRECT_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport ${RAW_DIRECT_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; iptables -C INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport ${SSH_PORT} -m comment --comment ${IPT_COMMENT} -j ACCEPT; fi"
 ExecStart=/usr/local/bin/wdtt-app -config-dir ${WDTT_CONFIG_DIR}
 ExecStartPost=/usr/bin/env bash -c 'for i in \$(seq 1 60); do ip addr show ${WDTT_IFACE} 2>/dev/null | grep -q "10.66.66.1" && /usr/local/bin/wdtt-mtu-rules.sh up && exit 0; sleep 0.5; done; /usr/local/bin/wdtt-mtu-rules.sh up'
 ExecStopPost=-/usr/local/bin/wdtt-mtu-rules.sh down

@@ -96,6 +96,7 @@ func statsLoop(ctx context.Context, configDir string) {
 
 		online := snapshotOnlineUsers()
 		users := int32(len(online))
+		rawN := countRawSessions()
 		atomic.StoreInt32(&activeUsers, users)
 		touchOnlineUsersLastSeenBatch()
 		total := atomic.LoadInt64(&totalConns)
@@ -114,8 +115,8 @@ func statsLoop(ctx context.Context, configDir string) {
 			intervalSec = 2
 		}
 
-		log.Printf("[СТАТ] Пользователей: %d | Сессий: %d | Всего: %d | NAT: %s | ↑%.2f МБ | ↓%.2f МБ",
-			users, sessions, total, natType,
+		log.Printf("[СТАТ] Пользователей: %d | Сессий: %d | RAW: %d | Всего: %d | NAT: %s | ↑%.2f МБ | ↓%.2f МБ",
+			users, sessions, rawN, total, natType,
 			float64(fromC)/1024/1024,
 			float64(toC)/1024/1024,
 		)
@@ -124,6 +125,7 @@ func statsLoop(ctx context.Context, configDir string) {
 			"active_users":       users,
 			"active":             users,
 			"sessions":           sessions,
+			"raw_sessions":       rawN,
 			"total":              total,
 			"nat":                natType,
 			"uptime":             uptimeStr,
@@ -155,7 +157,6 @@ func statsLoop(ctx context.Context, configDir string) {
 				if !errors.Is(err, errTrafficFlushFenced) {
 					log.Printf("[DB] save traffic: %v", err)
 				}
-				// Keep dirty when fenced — reload will trust panel.db.
 			} else {
 				trafficDirty.Store(false)
 			}

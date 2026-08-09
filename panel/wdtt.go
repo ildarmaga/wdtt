@@ -110,6 +110,7 @@ type ServerStats struct {
 	Online           []map[string]interface{} `json:"online"`
 	Timestamp        int64                    `json:"timestamp"`
 	StatsIntervalSec int                      `json:"stats_interval_sec"`
+	RawSessions      int                      `json:"raw_sessions"`
 }
 
 func serverStatsMaxAgeSec(s *ServerStats) int64 {

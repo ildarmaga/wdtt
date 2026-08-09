@@ -13,11 +13,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// errTrafficFlushFenced — panel.db users_rev ahead of applied (reset/edit in flight).
-// Stale RAM ↑↓ must not overwrite disk zeros / panel writes.
-var errTrafficFlushFenced = errors.New("traffic flush fenced: panel users_rev ahead")
-
 var panelDBPath = "/etc/wdtt/panel.db"
+
+// errTrafficFlushFenced — panel.db users_rev ahead of applied (reset/edit in flight).
+var errTrafficFlushFenced = errors.New("traffic flush fenced: panel users_rev ahead")
 
 var (
 	serverPanelDB     *sql.DB
@@ -302,11 +301,6 @@ func saveDatabaseDual() error {
 	return saveDB()
 }
 
-func rememberUsersRev(rev int64) {
-	if rev > appliedUsersRev {
-		appliedUsersRev = rev
-	}
-}
 
 func panelUsersRevOnDisk() int64 {
 	if !serverPanelDBReady() {
@@ -329,6 +323,12 @@ func trustPanelTrafficCounters(diskRev int64) bool {
 	dbMutex.Lock()
 	defer dbMutex.Unlock()
 	return diskRev > appliedUsersRev
+}
+
+func rememberUsersRev(rev int64) {
+	if rev > appliedUsersRev {
+		appliedUsersRev = rev
+	}
 }
 
 func rememberUsersRevFromDisk() {
@@ -363,8 +363,7 @@ func syncPanelDeviceEditsLocked() {
 	if err != nil || !ok {
 		return
 	}
-	// users_rev bump means panel changed users (incl. «Сбросить трафик»). Trust panel.db
-	// counters — merging in-memory traffic back restored old ↑↓ after reset.
+	// users_rev bump: panel.db is authoritative for traffic (fix reset-traffic restore).
 
 	for pass := range db.Passwords {
 		if _, ok := incoming.Passwords[pass]; !ok {
@@ -475,6 +474,7 @@ func applyInboundRuntimeSettings(raw inboundRuntimeSettings) {
 	dtlsHandshakeTimeout = 30 * time.Second
 	maxDTLSPerDevice = 0
 	wgMTU = defaultWgMTU
+	rawModeEnabled.Store(raw.RawEnable)
 
 	if dns := strings.TrimSpace(raw.DNS); dns != "" {
 		clientDNS = dns
@@ -508,10 +508,11 @@ func applyInboundRuntimeSettings(raw inboundRuntimeSettings) {
 	}
 	log.Printf("[CFG] inbound: DTLS timeout=%s, online=%s, WG keepalive=%ds, stats=%ds, max сессий/device=%d (0=без лимита)",
 		dtlsHandshakeTimeout, userOnlineTimeoutDuration(), wgKeepaliveSec, statsIntervalSec, maxDTLSPerDevice)
-	log.Printf("[CFG] DNS клиентов: %s, MTU: %d, лимит активных: %d", clientDNS, wgMTU, maxGeneratedPasswords)
+	log.Printf("[CFG] DNS клиентов: %s, MTU: %d, лимит активных: %d, RAW=%v", clientDNS, wgMTU, maxGeneratedPasswords, rawModeEnabled.Load())
 }
 
 func loadInboundSettings() {
+	rawModeEnabled.Store(true) // default until panel.db says otherwise
 	if raw, ok, err := loadInboundFromSQLite(); err != nil {
 		log.Printf("[DB] inbound sqlite load: %v", err)
 	} else if ok {

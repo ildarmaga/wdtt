@@ -69,6 +69,12 @@ func handleConn(ctx context.Context, clientConn net.Conn, wgEndpoint string, wgD
 	firstPacket := buf[:n]
 	firstStr := string(firstPacket)
 
+	// RAW: IP over WRAP/DTLS без WireGuard (qWDTT-совместимый RAWCONF / GETCONF_RAW).
+	if isRawConfPacket(firstStr) {
+		handleRawConf(ctx, clientConn, firstStr, wrapAuthPass)
+		return
+	}
+
 	if !strings.HasPrefix(firstStr, "GETCONF:") {
 		preview := firstStr
 		if len(preview) > 32 {

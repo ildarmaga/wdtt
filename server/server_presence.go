@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -122,15 +123,32 @@ func refreshWGActivityFromPeers(peers []wgPeerInfo) {
 		}
 	}
 	// Устройства, у которых WG rx замер дольше таймаута = реальный дисконнект.
-	// Их DTLS-relay сессии глушим сразу, не дожидаясь 3-мин idle-эвикта.
+	// НО: в режиме RAW WG peer counters не двигаются (трафик мимо WireGuard) —
+	// иначе каждые stats-тик убивали все DTLS (лог: wg-idle … relay_evict=N).
+	var stale []string
 	for id, s := range wgActivity {
 		if s != nil && !s.lastChange.IsZero() && now.Sub(s.lastChange) >= timeout {
-			offline = append(offline, id)
+			stale = append(stale, id)
 		}
 	}
 	wgActivityMu.Unlock()
 
+	for _, id := range stale {
+		if deviceSessionCount(id) > 0 {
+			wgActivityMu.Lock()
+			if s := wgActivity[id]; s != nil {
+				s.lastChange = now
+			}
+			wgActivityMu.Unlock()
+			continue
+		}
+		offline = append(offline, id)
+	}
+
 	for _, id := range offline {
+		if deviceSessionCount(id) > 0 {
+			continue
+		}
 		if n := relayEvictDevice(id); n > 0 {
 			log.Printf("[ОТКЛ] wg-idle %s relay_evict=%d", id, n)
 		}
@@ -353,14 +371,14 @@ func userPresenceLoop(ctx context.Context) {
 	}
 }
 
-// snapshotOnlineUsers — онлайн для панели по дельте трафика WG-пира.
+// snapshotOnlineUsers — онлайн для панели: WG-пиры (по трафику) + активные RAW-сессии.
 // DTLS keepalive НЕ учитывается: он идёт мимо WG и не отражает реальный туннель.
 func snapshotOnlineUsers() []map[string]string {
 	now := time.Now()
 	timeout := time.Duration(wgPeerOnlineMaxAgeSec()) * time.Second
 	wgActivityMu.Lock()
-	defer wgActivityMu.Unlock()
-	result := make([]map[string]string, 0, len(wgActivity))
+	result := make([]map[string]string, 0, len(wgActivity)+8)
+	seen := make(map[string]struct{}, len(wgActivity)+8)
 	for deviceID, s := range wgActivity {
 		if s == nil || s.lastChange.IsZero() {
 			continue
@@ -374,9 +392,48 @@ func snapshotOnlineUsers() []map[string]string {
 			"password":  s.password,
 			"ip":        s.ip,
 			"sessions":  "1",
+			"mode":      "wg",
 		})
+		seen[deviceID] = struct{}{}
 	}
+	wgActivityMu.Unlock()
+
+	rawSessionsByIP.Range(func(_, v any) bool {
+		group, ok := v.(*rawSessionGroup)
+		if !ok || group == nil {
+			return true
+		}
+		sess := group.first()
+		if sess == nil {
+			return true
+		}
+		if _, dup := seen[sess.deviceID]; dup {
+			return true
+		}
+		n := group.len()
+		result = append(result, map[string]string{
+			"device_id": sess.deviceID,
+			"user":      userLabel(sess.password, sess.isMain),
+			"password":  sess.password,
+			"ip":        sess.ip,
+			"sessions":  strconv.Itoa(n),
+			"mode":      "raw",
+		})
+		seen[sess.deviceID] = struct{}{}
+		return true
+	})
 	return result
+}
+
+func countRawSessions() int {
+	n := 0
+	rawSessionsByIP.Range(func(_, v any) bool {
+		if g, ok := v.(*rawSessionGroup); ok && g != nil {
+			n += g.len()
+		}
+		return true
+	})
+	return n
 }
 
 func forEachOnlinePassword(fn func(string)) {
