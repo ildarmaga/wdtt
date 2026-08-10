@@ -2,6 +2,12 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.79] — 2026-08-10
+
+### Fix — public build без WB-полей
+- Убраны WbRoom / combinedOnlineCount из panel store (pack не тащить в public).
+- migratePanelDBV15: raw_enable + raw_direct_port.
+
 ## [1.4.78] — 2026-08-10
 
 ### Panel — подсказка RAW без qWDTT
