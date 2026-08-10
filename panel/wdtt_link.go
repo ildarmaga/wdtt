@@ -47,18 +47,12 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 		DeviceID: deviceID,
 		VkHash:   vkHash,
 		SubURL:   subURL,
-		WbRoom:   wbRoomFromEntry(entry),
+		WbRoom:   "",
 		DtlsPort: dtls,
 		RawPort:  rawPort,
 	})
 }
 
-func wbRoomFromEntry(entry *PasswordEntry) string {
-	if entry == nil {
-		return ""
-	}
-	return strings.TrimSpace(entry.WbRoom)
-}
 
 // buildAllSubscriptionLinks — все форматы из вкладки «Подключения» профиля.
 func buildAllSubscriptionLinks(linkHost, password, remark, vpnTitle string, entry *PasswordEntry, inbound WdttInboundConfig, subURL string) (links, titles []string, err error) {

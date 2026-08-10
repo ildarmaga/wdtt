@@ -283,7 +283,7 @@ func collectWdttInboundStatus(cfg WdttInboundConfig) WdttInboundStatus {
 		st.ActiveUsers = countActivePasswords(db)
 	}
 	if stats := loadServerStats(); stats != nil {
-		st.OnlineUsers = combinedOnlineCount(stats)
+		st.OnlineUsers = stats.ActiveUsers
 		st.RawSessions = stats.RawSessions
 	}
 	return st
