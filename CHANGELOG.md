@@ -2,6 +2,14 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.81] — 2026-08-10
+
+### Fix — Подключения: убран WB Stream из UI
+- Ошибка `нет такого шаблона "modals/wbCookiesModal"`: public build без wb_cookies_modal, а connections.html всё ещё тянул WB.
+- Карточка WB Stream и cookies-модалки убраны с «Подключения» (публичная панель — только WDTT/Xray).
+- Подсказка на главной: `RAW: N` = число живых RAW-сессий, не настройка.
+- Тест `TestConnectionsHTMLHasNoWBTemplates`.
+
 ## [1.4.80] — 2026-08-10
 
 ### Fix — seed RAW_DIRECT_PORT из install-inbound.env
