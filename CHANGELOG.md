@@ -2,6 +2,11 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.80] — 2026-08-10
+
+### Fix — seed RAW_DIRECT_PORT из install-inbound.env
+- `applyDeployInboundDefaults` читает `RAW_DIRECT_PORT` (install.sh ≥1.4.79).
+
 ## [1.4.79] — 2026-08-10
 
 ### Fix — public build без WB-полей

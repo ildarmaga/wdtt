@@ -65,6 +65,8 @@ func applyDeployInboundDefaults(cfg *WdttInboundConfig) {
 			cfg.DtlsPort = p
 		case "WG_PORT":
 			cfg.WgPort = p
+		case "RAW_DIRECT_PORT":
+			cfg.RawDirectPort = p
 		}
 	}
 }
