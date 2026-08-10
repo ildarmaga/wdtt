@@ -64,7 +64,7 @@
     </a-form-item>
     <a-form-item>
       <template slot="label">
-        <a-tooltip title="MTU в WireGuard-конфиге клиента и на интерфейсе wdtt0. Для iOS/TURN обычно 1280">
+        <a-tooltip title="MTU в WireGuard-конфиге клиента и на интерфейсе wdtt0 / RAW. Для iOS/TURN обычно 1280">
           MTU <a-icon type="question-circle"></a-icon>
         </a-tooltip>
       </template>
@@ -72,11 +72,32 @@
     </a-form-item>
     <a-form-item>
       <template slot="label">
-        <a-tooltip title="Максимум активных паролей (истёкшие не считаются). Подсеть 10.66.66.0/24 — до 249">
+        <a-tooltip title="Максимум активных паролей (истёкшие не считаются). Подсеть WG 10.66.66.0/24 — до 249">
           Лимит пользователей <a-icon type="question-circle"></a-icon>
         </a-tooltip>
       </template>
       <a-input-number v-model="inboundForm.max_users" :min="1" :max="249" :style="{ width: '100%' }"></a-input-number>
+    </a-form-item>
+    <a-divider>RAW (без WireGuard)</a-divider>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="Разрешить клиентам режим RAW: IP поверх WRAP по UDP напрямую к серверу, без WireGuard и без DTLS. Нужен PWDTT Desktop ≥0.3.275">
+          Режим RAW <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-switch v-model="inboundForm.raw_enable"></a-switch>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip title="UDP порт direct RAW (WRAP AEAD). По умолчанию DTLS+3 (например 56000→56003). Смена перезапускает VPN">
+          RAW UDP порт <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model="inboundForm.raw_direct_port" :min="1" :max="65535" :style="{ width: '100%' }"
+        :disabled="inboundForm.raw_enable === false"></a-input-number>
+    </a-form-item>
+    <a-form-item label="Подсеть RAW">
+      <a-input :value="inboundForm.raw_subnet || '10.70.0.0/16'" disabled></a-input>
     </a-form-item>
     <a-divider>Расширенные</a-divider>
     <a-form-item>

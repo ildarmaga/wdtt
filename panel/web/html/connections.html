@@ -28,13 +28,15 @@
                           <a-tag color="purple">WDTT</a-tag>
                           <a-tag color="blue">DTLS [[ row.dtls_port ]]</a-tag>
                           <a-tag color="green">WG [[ row.wg_port ]]</a-tag>
+                          <a-tag v-if="row.raw_enable !== false" color="orange">RAW [[ row.raw_direct_port || ((Number(row.dtls_port)||56000)+3) ]]</a-tag>
+                          <a-tag v-else>RAW off</a-tag>
                         </div>
                       </div>
                       <a-switch :checked="row.enable !== false" :loading="row.toggling"
                         @change="checked => toggleWdttEnable(row, checked)"></a-switch>
                     </div>
                     <div class="conn-mobile-meta">
-                      <span>Онлайн: <a @click="goUsers">[[ row.active_users || 0 ]]</a></span>
+                      <span>Онлайн: <a @click="goUsers">[[ row.online_users || 0 ]]</a></span>
                       <span>[[ row.traffic_used_fmt || '0 B' ]] / ∞</span>
                     </div>
                     <div class="conn-mobile-actions">
@@ -64,26 +66,112 @@
                   <template slot="wdttRemark" slot-scope="text">[[ text || '—' ]]</template>
                   <template slot="wdttPort" slot-scope="_, row">
                     <span class="connections-port-cell">
-                      <a-tooltip title="UDP порт DTLS — основной вход клиентов">
+                      <a-tooltip title="UDP порт DTLS — GETCONF / WG handshake">
                         <a-tag color="blue" :style="{ margin: 0 }">[[ row.dtls_port ]]</a-tag>
                       </a-tooltip>
                       <a-tooltip title="UDP порт WireGuard (userspace)">
                         <a-tag color="green" :style="{ margin: 0 }">[[ row.wg_port ]]</a-tag>
                       </a-tooltip>
+                      <a-tooltip v-if="row.raw_enable !== false" title="UDP порт direct RAW (WRAP, без DTLS)">
+                        <a-tag color="orange" :style="{ margin: 0 }">[[ row.raw_direct_port || ((Number(row.dtls_port)||56000)+3) ]]</a-tag>
+                      </a-tooltip>
                     </span>
                   </template>
-                  <template slot="wdttProtocol">
-                    <a-tag color="purple" :style="{ margin: 0 }">WDTT</a-tag>
-                    <a-tag color="blue" :style="{ margin: 0 }">DTLS</a-tag>
-                    <a-tag color="green" :style="{ margin: 0 }">WG</a-tag>
+                  <template slot="wdttProtocol" slot-scope="_, row">
+                    <span class="connections-proto-cell">
+                      <a-tag color="purple" :style="{ margin: 0 }">WDTT</a-tag>
+                      <a-tag color="blue" :style="{ margin: 0 }">DTLS</a-tag>
+                      <a-tag color="green" :style="{ margin: 0 }">WG</a-tag>
+                      <a-tooltip v-if="row.raw_enable !== false" :title="'IP без WireGuard · UDP ' + (row.raw_direct_port || ((Number(row.dtls_port)||56000)+3)) + ' · ' + (row.raw_subnet || '10.70.0.0/16') + (row.raw_sessions ? (' · сессий ' + row.raw_sessions) : '')">
+                        <a-tag color="orange" :style="{ margin: 0 }">RAW[[ row.raw_sessions ? (' · ' + row.raw_sessions) : '' ]]</a-tag>
+                      </a-tooltip>
+                      <a-tooltip v-else title="RAW выключен в настройках WDTT">
+                        <a-tag :style="{ margin: 0 }">RAW off</a-tag>
+                      </a-tooltip>
+                    </span>
                   </template>
                   <template slot="wdttUsers" slot-scope="_, row">
                     <a @click="goUsers" style="cursor:pointer">
-                      <a-tag color="green" style="margin:0">[[ row.active_users ]]</a-tag>
+                      <a-tooltip title="Онлайн (VK + WB)">
+                        <a-tag color="green" style="margin:0">[[ row.online_users || 0 ]]</a-tag>
+                      </a-tooltip>
                     </a>
                   </template>
                   <template slot="wdttTraffic" slot-scope="_, row">
                     <a-tag color="green" style="margin:0">[[ row.traffic_used_fmt || '0 B' ]] / ∞</a-tag>
+                  </template>
+                </a-table>
+              </a-card>
+
+              <a-card title="WB Stream" hoverable style="margin-bottom:16px">
+                <a-row :gutter="[8,8]" style="margin-bottom:12px" v-if="!wb.cookies_ok">
+                  <a-col :span="24">
+                    <span class="text-muted" style="font-size:12px">[[ wb.cookies_hint || 'Загрузите cookies для WB Stream' ]]</span>
+                  </a-col>
+                </a-row>
+                <div v-if="isMobile" class="conn-mobile-list">
+                  <div v-for="row in wbRows" :key="row.key" class="conn-mobile-card">
+                    <div class="conn-mobile-head">
+                      <div>
+                        <div class="conn-mobile-title">[[ row.remark || 'WB Stream' ]]</div>
+                        <div class="conn-mobile-tags">
+                          <a-tag color="purple">WB</a-tag>
+                          <a-tag color="blue">WebRTC</a-tag>
+                          <a-tag :color="row.cookies_ok ? 'green' : 'orange'">Cookies [[ row.cookies_ok ? 'OK' : 'нет' ]]</a-tag>
+                          <a-tag :color="row.tunnel_connected > 0 ? 'green' : 'default'">
+                            [[ row.tunnel_connected > 0 ? (row.tunnel_connected + ' подкл.') : 'ожидание' ]]
+                          </a-tag>
+                        </div>
+                      </div>
+                      <a-switch :checked="row.enable !== false" :loading="row.toggling"
+                        :disabled="!wb.cookies_ok"
+                        @change="checked => toggleWbEnable(row, checked)"></a-switch>
+                    </div>
+                    <div class="conn-mobile-meta">
+                      <span>Активных: <a @click="goUsers">[[ row.active_users || 0 ]]</a></span>
+                    </div>
+                    <div class="conn-mobile-actions">
+                      <a-button size="small" icon="edit" @click="openWbEdit(row)">Изменить</a-button>
+                    </div>
+                  </div>
+                </div>
+                <a-table v-else :columns="wbCols" :data-source="wbRows" :pagination="false"
+                  :row-key="row => row.key" bordered size="middle"
+                  :locale='{ emptyText: "WB Stream не настроен" }'>
+                  <template slot="wbOperate" slot-scope="_, row">
+                    <a-dropdown :trigger="['click']">
+                      <a-icon @click="e => e.preventDefault()" type="more"
+                        :style="{ fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }"></a-icon>
+                      <a-menu slot="overlay" :theme="themeSwitcher.currentTheme">
+                        <a-menu-item @click="openWbEdit(row)">
+                          <a-icon type="edit"></a-icon>
+                          <span>Изменить WB Stream</span>
+                        </a-menu-item>
+                      </a-menu>
+                    </a-dropdown>
+                  </template>
+                  <template slot="wbEnable" slot-scope="_, row">
+                    <a-switch :checked="row.enable !== false" :loading="row.toggling"
+                      :disabled="!wb.cookies_ok"
+                      @change="checked => toggleWbEnable(row, checked)"></a-switch>
+                  </template>
+                  <template slot="wbRemark" slot-scope="text">[[ text || 'WB Stream' ]]</template>
+                  <template slot="wbCookies" slot-scope="_, row">
+                    <a-tag :color="row.cookies_ok ? 'green' : 'orange'">[[ row.cookies_ok ? 'OK' : 'нет' ]]</a-tag>
+                  </template>
+                  <template slot="wbTunnel" slot-scope="_, row">
+                    <a-tag :color="row.tunnel_connected > 0 ? 'green' : 'default'">
+                      [[ row.tunnel_connected > 0 ? (row.tunnel_connected + ' подкл.') : 'ожидание' ]]
+                    </a-tag>
+                  </template>
+                  <template slot="wbProtocol">
+                    <a-tag color="purple" :style="{ margin: 0 }">WB</a-tag>
+                    <a-tag color="blue" :style="{ margin: 0 }">WebRTC</a-tag>
+                  </template>
+                  <template slot="wbUsers" slot-scope="_, row">
+                    <a @click="goUsers" style="cursor:pointer">
+                      <a-tag color="green" style="margin:0">[[ row.active_users || 0 ]]</a-tag>
+                    </a>
                   </template>
                 </a-table>
               </a-card>
@@ -279,8 +367,16 @@
   .connections-page .connections-port-cell {
     display: inline-flex;
     flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
     gap: 4px;
     white-space: nowrap;
+  }
+  .connections-page .connections-proto-cell {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
     max-width: 100%;
   }
   .connections-page .text-muted { color: rgba(0,0,0,.45); }
@@ -312,6 +408,12 @@
       this.stats_interval_sec = Number(data.stats_interval_sec) || 2;
       this.max_dtls_per_device = Number.isFinite(Number(data.max_dtls_per_device)) ? Number(data.max_dtls_per_device) : 0;
       this.admin_addr = data.admin_addr || '127.0.0.1:2861';
+      this.raw_enable = data.raw_enable !== false;
+      const dtls = Number(data.dtls_port) || 56000;
+      this.raw_direct_port = Number(data.raw_direct_port) || (dtls + 3);
+      this.raw_subnet = data.raw_subnet || '10.70.0.0/16';
+      this.raw_sessions = Number(data.raw_sessions) || 0;
+      this.raw_iface_up = !!data.raw_iface_up;
       this.server_ip = data.server_ip || '';
       this.default_link_host = data.default_link_host || '';
       this.panel_tls = !!data.panel_tls;
@@ -342,6 +444,8 @@
         wg_keepalive_sec: Number(this.wg_keepalive_sec) || 25,
         stats_interval_sec: Number(this.stats_interval_sec) || 2,
         admin_addr: (this.admin_addr || '127.0.0.1:2861').trim(),
+        raw_enable: this.raw_enable !== false,
+        raw_direct_port: Number(this.raw_direct_port) || 0,
       };
     }
   }
@@ -410,6 +514,8 @@
   }
 </script>
 {{ template "modals/wdttInboundModal" . }}
+{{ template "modals/wbInboundModal" . }}
+{{ template "modals/wbCookiesModal" . }}
 {{ template "modals/xrayInboundModal" . }}
 {{ template "modals/firewallPortsModal" . }}
 <script>
@@ -422,6 +528,16 @@
       loadingStates: { fetched: false, spinning: false },
       wdtt: new InboundSetting(),
       wdttConfigured: false,
+      wb: {
+        cookies_ok: false,
+        cookies_hint: '',
+        cookiesText: '',
+        configured: false,
+        enable: false,
+        active_users: 0,
+        tunnel_connected: 0,
+        remark: 'WB Stream',
+      },
       xrayInbounds: [],
       searchText: '',
       refreshing: false,
@@ -432,10 +548,20 @@
         { title: '{{ i18n "pages.inbounds.operate" }}', scopedSlots: { customRender: 'wdttOperate' }, width: 72, align: 'center' },
         { title: '{{ i18n "pages.inbounds.enable" }}', scopedSlots: { customRender: 'wdttEnable' }, width: 104, align: 'center' },
         { title: '{{ i18n "pages.inbounds.remark" }}', dataIndex: 'remark', scopedSlots: { customRender: 'wdttRemark' }, ellipsis: true },
-        { title: '{{ i18n "pages.inbounds.port" }}', scopedSlots: { customRender: 'wdttPort' }, width: 136, align: 'center' },
-        { title: '{{ i18n "pages.inbounds.protocol" }}', scopedSlots: { customRender: 'wdttProtocol' }, width: 168, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.port" }}', scopedSlots: { customRender: 'wdttPort' }, width: 200, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.protocol" }}', scopedSlots: { customRender: 'wdttProtocol' }, width: 240, align: 'center' },
         { title: '{{ i18n "menu.users" }}', scopedSlots: { customRender: 'wdttUsers' }, width: 128, align: 'center' },
         { title: '{{ i18n "pages.inbounds.traffic" }}', scopedSlots: { customRender: 'wdttTraffic' }, width: 168, align: 'center' },
+      ],
+      wbCols: [
+        { title: 'ID', dataIndex: 'id', width: 52, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.operate" }}', scopedSlots: { customRender: 'wbOperate' }, width: 72, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.enable" }}', scopedSlots: { customRender: 'wbEnable' }, width: 104, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.remark" }}', dataIndex: 'remark', scopedSlots: { customRender: 'wbRemark' }, ellipsis: true },
+        { title: 'Cookies', scopedSlots: { customRender: 'wbCookies' }, width: 100, align: 'center' },
+        { title: 'Туннель', scopedSlots: { customRender: 'wbTunnel' }, width: 130, align: 'center' },
+        { title: '{{ i18n "pages.inbounds.protocol" }}', scopedSlots: { customRender: 'wbProtocol' }, width: 140, align: 'center' },
+        { title: '{{ i18n "menu.users" }}', scopedSlots: { customRender: 'wbUsers' }, width: 128, align: 'center' },
       ],
       xrayCols: [
         { title: 'ID', dataIndex: 'id', width: 52, align: 'center' },
@@ -451,6 +577,18 @@
       wdttRows() {
         if (!this.wdttConfigured) return [];
         return [Object.assign({ id: 1, key: this.wdtt.tag || 'wdtt-in' }, this.wdtt)];
+      },
+      wbRows() {
+        return [{
+          id: 1,
+          key: 'wb-stream',
+          remark: this.wb.remark || 'WB Stream',
+          enable: this.wb.enable !== false,
+          cookies_ok: !!this.wb.cookies_ok,
+          active_users: this.wb.active_users || 0,
+          tunnel_connected: this.wb.tunnel_connected || 0,
+          toggling: false,
+        }];
       },
       filteredXrayRows() {
         const q = (this.searchText || '').trim().toLowerCase();
@@ -520,6 +658,34 @@
           this.wdttConfigured = !!res.obj.configured;
         }
       },
+      async loadWb() {
+        const res = await panelApiJson('panel/api/wb/inbound', { method: 'GET' }).catch(() => null);
+        if (res && res.obj) {
+          Object.assign(this.wb, res.obj, { cookiesText: this.wb.cookiesText });
+        }
+      },
+      openWbEdit(row) {
+        wbInboundModal.show(Object.assign({}, this.wb, row || {}));
+      },
+      openWbCookies() {
+        wbCookiesModal.show({ cookiesText: this.wb.cookiesText || '' });
+      },
+      async toggleWbEnable(row, enabled) {
+        row.toggling = true;
+        try {
+          const res = await panelApiJson('panel/api/wb/enable', {
+            method: 'POST',
+            body: JSON.stringify({ enable: !!enabled }),
+          });
+          if (res && res.obj) Object.assign(this.wb, res.obj);
+          this.toast(enabled ? 'WB Stream включён' : 'WB Stream выключен', true);
+        } catch (err) {
+          this.toast(err.message || 'ошибка', false);
+          await this.loadWb();
+        } finally {
+          row.toggling = false;
+        }
+      },
       async loadXrayInbounds() {
         const res = await panelApiJson('panel/api/xray-inbounds', { method: 'GET' }).catch(() => null);
         if (res && res.obj) {
@@ -530,7 +696,7 @@
         const withSpinner = options.withSpinner === true;
         this.refreshing = true;
         if (withSpinner) this.loadingStates.spinning = true;
-        await Promise.all([this.loadWdtt(), this.loadXrayInbounds()]);
+        await Promise.all([this.loadWdtt(), this.loadWb(), this.loadXrayInbounds()]);
         if (!this.loadingStates.fetched) this.loadingStates.fetched = true;
         setTimeout(() => {
           this.refreshing = false;
@@ -667,6 +833,15 @@
       },
     },
     async mounted() {
+      wbInboundModal.onSaved = async (obj) => {
+        Object.assign(this.wb, obj || {});
+        await this.loadWb();
+        this.toast('WB Stream сохранён', true);
+      };
+      wbCookiesModal.onSaved = async (obj) => {
+        Object.assign(this.wb, obj || {}, { cookiesText: (obj && obj.cookiesText) || this.wb.cookiesText });
+        await this.loadWb();
+      };
       inboundModal.onSaved = async (obj) => {
         this.toast('WDTT сохранён', true);
         this.wdtt = new InboundSetting(obj);

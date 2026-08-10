@@ -81,6 +81,7 @@ func userEntryToPaneldb(e *PasswordEntry) *paneldb.User {
 		Comment:       e.Comment,
 		Ports:         e.Ports,
 		VkHash:        e.VkHash,
+		WbRoom:        e.WbRoom,
 		SubID:         e.SubID,
 		LastSeenAt:    e.LastSeenAt,
 	}
@@ -101,6 +102,7 @@ func userEntryFromPaneldb(u *paneldb.User) *PasswordEntry {
 		Comment:       u.Comment,
 		Ports:         u.Ports,
 		VkHash:        u.VkHash,
+		WbRoom:        u.WbRoom,
 		SubID:         u.SubID,
 		LastSeenAt:    u.LastSeenAt,
 	}
@@ -153,6 +155,8 @@ func wdttInboundToPaneldb(cfg WdttInboundConfig) *paneldb.Inbound {
 		WgKeepaliveSec:      cfg.WgKeepaliveSec,
 		StatsIntervalSec:    cfg.StatsIntervalSec,
 		AdminAddr:           cfg.AdminAddr,
+		RawEnable:           cfg.RawEnable,
+		RawDirectPort:       cfg.RawDirectPort,
 	}
 }
 
@@ -254,6 +258,8 @@ func wdttInboundFromPaneldb(in *paneldb.Inbound) WdttInboundConfig {
 		WgKeepaliveSec:      in.WgKeepaliveSec,
 		StatsIntervalSec:    in.StatsIntervalSec,
 		AdminAddr:           in.AdminAddr,
+		RawEnable:           in.RawEnable,
+		RawDirectPort:       in.RawDirectPort,
 	}
 }
 

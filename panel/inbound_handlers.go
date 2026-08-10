@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 
 	"github.com/ildarmaga/wdtt/pkg/paneldb"
@@ -57,6 +59,12 @@ func inboundAPIPayload(a *App, cfg WdttInboundConfig) map[string]interface{} {
 		"wg_keepalive_sec":      cfg.WgKeepaliveSec,
 		"stats_interval_sec":    cfg.StatsIntervalSec,
 		"admin_addr":            cfg.AdminAddr,
+		"raw_enable":            cfg.RawEnable,
+		"raw_direct_port":       cfg.EffectiveRawDirectPort(),
+		"raw_subnet":            "10.70.0.0/16",
+		"raw_iface":             "wdtt-raw",
+		"raw_sessions":          st.RawSessions,
+		"raw_iface_up":          st.RawIfaceUp,
 		"service_active":   serviceActive,
 		"iface_up":         st.IfaceUp,
 		"iface_addr":       st.IfaceAddr,
@@ -103,10 +111,29 @@ func (a *App) handleInboundSave(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "method not allowed", 405)
 		return
 	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	var req WdttInboundConfig
 	if err := readJSON(r, &req); err != nil {
 		jsonError(w, err.Error(), 400)
 		return
+	}
+	// Старые клиенты без raw_enable в JSON: не сбрасывать в false.
+	if !bytes.Contains(body, []byte(`"raw_enable"`)) {
+		if old, err := loadWdttInbound(); err == nil {
+			req.RawEnable = old.RawEnable
+		} else {
+			req.RawEnable = true
+		}
+	}
+	if !bytes.Contains(body, []byte(`"raw_direct_port"`)) {
+		if old, err := loadWdttInbound(); err == nil {
+			req.RawDirectPort = old.RawDirectPort
+		}
 	}
 	restarted, err := applyWdttInbound(req)
 	if err != nil {

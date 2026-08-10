@@ -24,7 +24,8 @@ type Inbound struct {
 	WgKeepaliveSec      int
 	StatsIntervalSec    int
 	AdminAddr           string
-	RawEnable           bool // RAWCONF / IP over DTLS (без WireGuard)
+	RawEnable           bool // RAWCONF / IP over WRAP (без WireGuard)
+	RawDirectPort       int  // 0 = DTLS+3
 }
 
 // RuntimeSettings — поля inbound, которые wdtt-server может применить без rebind.
@@ -42,11 +43,12 @@ type RuntimeSettings struct {
 
 // StartupSettings — bind-параметры + runtime (читаются при старте / in-process restart).
 type StartupSettings struct {
-	ListenHost string
-	DtlsPort   int
-	WgPort     int
-	AdminAddr  string
-	Enable     bool
+	ListenHost    string
+	DtlsPort      int
+	WgPort        int
+	RawDirectPort int // 0 = DTLS+3
+	AdminAddr     string
+	Enable        bool
 	RuntimeSettings
 }
 
@@ -66,11 +68,11 @@ func LoadInbound(db *sql.DB) (*Inbound, error) {
 	var enable, rawEnable int
 	err := db.QueryRow(`SELECT tag, remark, enable, listen_host, server_host, dtls_port, wg_port,
 		client_port, dns, mtu, max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec,
-		wg_keepalive_sec, stats_interval_sec, admin_addr, raw_enable
+		wg_keepalive_sec, stats_interval_sec, admin_addr, raw_enable, raw_direct_port
 		FROM wdtt_inbound WHERE id = 1`).Scan(
 		&in.Tag, &in.Remark, &enable, &in.ListenHost, &in.ServerHost, &in.DtlsPort, &in.WgPort,
 		&in.ClientPort, &in.DNS, &in.MTU, &in.MaxUsers, &in.HandshakeTimeoutSec, &in.MaxDtlsPerDevice, &in.OnlineTimeoutSec,
-		&in.WgKeepaliveSec, &in.StatsIntervalSec, &in.AdminAddr, &rawEnable,
+		&in.WgKeepaliveSec, &in.StatsIntervalSec, &in.AdminAddr, &rawEnable, &in.RawDirectPort,
 	)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
@@ -99,8 +101,8 @@ func SaveInbound(db *sql.DB, in *Inbound) error {
 	}
 	_, err := db.Exec(`INSERT INTO wdtt_inbound (
 		id, tag, remark, enable, listen_host, server_host, dtls_port, wg_port, client_port, dns, mtu,
-		max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, wg_keepalive_sec, stats_interval_sec, admin_addr, raw_enable
-	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		max_users, handshake_timeout_sec, max_dtls_per_device, online_timeout_sec, wg_keepalive_sec, stats_interval_sec, admin_addr, raw_enable, raw_direct_port
+	) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 	ON CONFLICT(id) DO UPDATE SET
 		tag=excluded.tag, remark=excluded.remark, enable=excluded.enable,
 		listen_host=excluded.listen_host, server_host=excluded.server_host,
@@ -112,10 +114,11 @@ func SaveInbound(db *sql.DB, in *Inbound) error {
 		wg_keepalive_sec=excluded.wg_keepalive_sec,
 		stats_interval_sec=excluded.stats_interval_sec,
 		admin_addr=excluded.admin_addr,
-		raw_enable=excluded.raw_enable`,
+		raw_enable=excluded.raw_enable,
+		raw_direct_port=excluded.raw_direct_port`,
 		in.Tag, in.Remark, en, in.ListenHost, in.ServerHost, in.DtlsPort, in.WgPort,
 		in.ClientPort, in.DNS, in.MTU, in.MaxUsers, in.HandshakeTimeoutSec, in.MaxDtlsPerDevice, in.OnlineTimeoutSec,
-		in.WgKeepaliveSec, in.StatsIntervalSec, in.AdminAddr, rawEn,
+		in.WgKeepaliveSec, in.StatsIntervalSec, in.AdminAddr, rawEn, in.RawDirectPort,
 	)
 	return err
 }
@@ -161,11 +164,12 @@ func LoadStartupSettings(db *sql.DB) (StartupSettings, bool, error) {
 		return StartupSettings{}, false, err
 	}
 	return StartupSettings{
-		ListenHost: in.ListenHost,
-		DtlsPort:   in.DtlsPort,
-		WgPort:     in.WgPort,
-		AdminAddr:  in.AdminAddr,
-		Enable:     in.Enable,
+		ListenHost:    in.ListenHost,
+		DtlsPort:      in.DtlsPort,
+		WgPort:        in.WgPort,
+		RawDirectPort: in.RawDirectPort,
+		AdminAddr:     in.AdminAddr,
+		Enable:        in.Enable,
 		RuntimeSettings: RuntimeSettings{
 			DNS:                 in.DNS,
 			MTU:                 in.MTU,

@@ -25,16 +25,29 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
-func rawDirectListenAddr(dtlsAddr string) (string, error) {
+func rawDirectListenAddr(dtlsAddr string, rawPort int) (string, error) {
 	host, portText, err := net.SplitHostPort(dtlsAddr)
 	if err != nil {
 		return "", err
 	}
-	port, err := strconv.Atoi(portText)
-	if err != nil || port < 1 || port > 65532 {
+	dtlsPort, err := strconv.Atoi(portText)
+	if err != nil || dtlsPort < 1 || dtlsPort > 65535 {
 		return "", fmt.Errorf("invalid DTLS port %q", portText)
 	}
-	return net.JoinHostPort(host, strconv.Itoa(port+rawDirectPortOffset)), nil
+	port := rawPort
+	if port <= 0 {
+		if dtlsPort > 65535-rawDirectPortOffset {
+			return "", fmt.Errorf("invalid DTLS port %q for RAW offset", portText)
+		}
+		port = dtlsPort + rawDirectPortOffset
+	}
+	if port < 1 || port > 65535 {
+		return "", fmt.Errorf("invalid RAW port %d", port)
+	}
+	if port == dtlsPort {
+		return "", fmt.Errorf("RAW port must differ from DTLS")
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port)), nil
 }
 
 const (
@@ -618,7 +631,7 @@ func runServerOnce(ctx context.Context, cfg ServerConfig) {
 
 	rawAcceptDone := make(chan struct{})
 	close(rawAcceptDone) // default: no direct listener
-	rawListen, err := rawDirectListenAddr(cfg.Listen)
+	rawListen, err := rawDirectListenAddr(cfg.Listen, cfg.RawDirectPort)
 	if err != nil {
 		log.Printf("[RAW-DIRECT] address: %v — WG/DTLS продолжают работать", err)
 	} else {

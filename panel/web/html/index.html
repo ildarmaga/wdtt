@@ -272,8 +272,9 @@
                     <div class="wdtt-head">
                       <span class="wdtt-brand">WDTT</span>
                       <div class="wdtt-tags">
-                        <a-tag color="blue">Онлайн: [[ status.wdtt.activeUsers ]]</a-tag>
-                        <a-tag color="cyan">Сессий: [[ status.wdtt.sessions ]]</a-tag>
+                        <a-tag color="blue" title="Уникальные онлайн (WG + RAW + WB)">Онлайн: [[ status.wdtt.activeUsers ]]</a-tag>
+                        <a-tag color="cyan" title="DTLS / WireGuard сессии">WDTT: [[ Math.max(0, (status.wdtt.sessions || 0) - (status.wdtt.rawSessions || 0)) ]]</a-tag>
+                        <a-tag color="orange" title="RAW direct сессии">RAW: [[ status.wdtt.rawSessions || 0 ]]</a-tag>
                         <a-tag color="purple">[[ status.wdtt.ifaceShort ]]</a-tag>
                       </div>
                     </div>
@@ -905,7 +906,7 @@
       };
 
       this.xray = { state: 'stop', stateMsg: "", errorMsg: "", version: "", color: "", uptime: 0 };
-      this.wdtt = { state: 'stop', stateMsg: "", errorMsg: "", color: "", activeUsers: 0, sessions: 0, iface: "", ifaceShort: "wdtt0", mainPassword: "", downGB: "0", upGB: "0", downBytes: 0, upBytes: 0, uptime: 0, serverUptime: 0 };
+      this.wdtt = { state: 'stop', stateMsg: "", errorMsg: "", color: "", activeUsers: 0, sessions: 0, rawSessions: 0, iface: "", ifaceShort: "wdtt0", mainPassword: "", downGB: "0", upGB: "0", downBytes: 0, upBytes: 0, uptime: 0, serverUptime: 0 };
       this.wdttServerColor = "orange";
 
       if (data == null) {

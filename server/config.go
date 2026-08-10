@@ -7,12 +7,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
 // ServerConfig — параметры одного цикла VPN-сервера.
 type ServerConfig struct {
 	Listen           string
 	WgPort           int
+	RawDirectPort    int // 0 = DTLS+3
 	ConfigDir        string
 	MainPass         string
 	AdminID          string
@@ -88,6 +91,7 @@ func (c *ServerConfig) mergeFromPanelDB() {
 	if startup.WgPort > 0 {
 		c.WgPort = startup.WgPort
 	}
+	c.RawDirectPort = startup.RawDirectPort
 	if addr := strings.TrimSpace(startup.AdminAddr); addr != "" {
 		c.AdminAddr = addr
 	}
@@ -98,7 +102,8 @@ func (c *ServerConfig) mergeFromPanelDB() {
 		c.MaxDTLSPerDevice = startup.MaxDtlsPerDevice
 	}
 	applyInboundRuntimeSettings(startup.RuntimeSettings)
-	log.Printf("[CFG] inbound startup from %s: listen=%s wg=%d admin=%s", panelDBPath, c.Listen, c.WgPort, c.AdminAddr)
+	rawPort := paneldb.EffectiveRawDirectPort(startup.DtlsPort, c.RawDirectPort)
+	log.Printf("[CFG] inbound startup from %s: listen=%s wg=%d raw=%d admin=%s", panelDBPath, c.Listen, c.WgPort, rawPort, c.AdminAddr)
 }
 
 func (c ServerConfig) applyGlobals() {

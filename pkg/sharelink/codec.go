@@ -48,11 +48,13 @@ func Decode(link string) (Payload, error) {
 		IP   string `json:"ip"`
 		Add  string `json:"add"`
 		Dtls int    `json:"dtls"`
+		Raw  int    `json:"raw"`
 		Pass string `json:"pass"`
 		Id   string `json:"id"`
 		Did  string `json:"did"`
 		Hash string `json:"hash"`
 		Sub  string `json:"sub"`
+		WbRoom string `json:"wb_room"`
 	}
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return p, fmt.Errorf("неверный JSON в ссылке: %w", err)
@@ -62,10 +64,12 @@ func Decode(link string) (Payload, error) {
 	p.Ps = p.Name
 	p.IP = strings.TrimSpace(firstNonEmpty(legacy.IP, legacy.Add))
 	p.Dtls = legacy.Dtls
+	p.Raw = legacy.Raw
 	p.Pass = strings.TrimSpace(firstNonEmpty(legacy.Pass, legacy.Id))
 	p.Did = legacy.Did
 	p.Hash = legacy.Hash
 	p.Sub = legacy.Sub
+	p.WbRoom = strings.TrimSpace(legacy.WbRoom)
 	return p, nil
 }
 

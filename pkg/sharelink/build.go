@@ -103,9 +103,11 @@ func BuildPanelLink(p PanelLinkParams) (string, error) {
 		Name: strings.TrimSpace(p.UserName),
 		IP:   strings.TrimSpace(p.Host),
 		Dtls: dtls,
+		Raw:  p.RawPort,
 		Pass: strings.TrimSpace(p.Password),
 		Did:  strings.TrimSpace(p.DeviceID),
 		Sub:  strings.TrimSpace(p.SubURL),
+		WbRoom: strings.TrimSpace(p.WbRoom),
 	}
 	if h := strings.TrimSpace(p.VkHash); h != "" {
 		pl.Hash = vkhash.FormatForLink(h, vkhash.FormatBare, vkhash.Max)
@@ -123,6 +125,7 @@ func BuildBotLink(p BotLinkParams) (string, error) {
 		Ps:   strings.TrimSpace(p.Remark),
 		IP:   strings.TrimSpace(p.Host),
 		Dtls: dtls,
+		Raw:  p.RawPort,
 		Pass: strings.TrimSpace(p.Password),
 	}
 	if h := strings.TrimSpace(p.VkHash); h != "" {

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 )
 
 var wdttInboundPath = "/etc/wdtt/inbound.json"
@@ -48,7 +50,13 @@ type WdttInboundConfig struct {
 	StatsIntervalSec    int    `json:"stats_interval_sec"`
 	AdminAddr           string `json:"admin_addr"`
 	RawEnable           bool   `json:"raw_enable"`
+	RawDirectPort       int    `json:"raw_direct_port"` // 0 = DTLS+3
 	Create              bool   `json:"create"`
+}
+
+// EffectiveRawDirectPort — UDP порт direct RAW (WRAP), по умолчанию DTLS+3.
+func (c WdttInboundConfig) EffectiveRawDirectPort() int {
+	return paneldb.EffectiveRawDirectPort(c.DtlsPort, c.RawDirectPort)
 }
 
 type WdttInboundStatus struct {
@@ -156,6 +164,10 @@ func (c *WdttInboundConfig) normalize() {
 	if strings.TrimSpace(c.AdminAddr) == "" {
 		c.AdminAddr = def.AdminAddr
 	}
+	// DTLS+3 = авто: не фиксируем порт, чтобы следовал за сменой DTLS.
+	if c.RawDirectPort > 0 && c.DtlsPort > 0 && c.RawDirectPort == c.DtlsPort+paneldb.RawDirectPortOffset {
+		c.RawDirectPort = 0
+	}
 }
 
 func (c WdttInboundConfig) validate() error {
@@ -171,6 +183,13 @@ func (c WdttInboundConfig) validate() error {
 	}
 	if c.DtlsPort == c.WgPort {
 		return fmt.Errorf("DTLS и WireGuard порты должны отличаться")
+	}
+	rawPort := c.EffectiveRawDirectPort()
+	if rawPort < 1 || rawPort > 65535 {
+		return fmt.Errorf("RAW UDP порт должен быть от 1 до 65535")
+	}
+	if rawPort == c.DtlsPort || rawPort == c.WgPort {
+		return fmt.Errorf("RAW UDP порт должен отличаться от DTLS и WireGuard")
 	}
 	host := strings.TrimSpace(c.ListenHost)
 	if host == "" {
@@ -264,7 +283,7 @@ func collectWdttInboundStatus(cfg WdttInboundConfig) WdttInboundStatus {
 		st.ActiveUsers = countActivePasswords(db)
 	}
 	if stats := loadServerStats(); stats != nil {
-		st.OnlineUsers = stats.ActiveUsers
+		st.OnlineUsers = combinedOnlineCount(stats)
 		st.RawSessions = stats.RawSessions
 	}
 	return st
@@ -414,9 +433,9 @@ func ensureWdttFirewallPort(port int) {
 func ensureWdttFirewallPorts(cfg WdttInboundConfig) {
 	ensureWdttFirewallPort(cfg.DtlsPort)
 	ensureWdttFirewallPort(cfg.WgPort)
-	// RAW direct (WRAP, no DTLS) слушает DTLS+3
-	if cfg.DtlsPort > 0 {
-		ensureWdttFirewallPort(cfg.DtlsPort + 3)
+	// RAW direct (WRAP, no DTLS)
+	if cfg.RawEnable {
+		ensureWdttFirewallPort(cfg.EffectiveRawDirectPort())
 	}
 }
 
@@ -424,7 +443,7 @@ func ensureWdttFirewallPorts(cfg WdttInboundConfig) {
 func writeWdttServiceFile(cfg WdttInboundConfig) error {
 	cfg.normalize()
 	sshPort := detectSSHPort()
-	rawDirectPort := cfg.DtlsPort + 3
+	rawDirectPort := cfg.EffectiveRawDirectPort()
 	iptPre := fmt.Sprintf(
 		`ExecStartPre=-/usr/bin/env bash -c "if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport %d -m comment --comment %s -j ACCEPT; iptables -C INPUT -p tcp --dport %d -m comment --comment %s -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport %d -m comment --comment %s -j ACCEPT; fi"`,
 		cfg.DtlsPort, wdttIptComment, cfg.DtlsPort, wdttIptComment,
@@ -465,6 +484,9 @@ func inboundRequiresRestart(old, cfg WdttInboundConfig) bool {
 		return true
 	}
 	if old.ListenHost != cfg.ListenHost || old.DtlsPort != cfg.DtlsPort || old.WgPort != cfg.WgPort {
+		return true
+	}
+	if old.EffectiveRawDirectPort() != cfg.EffectiveRawDirectPort() {
 		return true
 	}
 	if old.AdminAddr != cfg.AdminAddr {
@@ -522,12 +544,12 @@ func applyWdttInbound(cfg WdttInboundConfig) (restarted bool, err error) {
 	unified := isUnifiedDeployment()
 	if old.DtlsPort != cfg.DtlsPort {
 		removeWdttFirewallPort(old.DtlsPort)
-		if old.DtlsPort > 0 {
-			removeWdttFirewallPort(old.DtlsPort + 3)
-		}
 	}
 	if old.WgPort != cfg.WgPort {
 		removeWdttFirewallPort(old.WgPort)
+	}
+	if old.EffectiveRawDirectPort() != cfg.EffectiveRawDirectPort() {
+		removeWdttFirewallPort(old.EffectiveRawDirectPort())
 	}
 	if !cfg.Enable {
 		if unified {

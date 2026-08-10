@@ -35,6 +35,10 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 	if vpnName == "" {
 		vpnName = strings.TrimSpace(inbound.Tag)
 	}
+	rawPort := 0
+	if inbound.RawEnable {
+		rawPort = inbound.EffectiveRawDirectPort()
+	}
 	return sharelink.BuildPanelLink(sharelink.PanelLinkParams{
 		Host:     host,
 		Password: password,
@@ -43,8 +47,17 @@ func buildWdttShareLink(serverIP, password, remark, vpnTitle, deviceID, vkHash s
 		DeviceID: deviceID,
 		VkHash:   vkHash,
 		SubURL:   subURL,
+		WbRoom:   wbRoomFromEntry(entry),
 		DtlsPort: dtls,
+		RawPort:  rawPort,
 	})
+}
+
+func wbRoomFromEntry(entry *PasswordEntry) string {
+	if entry == nil {
+		return ""
+	}
+	return strings.TrimSpace(entry.WbRoom)
 }
 
 // buildAllSubscriptionLinks — все форматы из вкладки «Подключения» профиля.
