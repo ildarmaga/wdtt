@@ -2,6 +2,22 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.4.83] — 2026-08-10
+
+### Fix — qWDTT RAW data-path (keepalive + uplink)
+- Keepalive как в qWDTT: любой пакет с первым байтом `0xFF` (25–44 байт), не только 1 байт.
+- Uplink qWDTT: пишем IPv4 в TUN без жёсткого source-IP check (как upstream `server.go`).
+- `AUTH:` больше не пишет `DENIED` в сокет (qWDTT ответ не читает — иначе мусор в data-path).
+- `DISCONNECT_RAW:` закрывает сессию сразу.
+
+## [1.4.82] — 2026-08-10
+
+### Fix — qWDTT Android 1.4 RAW совместимость
+- Телефон (qWDTT v1.4) шлёт `GETCONF_RAW` / `AUTH` и ждёт `RAWCONF:ip|dns|mtu`.
+- RAWCHAL остаётся только для PWDTT Desktop (`RAWCONF:` request).
+- `AUTH:` воркеры снова принимаются на direct-порту (больше не `unexpected first packet`).
+- Ответ на `GETCONF_RAW`: `RAWCONF:ip|dns|mtu`, не `IP = ...` и не `RAWCHAL`.
+
 ## [1.4.81] — 2026-08-10
 
 ### Fix — Подключения: убран WB Stream из UI

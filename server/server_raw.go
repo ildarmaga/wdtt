@@ -46,8 +46,10 @@ type rawSession struct {
 	lastSeen   atomic.Int64 // последний uplink/keepalive; stale TURN исключается из downlink
 	framed     atomic.Bool  // эта DTLS-сессия понимает RA frames
 	chunked    bool         // клиент договорился о CHUNK1
+	qwdtt      bool         // qWDTT Android 1.4: padded 0xFF keepalive, без source-IP check
 	up         int64
 	down       int64
+	firstUp    uint32 // log once
 }
 
 // rawSessionGroup — все DTLS-воркеры одного device делят один 10.70.x.y.
@@ -246,7 +248,13 @@ func handleDirectRawConn(ctx context.Context, clientConn net.Conn) {
 	if err != nil {
 		return
 	}
-	if !isRawConfPacket(first) {
+	// qWDTT Android 1.4: GETCONF_RAW / AUTH — без RAWCHAL, ответ RAWCONF:ip|dns|mtu.
+	// PWDTT Desktop ≥0.3.275: RAWCONF:... → RAWCHAL → RAWCONF:...|CHAL=...
+	if strings.HasPrefix(first, "GETCONF_RAW:") || strings.HasPrefix(first, "AUTH:") {
+		handleRawConf(ctx, clientConn, first, lookupWrapAuth(remote))
+		return
+	}
+	if !strings.HasPrefix(first, "RAWCONF:") {
 		log.Printf("[RAW-DIRECT] unexpected first packet from %s", remote)
 		return
 	}
@@ -263,7 +271,7 @@ func handleDirectRawConn(ctx context.Context, clientConn net.Conn) {
 		if err != nil {
 			return
 		}
-		if !isRawConfPacket(first) || !consumeRawDirectChallenge(first, remote) {
+		if !strings.HasPrefix(first, "RAWCONF:") || !consumeRawDirectChallenge(first, remote) {
 			log.Printf("[RAW-DIRECT] challenge rejected from %s", remote)
 			_, _ = clientConn.Write([]byte("DENIED:wrong_password"))
 			return
@@ -835,6 +843,41 @@ func buildRawClientConfig(clientIP string, mtu int) string {
 	return fmt.Sprintf("IP = %s\nDNS = %s\nMTU = %d\nCAPS = CHUNK1\n", clientIP, clientDNS, mtu)
 }
 
+// buildQWDTTRawConfig — ответ qWDTT Android 1.4 (RequestRawConfig): RAWCONF:ip|dns|mtu
+func buildQWDTTRawConfig(clientIP string, mtu int) string {
+	if mtu < 576 {
+		mtu = rawDefaultMTU
+	}
+	dns := clientDNS
+	if dns == "" {
+		dns = defaultClientDNS
+	}
+	return fmt.Sprintf("RAWCONF:%s|%s|%d", clientIP, dns, mtu)
+}
+
+func lookupRawIPForDevice(deviceID string) string {
+	if deviceID == "" {
+		return ""
+	}
+	if v, ok := rawIPByDevice.Load(deviceID); ok {
+		if ip, _ := v.(string); ip != "" {
+			return ip
+		}
+	}
+	return ""
+}
+
+func parseRawAuthRequest(firstStr string) (deviceID, password string, ok bool) {
+	if !strings.HasPrefix(firstStr, "AUTH:") {
+		return "", "", false
+	}
+	parts := strings.Split(strings.TrimSpace(strings.TrimPrefix(firstStr, "AUTH:")), "|")
+	if len(parts) < 2 {
+		return "", "", false
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
+}
+
 func rawRequestHasChunk1(firstStr string) bool {
 	body := strings.TrimSpace(firstStr)
 	switch {
@@ -891,10 +934,19 @@ func parseRawConfRequest(firstStr string) (deviceID, password string, mtu int, o
 
 func handleRawConf(ctx context.Context, clientConn net.Conn, firstStr, wrapAuthPass string) {
 	if !rawModeEnabled.Load() {
-		_, _ = clientConn.Write([]byte("NOCONF"))
+		if !strings.HasPrefix(firstStr, "AUTH:") {
+			_, _ = clientConn.Write([]byte("NOCONF"))
+		}
 		log.Printf("[RAW] Отказ: RAW выключен в панели (от %s)", clientConn.RemoteAddr())
 		return
 	}
+
+	// qWDTT secondary workers: AUTH:device|pass — без ответа, только relay на уже выданный IP.
+	if strings.HasPrefix(firstStr, "AUTH:") {
+		handleRawAuth(ctx, clientConn, firstStr, wrapAuthPass)
+		return
+	}
+
 	deviceID, password, mtu, ok := parseRawConfRequest(firstStr)
 	if !ok {
 		_, _ = clientConn.Write([]byte("DENIED:wrong_password"))
@@ -914,40 +966,10 @@ func handleRawConf(ctx context.Context, clientConn net.Conn, firstStr, wrapAuthP
 		}
 	}
 
-	dbMutex.Lock()
-	isMainPass := password != "" && password == db.MainPassword
-	entry, isGenPass := db.Passwords[password]
-	valid := isMainPass || (isGenPass && !isPasswordExpired(entry) && !isTrafficExceeded(entry))
-	if valid && isGenPass && entry.IsDeactivated {
-		_, _ = clientConn.Write([]byte("DENIED:deactivated"))
-		dbMutex.Unlock()
+	isMainPass, okAuth := authorizeRawCredentials(clientConn, deviceID, password, true)
+	if !okAuth {
 		return
 	}
-	if valid && isGenPass && !isMainPass && !entryCanAcceptDevice(entry, deviceID) {
-		_, _ = clientConn.Write([]byte("DENIED:device_mismatch"))
-		dbMutex.Unlock()
-		return
-	}
-	if !valid {
-		if isGenPass && isTrafficExceeded(entry) {
-			_, _ = clientConn.Write([]byte("DENIED:traffic_exceeded"))
-		} else if isGenPass && isPasswordExpired(entry) {
-			_, _ = clientConn.Write([]byte("DENIED:expired"))
-		} else {
-			_, _ = clientConn.Write([]byte("DENIED:wrong_password"))
-		}
-		dbMutex.Unlock()
-		return
-	}
-	if isGenPass && !isMainPass && !entryHasDevice(entry, deviceID) {
-		if bindDeviceToEntry(entry, deviceID) {
-			_ = persistUserBindingsSQLiteLocked(password, entry)
-		}
-	}
-	if isMainPass {
-		ensureMainPasswordEntryLocked()
-	}
-	dbMutex.Unlock()
 
 	if err := ensureRawTUN(); err != nil {
 		log.Printf("[RAW] TUN: %v", err)
@@ -962,16 +984,100 @@ func handleRawConf(ctx context.Context, clientConn net.Conn, firstStr, wrapAuthP
 		return
 	}
 
-	resp := buildRawClientConfig(ip, mtu)
+	qwdtt := strings.HasPrefix(firstStr, "GETCONF_RAW:")
+	var resp string
+	if qwdtt {
+		resp = buildQWDTTRawConfig(ip, mtu)
+	} else {
+		resp = buildRawClientConfig(ip, mtu)
+	}
 	if _, err := clientConn.Write([]byte(resp)); err != nil {
 		return
 	}
-	log.Printf("[RAW] Сессия %s зарегистрирована (ip=%s, shared=true) from %s", deviceID, ip, clientConn.RemoteAddr())
+	log.Printf("[RAW] Сессия %s зарегистрирована (ip=%s, shared=true, qwdtt=%v) from %s",
+		deviceID, ip, qwdtt, clientConn.RemoteAddr())
 
-	runRawRelay(ctx, clientConn, deviceID, ip, password, isMainPass, rawRequestHasChunk1(firstStr))
+	runRawRelay(ctx, clientConn, deviceID, ip, password, isMainPass, rawRequestHasChunk1(firstStr), qwdtt)
 }
 
-func runRawRelay(ctx context.Context, clientConn net.Conn, deviceID, ip, password string, isMain, chunked bool) {
+// handleRawAuth — qWDTT AUTH-воркеры: IP уже выдан GETCONF_RAW, конфиг не шлём.
+func handleRawAuth(ctx context.Context, clientConn net.Conn, firstStr, wrapAuthPass string) {
+	deviceID, password, ok := parseRawAuthRequest(firstStr)
+	if !ok {
+		return
+	}
+	if deviceID == "" {
+		deviceID = "unknown"
+	}
+	if wrapAuthPass != "" {
+		if password == "" {
+			password = wrapAuthPass
+		} else if password != wrapAuthPass {
+			return
+		}
+	}
+	// Без DENIED в сокет: qWDTT AUTH не читает ответ — иначе мусор попадает в TUN-path.
+	isMainPass, okAuth := authorizeRawCredentials(clientConn, deviceID, password, false)
+	if !okAuth {
+		return
+	}
+	if err := ensureRawTUN(); err != nil {
+		log.Printf("[RAW] TUN: %v", err)
+		return
+	}
+	identity := rawDeviceIdentity(deviceID, password)
+	ip := lookupRawIPForDevice(identity)
+	if ip == "" {
+		// Как qWDTT: AUTH до GETCONF_RAW — ждём primary-воркер.
+		return
+	}
+	log.Printf("[RAW] AUTH-сессия %s (ip=%s) from %s", deviceID, ip, clientConn.RemoteAddr())
+	runRawRelay(ctx, clientConn, deviceID, ip, password, isMainPass, false, true)
+}
+
+// authorizeRawCredentials проверяет пароль/девайс.
+// writeDeny=false для AUTH (qWDTT не читает ответ на AUTH).
+func authorizeRawCredentials(clientConn net.Conn, deviceID, password string, writeDeny bool) (isMainPass bool, ok bool) {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	isMainPass = password != "" && password == db.MainPassword
+	entry, isGenPass := db.Passwords[password]
+	valid := isMainPass || (isGenPass && !isPasswordExpired(entry) && !isTrafficExceeded(entry))
+	deny := func(msg string) {
+		if writeDeny {
+			_, _ = clientConn.Write([]byte(msg))
+		}
+	}
+	if valid && isGenPass && entry.IsDeactivated {
+		deny("DENIED:deactivated")
+		return false, false
+	}
+	if valid && isGenPass && !isMainPass && !entryCanAcceptDevice(entry, deviceID) {
+		deny("DENIED:device_mismatch")
+		return false, false
+	}
+	if !valid {
+		if isGenPass && isTrafficExceeded(entry) {
+			deny("DENIED:traffic_exceeded")
+		} else if isGenPass && isPasswordExpired(entry) {
+			deny("DENIED:expired")
+		} else {
+			deny("DENIED:wrong_password")
+		}
+		return false, false
+	}
+	if isGenPass && !isMainPass && !entryHasDevice(entry, deviceID) {
+		if bindDeviceToEntry(entry, deviceID) {
+			_ = persistUserBindingsSQLiteLocked(password, entry)
+		}
+	}
+	if isMainPass {
+		ensureMainPasswordEntryLocked()
+	}
+	return isMainPass, true
+}
+
+func runRawRelay(ctx context.Context, clientConn net.Conn, deviceID, ip, password string, isMain, chunked, qwdtt bool) {
 	sessionIdentity := rawDeviceIdentity(deviceID, password)
 	if rawActiveSessions.Add(1) > rawMaxSessionsGlobal {
 		rawActiveSessions.Add(-1)
@@ -997,6 +1103,7 @@ func runRawRelay(ctx context.Context, clientConn net.Conn, deviceID, ip, passwor
 		cancel:     pcancel,
 		downCh:     make(chan []byte, downBuf),
 		chunked:    chunked,
+		qwdtt:      qwdtt,
 	}
 
 	group := &rawSessionGroup{ip: ip, deviceID: deviceID}
@@ -1088,15 +1195,22 @@ func runRawRelay(ctx context.Context, clientConn net.Conn, deviceID, ip, passwor
 			return
 		}
 		sess.lastSeen.Store(time.Now().UnixNano())
-		if n == 1 && buf[0] == 0xFF {
+		// qWDTT: keepalive = первый байт 0xFF, длина 25–44 (OPUS-тишина).
+		// PWDTT Desktop: часто ровно 1 байт 0xFF — отвечаем pong.
+		if n > 0 && buf[0] == 0xFF {
 			if relaySess != nil {
 				relaySess.touch()
 			}
 			userTouchActivity(sessionIdentity)
-			sess.writeMu.Lock()
-			_, _ = clientConn.Write([]byte{0xFF})
-			sess.writeMu.Unlock()
+			if !sess.qwdtt && n == 1 {
+				sess.writeMu.Lock()
+				_, _ = clientConn.Write([]byte{0xFF})
+				sess.writeMu.Unlock()
+			}
 			continue
+		}
+		if sess.qwdtt && strings.HasPrefix(string(buf[:n]), "DISCONNECT_RAW:") {
+			return
 		}
 		userTouchActivity(sessionIdentity)
 		if relaySess != nil {
@@ -1112,7 +1226,7 @@ func runRawRelay(ctx context.Context, clientConn net.Conn, deviceID, ip, passwor
 			return
 		}
 
-		if isRawFrame(buf[:n]) {
+		if !sess.qwdtt && isRawFrame(buf[:n]) {
 			sess.framed.Store(true)
 			if !group.framed.Load() {
 				group.framed.Store(true)
@@ -1132,13 +1246,22 @@ func runRawRelay(ctx context.Context, clientConn net.Conn, deviceID, ip, passwor
 			}
 			continue
 		}
-		if !rawIPv4SourceMatches(buf[:n], sess.ip) {
+		// qWDTT server.go пишет любой non-keepalive uplink в TUN без source-check.
+		if !sess.qwdtt && !rawIPv4SourceMatches(buf[:n], sess.ip) {
 			continue // не IPv4 и не frame
+		}
+		if sess.qwdtt {
+			if n < 20 || buf[0]>>4 != 4 {
+				continue
+			}
 		}
 		group.noteUplink(sess, buf[:n])
 		if err := writeRawTUN(dev, buf[:n]); err != nil {
 			log.Printf("[RAW] Ошибка записи в TUN (ip=%s): %v", ip, err)
 			return
+		}
+		if atomic.CompareAndSwapUint32(&sess.firstUp, 0, 1) {
+			log.Printf("[RAW] Первый uplink-пакет от %s записан в TUN (%d байт)", deviceID, n)
 		}
 	}
 }
@@ -1236,7 +1359,9 @@ func trimPreview(s string, n int) string {
 }
 
 func isRawConfPacket(firstStr string) bool {
-	return strings.HasPrefix(firstStr, "RAWCONF:") || strings.HasPrefix(firstStr, "GETCONF_RAW:")
+	return strings.HasPrefix(firstStr, "RAWCONF:") ||
+		strings.HasPrefix(firstStr, "GETCONF_RAW:") ||
+		strings.HasPrefix(firstStr, "AUTH:")
 }
 
 // cancelRawSessionsForPassword рвёт все RAW-сессии пароля (аналог removePeerFromWG).
