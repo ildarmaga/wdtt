@@ -2,6 +2,14 @@
 
 Формат: каждый релиз — секция `## [X.Y.Z]`. CI подставляет её в GitHub Release автоматически.
 
+## [1.5.0] — 2026-08-12
+
+### CSQTT — Простая и Средняя + Xray для RAW
+- **Простая (ChaCha, PT=111):** после WRAP клиент шлёт `GETCONF:`; сервер отвечает `TUNCONF` и поднимает RAW dataplane на том же канале (без DTLS/WG).
+- **Средняя (SRTP, PT=96):** HMAC-SHA1 по `OKM[16:32]` без ROC; AES-CTR с ключом `OKM[:16]` и IV `SSRC‖Seq‖0x0000‖Timestamp‖0x00000000`; pad снаружи ciphertext при P=1.
+- **Xray:** redirect TCP/DNS с `wdtt0` и `wdtt-raw` — трафик CSQTT/RAW идёт через Xray; журнал показывает `redirect-in`.
+- RAW TUN поднимается при старте сервера, чтобы правила Xray были активны сразу.
+
 ## [1.4.83] — 2026-08-10
 
 ### Fix — qWDTT RAW data-path (keepalive + uplink)
