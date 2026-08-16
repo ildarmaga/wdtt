@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 const vkProxyUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
@@ -39,7 +40,10 @@ type vkLoginState struct {
 	jar      *cookiejar.Jar
 	client   *http.Client
 	lastHost string
+	lastUsed time.Time
 }
+
+const vkLoginSessionTTL = 30 * time.Minute
 
 var (
 	vkLoginMu       sync.Mutex
@@ -53,7 +57,15 @@ func vkLoginPrefix(base string) string {
 func getVKLoginState(user string) (*vkLoginState, error) {
 	vkLoginMu.Lock()
 	defer vkLoginMu.Unlock()
+	now := time.Now()
+	// Evict stale sessions.
+	for k, st := range vkLoginSessions {
+		if now.Sub(st.lastUsed) > vkLoginSessionTTL {
+			delete(vkLoginSessions, k)
+		}
+	}
 	if st, ok := vkLoginSessions[user]; ok {
+		st.lastUsed = now
 		return st, nil
 	}
 	jar, err := cookiejar.New(nil)
@@ -70,6 +82,7 @@ func getVKLoginState(user string) (*vkLoginState, error) {
 			},
 		},
 		lastHost: "vk.com",
+		lastUsed: now,
 	}
 	vkLoginSessions[user] = st
 	return st, nil

@@ -128,7 +128,6 @@ func parseLoginForm(r *http.Request) (loginForm, error) {
 	if err != nil {
 		return form, err
 	}
-	defer r.Body.Close()
 	// Как parsePanelUserReq: axios шлёт Qs.stringify → %40/%20 и т.п.
 	// Раньше только "+"→" " без url.QueryUnescape → пароли со спецсимволами
 	// сохранялись верно, а логин сравнивал ещё закодированную строку (#27).

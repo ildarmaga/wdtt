@@ -502,7 +502,7 @@ func rawDeviceIdentity(deviceID, password string) string {
 
 func (g *rawSessionGroup) add(sess *rawSession) {
 	if !g.tryAdd(sess, 0) {
-		panic("unreachable: unlimited rawSessionGroup.add rejected")
+		log.Fatalf("[RAW] unreachable: unlimited rawSessionGroup.add rejected")
 	}
 }
 

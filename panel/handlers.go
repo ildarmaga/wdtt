@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,7 +16,16 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var safePathSegment = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+func isSafePathSegment(s string) bool {
+	return s != "" && s != ".." && safePathSegment.MatchString(s)
+}
+
+const maxRequestBodySize = 1 << 20 // 1 MiB
+
 func readJSON(r *http.Request, v interface{}) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, maxRequestBodySize)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return err
@@ -374,7 +384,7 @@ func (a *App) handleXrayVersions(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleXrayInstall(w http.ResponseWriter, r *http.Request) {
 	tag := strings.TrimPrefix(r.URL.Path, a.cfg.basePath()+"panel/api/xray/install/")
-	if tag == "" {
+	if !isSafePathSegment(tag) {
 		jsonError(w, "версия не указана", 400)
 		return
 	}
@@ -387,6 +397,10 @@ func (a *App) handleXrayInstall(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleXrayGeofiles(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, a.cfg.basePath()+"panel/api/xray/geofiles/")
+	if !isSafePathSegment(name) {
+		jsonError(w, "имя файла не указано", 400)
+		return
+	}
 	updated, restartXray, err := updateGeofilesOp(name)
 	if err != nil {
 		jsonError(w, err.Error(), 500)
@@ -418,7 +432,10 @@ func (a *App) handlePanelPassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword string `json:"new_password"`
 		NewUsername string `json:"new_username"`
 	}
-	readJSON(r, &req)
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, "неверный формат запроса", 400)
+		return
+	}
 	if bcrypt.CompareHashAndPassword([]byte(a.cfg.PasswordHash), []byte(req.OldPassword)) != nil {
 		jsonError(w, "неверный текущий пароль", 401)
 		return

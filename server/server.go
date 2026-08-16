@@ -133,11 +133,7 @@ func generatePassword() string {
 	b := make([]byte, generatedPasswordLen)
 	randomBytes := make([]byte, len(b))
 	if _, err := rand.Read(randomBytes); err != nil {
-		now := time.Now().UnixNano()
-		for i := range b {
-			b[i] = passChars[int(now+int64(i))%len(passChars)]
-		}
-		return string(b)
+		log.Fatalf("[SECURE] crypto/rand unavailable: %v", err)
 	}
 	for i, raw := range randomBytes {
 		b[i] = passChars[int(raw)%len(passChars)]
@@ -479,6 +475,7 @@ func buildPublicWdttLink(srvIP, ports, password, remark, vkHash string) string {
 	return link
 }
 
+// getNextIP must be called with dbMutex held.
 func getNextIP() string {
 	used := make(map[string]bool)
 	for _, dev := range db.Devices {
