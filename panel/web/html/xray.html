@@ -649,9 +649,12 @@
             this.$set(this.outboundTestStates[index], 'result', result);
             
             if (result.success) {
-              Vue.prototype.$message.success(
-                `{{ i18n "pages.xray.outbound.testSuccess" }}: ${result.delay}ms (${result.statusCode})`
-              );
+              let msg = `{{ i18n "pages.xray.outbound.testSuccess" }}: ${result.delay}ms (${result.statusCode})`;
+              if (result.warnings && result.warnings.length) {
+                Vue.prototype.$message.warning(msg + ' — ' + result.warnings.join('; '));
+              } else {
+                Vue.prototype.$message.success(msg);
+              }
             } else {
               Vue.prototype.$message.error(
                 `{{ i18n "pages.xray.outbound.testFailed" }}: ${result.error || 'Unknown error'}`

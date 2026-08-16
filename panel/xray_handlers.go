@@ -354,9 +354,17 @@ func testOutboundDelay(testOutbound map[string]interface{}, allOutboundsJSON, te
 		cmd.Wait()
 	}()
 
+	// Capture stderr in background while waiting for port.
+	var stderrBuf strings.Builder
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		io.Copy(&stderrBuf, stderrPipe)
+	}()
+
 	if err := waitForTestPort(testPort, 3*time.Second); err != nil {
-		errOut, _ := io.ReadAll(stderrPipe)
-		msg := strings.TrimSpace(string(errOut))
+		<-stderrDone
+		msg := xrayFilterDiagnostics(stderrBuf.String())
 		if msg != "" {
 			return map[string]interface{}{"success": false, "error": msg}, nil
 		}
@@ -365,11 +373,83 @@ func testOutboundDelay(testOutbound map[string]interface{}, allOutboundsJSON, te
 
 	delay, code, err := testProxyConnection(testPort, testURL)
 	if err != nil {
+		<-stderrDone
 		return map[string]interface{}{"success": false, "error": err.Error()}, nil
 	}
-	return map[string]interface{}{
+	<-stderrDone
+	result := map[string]interface{}{
 		"success":    true,
 		"delay":      delay,
 		"statusCode": code,
-	}, nil
+	}
+	if warnings := xrayExtractWarnings(stderrBuf.String()); len(warnings) > 0 {
+		result["warnings"] = warnings
+	}
+	return result, nil
+}
+
+// xrayDiagnosticPrefixes — строки stderr, которые являются диагностикой xray,
+// а не реальными ошибками. Они появляются даже при успешном запуске.
+var xrayDiagnosticPrefixes = []string{
+	"Failed to",
+	"Core: Xray",
+	"Xray",
+}
+
+// xrayDiagnosticContains — подстроки, указывающие на xray-диагностику (не ошибку).
+var xrayDiagnosticContains = []string{
+	"TPROXY",
+	"canary",
+	"Canary",
+	"not protected",
+	"mangle",
+	"fwmark",
+	"Failed to initialize",
+	"geodata",
+	"Failed to load",
+}
+
+func isXrayDiagnosticLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return true
+	}
+	for _, prefix := range xrayDiagnosticPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	for _, sub := range xrayDiagnosticContains {
+		if strings.Contains(trimmed, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// xrayFilterDiagnostics удаляет диагностические строки из вывода xray,
+// оставляя только реальные ошибки. Если всё — диагностика, возвращает пустую строку.
+func xrayFilterDiagnostics(stderr string) string {
+	var realErrors []string
+	for _, line := range strings.Split(stderr, "\n") {
+		if !isXrayDiagnosticLine(line) {
+			realErrors = append(realErrors, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(realErrors, "\n"))
+}
+
+// xrayExtractWarnings извлекает диагностические строки из stderr как предупреждения.
+func xrayExtractWarnings(stderr string) []string {
+	var warnings []string
+	for _, line := range strings.Split(stderr, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if isXrayDiagnosticLine(line) {
+			warnings = append(warnings, trimmed)
+		}
+	}
+	return warnings
 }

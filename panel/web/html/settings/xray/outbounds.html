@@ -109,7 +109,11 @@
                         ([[ outboundTestStates[index].result.statusCode
                         ]])</span>
                 </a-tag>
-                <a-tooltip v-else
+                <a-tooltip v-if="outboundTestStates[index].result.success && outboundTestStates[index].result.warnings && outboundTestStates[index].result.warnings.length"
+                    :title="outboundTestStates[index].result.warnings.join('\n')">
+                    <a-icon type="warning" style="color: #faad14; margin-left: 4px;" />
+                </a-tooltip>
+                <a-tooltip v-if="!outboundTestStates[index].result.success"
                     :title="outboundTestStates[index].result.error">
                     <a-tag color="red">
                         Failed
