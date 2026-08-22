@@ -49,7 +49,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/in
 
 ```bash
 # Клонировать репозиторий
-git clone https://github.com/ildarmaga/wdtt.git
+git clone https://github.com/vsibilev007/wdtt.git
 cd wdtt
 
 # Собрать единый бинарник (server + panel)
@@ -97,7 +97,7 @@ journalctl -u wdtt -f       # Логи в реальном времени
 ```bash
 # Скачать новую версию
 curl -fsSL -o /usr/local/bin/wdtt-app \
-  https://github.com/ildarmaga/wdtt/releases/latest/download/wdtt-linux-amd64
+  https://github.com/vsibilev007/wdtt/releases/latest/download/wdtt-linux-amd64
 chmod +x /usr/local/bin/wdtt-app
 
 # Перезапустить
@@ -163,25 +163,27 @@ sudo ./install-local.sh amd64
 
 ## API панели
 
-Полноценный REST API с аутентификацией через API-ключи (Bearer Token).
+Аутентификация через API-ключи (Bearer Token) для программного доступа к панели.
 
 ```bash
-# Использование
-curl -H "Authorization: Bearer wdtt_..." https://panel.example.com/api/users
+# Создать токен: Settings → API Tokens → Создать
+# Использование:
+curl -X POST -H "Authorization: Bearer wdtt_..." http://IP:2860/wdtt/api/users
 ```
 
-Документация: **[Docs/Api.md](Docs/Api.md)** — управление пользователями, инбаунды, статистика, Xray, сертификаты, firewall, настройки, API-токены.
+Документация: **[Docs/Api.md](Docs/Api.md)**
 
 ## Репозитории
 
 | Репозиторий | Назначение |
 |-------------|------------|
-| [ildarmaga/wdtt](https://github.com/ildarmaga/wdtt) | Сервер + панель + **PWDTT Client** (`pwdtt-client-*` в [релизах](https://github.com/ildarmaga/wdtt/releases/latest)) |
-| [ildarmaga/pwdtt-client](https://github.com/ildarmaga/pwdtt-client) | Исходники десктопного клиента PWDTT (модифицированная версия [luminescq/PWDTT](https://github.com/luminescq/PWDTT), GPL-3.0) |
+| [vsibilev007/wdtt](https://github.com/vsibilev007/wdtt) | Форк: сервер + панель + API-ключи |
+| [ildarmaga/wdtt](https://github.com/ildarmaga/wdtt) | Оригинал: сервер + панель + **PWDTT Client** |
+| [ildarmaga/pwdtt-client](https://github.com/ildarmaga/pwdtt-client) | Исходники десктопного клиента PWDTT |
 | [ildarmaga/wdtt-install](https://github.com/ildarmaga/wdtt-install) | Установщик одной строкой |
 | [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) | iOS-клиент |
 | [amurcanov/proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android) | Android-клиент / исходный VPN-протокол |
-| [kulikov0/whitelist-bypass](https://github.com/kulikov0/whitelist-bypass) | WhitelistBypass.Creator — получение VK cookies для панели |
+| [kulikov0/whitelist-bypass](https://github.com/kulikov0/whitelist-bypass) | WhitelistBypass.Creator — получение VK cookies |
 
 ## Лицензия
 
