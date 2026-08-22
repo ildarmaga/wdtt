@@ -1,7 +1,5 @@
 # WDTT
 
-[![Поддержать WDTT](https://devgamemaga.mooo.com:9443/b/soft.svg)](https://devgamemaga.mooo.com:9443/donate)
-
 VPN на VPS через медиарелеи ВК (TURN) с веб-панелью и опциональным **Xray**-маршрутизатором.
 
 ```
@@ -9,23 +7,108 @@ wdtt/
 ├── server/                             # wdtt-server (DTLS + userspace WG + NAT)
 ├── panel/                              # wdtt-panel (UI в стиле 3x-ui)
 ├── pkg/                                # sharelink, vkhash, paneldb (общее)
+├── Docs/                               # Документация API
 ├── deploy.sh
-└── docs/                               # SERVER.md (разбор) + API.md (REST панели)
+└── docs/                               # SERVER.md (разбор)
 ```
 
 ## Происхождение
 
 Серверная часть основана на проекте **[proxy-turn-vk-android](https://github.com/amurcanov/proxy-turn-vk-android)** (автор [amurcanov](https://github.com/amurcanov)) — WireGuard-туннель через DTLS-медиарелеи ВК.
 
-WDTT расширяет upstream: мультипользователи, веб-панель, Xray, ссылки `wdtt://`, Telegram-бот, установщик. Подробности: **[CREDITS.md](CREDITS.md)**
+WDTT расширяет upstream: мультипользователи, веб-панель, Xray, ссылки `wdtt://`, установщик. Подробности: **[CREDITS.md](CREDITS.md)**
 
-## Быстрая установка
+## Быстрый старт
+
+### Требования
+
+- VPS с публичным IP (Ubuntu 20.04+, Debian 11+, CentOS 8+, Fedora, Arch)
+- Root-доступ
+- Открытые UDP-порты: 56000 (DTLS), 56001 (WG), 56003 (RAW)
+
+### Установка одной строкой
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/ildarmaga/wdtt-install/main/install.sh)
 ```
 
-Панель: `http://IP:2860/wdtt/` — логин `admin` / `wdtt` (смените в настройках).
+Установщик автоматически:
+- Скачает бинарник `wdtt-app` из GitHub Releases
+- Настроит NAT, firewall, sysctl
+- Создаст systemd-сервис `wdtt.service`
+- Сгенерирует пароль панели
+
+После установки:
+```
+Панель: http://IP:2860/wdtt/
+Логин:  admin
+Пароль: выводится в конце установки (или в /etc/wdtt/install-main-password.env)
+```
+
+### Установка из исходников
+
+```bash
+# Клонировать репозиторий
+git clone https://github.com/ildarmaga/wdtt.git
+cd wdtt
+
+# Собрать единый бинарник (server + panel)
+./build.sh amd64 unified
+
+# Установить и запустить
+sudo ./install-local.sh amd64
+```
+
+### Первые шаги после установки
+
+1. **Откройте панель** — `http://IP:2860/wdtt/`
+2. **Смените пароль** — Settings → Account → измените логин и пароль
+3. **Настройте VPN** — Подключения → укажите порты, DNS, MTU
+4. **Создайте пользователя** — Пользователи → Добавить (или автоматически через «Пакетное создание»)
+5. **Скопируйте ссылку** — отправьте клиенту `wdtt://...` для подключения
+
+### Создание API-токена
+
+Для программного доступа к панели:
+
+1. Откройте **Settings → API Tokens**
+2. Нажмите **Создать токен**
+3. Выберите скоуп: `admin` (полный доступ) или `readonly` (только чтение)
+4. Сохраните токен — он показывается только один раз
+
+```bash
+# Использование
+curl -H "Authorization: Bearer wdtt_..." http://IP:2860/wdtt/api/users
+```
+
+Документация API: **[Docs/Api.md](Docs/Api.md)**
+
+### Управление сервисом
+
+```bash
+systemctl status wdtt      # Статус
+systemctl restart wdtt      # Перезапуск
+systemctl stop wdtt         # Остановка
+journalctl -u wdtt -f       # Логи в реальном времени
+```
+
+### Обновление
+
+```bash
+# Скачать новую версию
+curl -fsSL -o /usr/local/bin/wdtt-app \
+  https://github.com/ildarmaga/wdtt/releases/latest/download/wdtt-linux-amd64
+chmod +x /usr/local/bin/wdtt-app
+
+# Перезапустить
+systemctl restart wdtt
+```
+
+### Удаление
+
+```bash
+bash deploy.sh uninstall
+```
 
 ## Совместимые клиенты
 
@@ -80,7 +163,14 @@ sudo ./install-local.sh amd64
 
 ## API панели
 
-Документация: **[docs/API.md](docs/API.md)** — cookie-сессии, пользователи, inbound, Xray, формат ссылок `wdtt://`.
+Полноценный REST API с аутентификацией через API-ключи (Bearer Token).
+
+```bash
+# Использование
+curl -H "Authorization: Bearer wdtt_..." https://panel.example.com/api/users
+```
+
+Документация: **[Docs/Api.md](Docs/Api.md)** — управление пользователями, инбаунды, статистика, Xray, сертификаты, firewall, настройки, API-токены.
 
 ## Репозитории
 

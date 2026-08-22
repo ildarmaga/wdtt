@@ -130,6 +130,13 @@ func Run() error {
 	mux.HandleFunc(api+"vk/auth/login", app.requireAuthCSRF(app.handleVKAuthLogin))
 	mux.HandleFunc(api+"vk/auth/save", app.requireAuthCSRF(app.handleVKAuthSave))
 	mux.HandleFunc(api+"vk/auth/clear", app.requireAuthCSRF(app.handleVKAuthClear))
+
+	// API Tokens
+	mux.HandleFunc(api+"tokens", app.requireAuthCSRF(app.handleTokensList))
+	mux.HandleFunc(api+"tokens/create", app.requireAuthCSRF(app.handleTokenCreate))
+	mux.HandleFunc(api+"tokens/delete", app.requireAuthCSRF(app.handleTokenDelete))
+	mux.HandleFunc(api+"tokens/toggle", app.requireAuthCSRF(app.handleTokenToggle))
+
 	mux.HandleFunc(base+"panel/vk/login", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, base+"panel/vk/login/", http.StatusFound)
 	})

@@ -1,0 +1,55 @@
+{{define "settings/panel/api_tokens"}}
+<a-collapse default-active-key="1">
+    <a-collapse-panel key="1" header="API Tokens">
+        <a-alert type="info" style="margin-bottom:12px"
+            message="API-токены позволяют обращаться к API панели без логина/пароля. Используйте заголовок Authorization: Bearer &lt;token&gt;">
+        </a-alert>
+        <a-button type="primary" style="margin-bottom:12px" @click="showCreateTokenModal">
+            <a-icon type="plus"></a-icon> Создать токен
+        </a-button>
+        <a-table :columns="tokenColumns" :data-source="apiTokens" row-key="id" size="small" :pagination="false">
+            <template slot="token" slot-scope="text">
+                <code>[[ text ]]</code>
+            </template>
+            <template slot="scope" slot-scope="text">
+                <a-tag :color="text === 'admin' ? 'blue' : 'green'">[[ text ]]</a-tag>
+            </template>
+            <template slot="enabled" slot-scope="text, record">
+                <a-switch :checked="record.enabled" size="small" @change="toggleToken(record.id)" />
+            </template>
+            <template slot="last_used" slot-scope="text">
+                [[ text ? new Date(text * 1000).toLocaleString() : '—' ]]
+            </template>
+            <template slot="actions" slot-scope="text, record">
+                <a-popconfirm title="Удалить токен?" @confirm="deleteToken(record.id)" okText="Да" cancelText="Нет">
+                    <a-button type="danger" size="small"><a-icon type="delete"></a-icon></a-button>
+                </a-popconfirm>
+            </template>
+        </a-table>
+    </a-collapse-panel>
+</a-collapse>
+
+<a-modal v-model="createTokenVisible" title="Создать API-токен" @ok="createToken" okText="Создать" cancelText="Отмена">
+    <a-form layout="vertical">
+        <a-form-item label="Имя токена">
+            <a-input v-model="newTokenName" placeholder="например: monitoring-bot"></a-input>
+        </a-form-item>
+        <a-form-item label="Скоуп">
+            <a-radio-group v-model="newTokenScope">
+                <a-radio value="admin">Admin — полный доступ</a-radio>
+                <a-radio value="readonly">Readonly — только чтение (GET)</a-radio>
+            </a-radio-group>
+        </a-form-item>
+    </a-form>
+</a-modal>
+
+<a-modal v-model="tokenCreatedVisible" title="Токен создан" :footer="null">
+    <a-alert type="warning" show-icon style="margin-bottom:12px"
+        message="Сохраните токен! Он будет показан только один раз.">
+    </a-alert>
+    <a-input-group compact>
+        <a-input :value="tokenCreatedValue" style="width:calc(100% - 60px)" readonly ref="tokenInput"></a-input>
+        <a-button type="primary" style="width:60px" @click="copyToken">Копировать</a-button>
+    </a-input-group>
+</a-modal>
+{{end}}

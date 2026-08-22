@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -89,6 +90,30 @@ func (a *App) parseSession(r *http.Request) *sessionData {
 
 func isAjax(r *http.Request) bool {
 	return r.Header.Get("X-Requested-With") == "XMLHttpRequest"
+}
+
+// parseBearerToken извлекает Bearer token из Authorization заголовка.
+func parseBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+}
+
+// lookupAPITokenCached ищет API-токен в БД (без кеша пока).
+func lookupAPITokenCached(token string) (*paneldb.APIToken, error) {
+	if !panelDBEnabled() {
+		return nil, nil
+	}
+	return paneldb.LookupAPIToken(panelDB, token)
+}
+
+// touchAPITokenAsync обновляет last_used в фоне.
+func touchAPITokenAsync(id int64) {
+	if panelDBEnabled() {
+		paneldb.TouchAPIToken(panelDB, id)
+	}
 }
 
 func (a *App) requireAuth(next http.HandlerFunc) http.HandlerFunc {

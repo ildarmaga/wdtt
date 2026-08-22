@@ -56,6 +56,26 @@ func (a *App) clearCSRFCookie(w http.ResponseWriter) {
 
 func (a *App) requireAuthCSRF(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Bearer token authentication (API key).
+		if token := parseBearerToken(r); token != "" {
+			apiTok, err := lookupAPITokenCached(token)
+			if err != nil || apiTok == nil {
+				jsonError(w, "invalid api token", http.StatusUnauthorized)
+				return
+			}
+			if apiTok.Scope == "readonly" {
+				switch r.Method {
+				case http.MethodGet, http.MethodHead, http.MethodOptions:
+				default:
+					jsonError(w, "readonly token cannot modify", http.StatusForbidden)
+					return
+				}
+			}
+			go touchAPITokenAsync(apiTok.ID)
+			next(w, r)
+			return
+		}
+		// Cookie + CSRF authentication (web UI).
 		sess := a.parseSession(r)
 		if sess == nil {
 			if isAjax(r) {

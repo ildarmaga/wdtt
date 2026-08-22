@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ildarmaga/wdtt/pkg/paneldb"
 	"github.com/ildarmaga/wdtt/pkg/vkhash"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -473,4 +474,89 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 func writeStatic(w http.ResponseWriter, data []byte, contentType string) {
 	w.Header().Set("Content-Type", contentType)
 	w.Write(data)
+}
+
+// ==================== API Tokens ====================
+
+func (a *App) handleTokensList(w http.ResponseWriter, r *http.Request) {
+	if !panelDBEnabled() {
+		jsonError(w, "database unavailable", 500)
+		return
+	}
+	tokens, err := paneldb.ListAPITokens(panelDB)
+	if err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	jsonOK(w, tokens)
+}
+
+func (a *App) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
+	if !panelDBEnabled() {
+		jsonError(w, "database unavailable", 500)
+		return
+	}
+	var req struct {
+		Name  string `json:"name"`
+		Scope string `json:"scope"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	if req.Scope != paneldb.APITokenScopeAdmin && req.Scope != paneldb.APITokenScopeReadonly {
+		req.Scope = paneldb.APITokenScopeAdmin
+	}
+	tok, err := paneldb.CreateAPIToken(panelDB, strings.TrimSpace(req.Name), req.Scope)
+	if err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	jsonOK(w, tok)
+}
+
+func (a *App) handleTokenDelete(w http.ResponseWriter, r *http.Request) {
+	if !panelDBEnabled() {
+		jsonError(w, "database unavailable", 500)
+		return
+	}
+	var req struct {
+		ID int64 `json:"id"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	if req.ID == 0 {
+		jsonError(w, "id required", 400)
+		return
+	}
+	if err := paneldb.DeleteAPIToken(panelDB, req.ID); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	jsonOK(w, nil)
+}
+
+func (a *App) handleTokenToggle(w http.ResponseWriter, r *http.Request) {
+	if !panelDBEnabled() {
+		jsonError(w, "database unavailable", 500)
+		return
+	}
+	var req struct {
+		ID int64 `json:"id"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	if req.ID == 0 {
+		jsonError(w, "id required", 400)
+		return
+	}
+	if err := paneldb.ToggleAPIToken(panelDB, req.ID); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	jsonOK(w, nil)
 }

@@ -101,6 +101,9 @@ func migratePanelDB() error {
 		if err := migratePanelDBV15(); err != nil {
 			return err
 		}
+		if err := migratePanelDBV16(); err != nil {
+			return err
+		}
 		if _, err = panelDB.Exec(`INSERT INTO schema_version (version) VALUES (?)`, dbSchemaVersion); err != nil {
 			return err
 		}
@@ -177,6 +180,11 @@ func migratePanelDB() error {
 	}
 	if ver < 15 {
 		if err := migratePanelDBV15(); err != nil {
+			return err
+		}
+	}
+	if ver < 16 {
+		if err := migratePanelDBV16(); err != nil {
 			return err
 		}
 	}

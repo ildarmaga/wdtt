@@ -72,6 +72,13 @@
                   </template>
                   {{ template "settings/panel/vk_creator" . }}
                 </a-tab-pane>
+                <a-tab-pane key="5" :style="{ paddingTop: '20px' }">
+                  <template #tab>
+                    <a-icon type="key"></a-icon>
+                    <span>API Tokens</span>
+                  </template>
+                  {{ template "settings/panel/api_tokens" . }}
+                </a-tab-pane>
               </a-tabs>
             </a-col>
           </a-row>
@@ -224,6 +231,21 @@
         port: null,
         busy: false,
       },
+      apiTokens: [],
+      createTokenVisible: false,
+      newTokenName: '',
+      newTokenScope: 'admin',
+      tokenCreatedVisible: false,
+      tokenCreatedValue: '',
+      tokenColumns: [
+        { title: 'ID', dataIndex: 'id', width: 50 },
+        { title: 'Token', dataIndex: 'token', scopedSlots: { customRender: 'token' } },
+        { title: 'Имя', dataIndex: 'name' },
+        { title: 'Скоуп', dataIndex: 'scope', scopedSlots: { customRender: 'scope' }, width: 100 },
+        { title: 'Активен', dataIndex: 'enabled', scopedSlots: { customRender: 'enabled' }, width: 80 },
+        { title: 'Последний запрос', dataIndex: 'last_used', scopedSlots: { customRender: 'last_used' }, width: 180 },
+        { title: '', key: 'actions', scopedSlots: { customRender: 'actions' }, width: 60 },
+      ],
       vkCreator: {
         cookies_ok: false,
         cookies_present: false,
@@ -895,11 +917,68 @@
           this.$message.error(msg.msg || 'ошибка');
         }
       },
+
+      // ==================== API Tokens ====================
+      async loadApiTokens() {
+        try {
+          const msg = await HttpUtil.post('/panel/api/tokens');
+          if (msg.success) {
+            this.apiTokens = msg.obj || [];
+          }
+        } catch (e) { /* ignore */ }
+      },
+      showCreateTokenModal() {
+        this.newTokenName = '';
+        this.newTokenScope = 'admin';
+        this.createTokenVisible = true;
+      },
+      async createToken() {
+        if (!this.newTokenName.trim()) {
+          this.$message.warning('Введите имя токена');
+          return;
+        }
+        const msg = await HttpUtil.post('/panel/api/tokens/create', {
+          name: this.newTokenName.trim(),
+          scope: this.newTokenScope,
+        });
+        if (msg.success && msg.obj) {
+          this.createTokenVisible = false;
+          this.tokenCreatedValue = msg.obj.token;
+          this.tokenCreatedVisible = true;
+          await this.loadApiTokens();
+        } else {
+          this.$message.error(msg.msg || 'ошибка создания токена');
+        }
+      },
+      async deleteToken(id) {
+        const msg = await HttpUtil.post('/panel/api/tokens/delete', { id });
+        if (msg.success) {
+          this.$message.success('Токен удалён');
+          await this.loadApiTokens();
+        } else {
+          this.$message.error(msg.msg || 'ошибка');
+        }
+      },
+      async toggleToken(id) {
+        const msg = await HttpUtil.post('/panel/api/tokens/toggle', { id });
+        if (msg.success) {
+          await this.loadApiTokens();
+        } else {
+          this.$message.error(msg.msg || 'ошибка');
+        }
+      },
+      copyToken() {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(this.tokenCreatedValue);
+          this.$message.success('Токен скопирован');
+        }
+      },
     },
     async mounted() {
       await this.getAllSetting();
       await this.loadCerts();
       await this.loadVkCreator();
+      await this.loadApiTokens();
       while (true) {
         await PromiseUtil.sleep(500);
         this.saveBtnDisable = this.oldAllSetting.equals(this.allSetting);
